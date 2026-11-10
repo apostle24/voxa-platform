@@ -115,6 +115,29 @@ export class ShowsService {
     });
   }
 
+  async setEpisodeMembership(userId: string, showId: string, episodeId: string, required: boolean) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, showId },
+      select: { id: true },
+    });
+    if (!episode) throw new NotFoundException('Episode not found');
+    if (required) {
+      const creator = await this.prisma.creator.findFirst({
+        where: { userId },
+        select: { id: true, membershipPlans: { where: { isActive: true }, select: { id: true }, take: 1 } },
+      });
+      if (!creator?.membershipPlans.length) {
+        throw new ConflictException('Create an active membership plan before restricting an episode');
+      }
+    }
+    return this.prisma.episode.update({
+      where: { id: episodeId },
+      data: { membershipRequired: required },
+      select: { id: true, title: true, membershipRequired: true, updatedAt: true },
+    });
+  }
+
   async getShow(showId: string) {
     const show = await this.prisma.show.findFirst({
       where: { id: showId, status: PublicationStatus.PUBLISHED },
