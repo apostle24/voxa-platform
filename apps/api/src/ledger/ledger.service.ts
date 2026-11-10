@@ -81,7 +81,21 @@ export class LedgerService {
         where: { idempotencyKey: input.idempotencyKey },
         include: { entries: true },
       });
-      if (retry) return retry;
+      if (retry) {
+        const retryDebit = retry.entries.find(entry => entry.direction === 'DEBIT');
+        const retryCredit = retry.entries.find(entry => entry.direction === 'CREDIT');
+        if (
+          retry.type !== input.type ||
+          retry.currency !== input.currency ||
+          retry.amountMinor !== input.amountMinor ||
+          !retryDebit || !retryCredit ||
+          retryDebit.accountId !== input.debitAccountId ||
+          retryCredit.accountId !== input.creditAccountId
+        ) {
+          throw new BadRequestException('Idempotency key was concurrently used for a different ledger transfer');
+        }
+        return retry;
+      }
       throw error;
     }
   }
