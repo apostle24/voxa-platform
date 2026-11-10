@@ -104,7 +104,7 @@ export class MediaService {
       });
       if (!membership) throw new ForbiddenException('An active creator membership is required to access this episode');
     }
-    const expiresIn = Math.max(60, Math.min(900, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 300))));
+    const expiresIn = Math.max(60, Math.min(21600, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 3600))));
     const [url, asset] = await Promise.all([
       getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: episode.mediaKey }), { expiresIn }),
       this.prisma.mediaAsset.findUnique({
