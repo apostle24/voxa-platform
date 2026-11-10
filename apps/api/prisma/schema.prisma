@@ -205,5 +205,6 @@ model StageRequest {
   decidedAt   DateTime?
   room        LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
+  @@unique([roomId, userId])
   @@index([roomId, status, requestedAt])
 }
