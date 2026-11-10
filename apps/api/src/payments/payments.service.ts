@@ -683,4 +683,80 @@ export class PaymentsService {
     });
   }
 
+
+  async listAdminPayoutDestinations() {
+    return this.prisma.creatorPayoutDestination.findMany({
+      where: { isVerified: false },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+      select: {
+        id: true, provider: true, currency: true, country: true, channel: true,
+        accountName: true, maskedAccountNumber: true, createdAt: true,
+        creator: { select: { handle: true, user: { select: { id: true, email: true, displayName: true } } } },
+      },
+    });
+  }
+
+  async verifyPayoutDestination(adminUserId: string, destinationId: string) {
+    return this.prisma.$transaction(async tx => {
+      const destination = await tx.creatorPayoutDestination.findUnique({ where: { id: destinationId } });
+      if (!destination) throw new NotFoundException('Payout destination not found');
+      if (destination.isVerified) throw new ConflictException('Payout destination is already verified');
+      await tx.creatorPayoutDestination.update({
+        where: { id: destinationId }, data: { isVerified: true },
+      });
+      await tx.financialAuditLog.create({
+        data: {
+          actorUserId: adminUserId, action: 'PAYOUT_DESTINATION_VERIFIED',
+          entityType: 'CreatorPayoutDestination', entityId: destinationId,
+          metadata: { creatorId: destination.creatorId, provider: destination.provider, country: destination.country, currency: destination.currency },
+        },
+      });
+      return { id: destinationId, isVerified: true };
+    });
+  }
+
+  async listAdminPayoutRequests() {
+    return this.prisma.payoutRequest.findMany({
+      where: { status: { in: [PayoutRequestStatus.REQUESTED, PayoutRequestStatus.UNDER_REVIEW] } },
+      orderBy: { requestedAt: 'asc' },
+      take: 100,
+      select: {
+        id: true, reference: true, amountMinor: true, currency: true, status: true, requestedAt: true,
+        creator: { select: { handle: true, user: { select: { id: true, email: true, displayName: true } } } },
+        destination: { select: { id: true, provider: true, channel: true, accountName: true, maskedAccountNumber: true, isVerified: true } },
+      },
+    });
+  }
+
+  async markPayoutRequestUnderReview(adminUserId: string, payoutRequestId: string) {
+    return this.prisma.$transaction(async tx => {
+      const request = await tx.payoutRequest.findUnique({ where: { id: payoutRequestId } });
+      if (!request) throw new NotFoundException('Payout request not found');
+      if (request.status !== PayoutRequestStatus.REQUESTED) {
+        throw new ConflictException('Only newly requested payouts can be moved into review');
+      }
+      if (request.currency !== 'GHS' || request.provider !== PROVIDER) {
+        throw new BadRequestException('This admin review queue currently supports Paystack GHS payouts only');
+      }
+      const destination = await tx.creatorPayoutDestination.findUnique({ where: { id: request.destinationId } });
+      if (!destination?.isVerified) {
+        throw new ConflictException('The payout destination must be verified before review');
+      }
+      const updated = await tx.payoutRequest.update({
+        where: { id: payoutRequestId },
+        data: { status: PayoutRequestStatus.UNDER_REVIEW, reviewedAt: new Date() },
+        select: { id: true, reference: true, amountMinor: true, currency: true, status: true, reviewedAt: true },
+      });
+      await tx.financialAuditLog.create({
+        data: {
+          actorUserId: adminUserId, action: 'PAYOUT_REQUEST_MARKED_UNDER_REVIEW',
+          entityType: 'PayoutRequest', entityId: payoutRequestId,
+          metadata: { reference: request.reference, amountMinor: request.amountMinor, currency: request.currency },
+        },
+      });
+      return updated;
+    });
+  }
+
 }
