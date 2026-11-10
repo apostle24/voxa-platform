@@ -194,3 +194,7 @@ The Next.js app lives in `apps/web`.
 The client includes email/password sign-in and registration, public live-room discovery, room creation, LiveKit connection, microphone/camera controls, audience stage requests, host approval/rejection, and speaker removal. The current MVP stores its short-lived access token in `sessionStorage`; this is a development convenience, not the production session design. Add secure HTTP-only cookie sessions, refresh-token rotation, CSRF protection, and rate limiting before production.
 
 The live room UI refreshes stage state periodically. It does not yet include real-time chat, reactions, audience counts from LiveKit, moderator roles, recording, replay, or complete accessibility and device-selection controls. LiveKit credentials, a working API/database deployment, and browser microphone/camera permissions are required for an actual broadcast.
+
+### Live chat and reactions (early MVP)
+
+The room UI now sends chat messages and emoji reactions over LiveKit's reliable data channel. This is room-scoped and ephemeral: messages are not persisted, are not available as replay history, and are not independently moderated by a server-side chat service yet. Keep LiveKit data publishing enabled for participants. Before a public launch, add server-enforced message rate limits, spam and abuse detection, user blocking/reporting, host/moderator message controls, durable audit records, and retention/privacy rules. Existing host stage controls can remove speakers, but they do not constitute full chat moderation.
