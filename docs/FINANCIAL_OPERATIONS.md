@@ -8,7 +8,7 @@ It is not yet a payout-ready wallet:
 - Creator net receipts (85% of gross) are recorded in a creator-pending account. VOXA's 15% commission is credited to a separate platform-revenue account.
 - When Paystack returns a valid non-negative `fees` amount on its server-side transaction verification response, that cost is posted as a separate provider-processing-fee expense and reduces the platform-clearing account. It does not reduce the creator's recorded net earnings.
 - Payout destination records and payout request records now exist in the schema. A gated API can register Ghanaian GHS Paystack recipients and stores only the provider recipient code and masked account number. Destinations are deliberately not marked verified yet.
-- There is no settlement hold/release process, withdrawal execution, refund workflow, chargeback workflow, or financial reconciliation job. Payout destinations are only an onboarding foundation; no withdrawal can be requested or paid yet.
+- A seven-day settlement hold is implemented: matured creator net receipts move from pending to available through idempotent double-entry ledger postings when the creator earnings or payout-request API is accessed. Creator payout requests can reserve available funds into a dedicated payout-hold account, but only after the destination has been marked verified by a future controlled operations workflow. There is no automated settlement scheduler, admin verification/review console, provider transfer execution, refund workflow, chargeback workflow, or financial reconciliation job. No withdrawal can be paid yet.
 - A displayed pending ledger balance must not be described as cash available to withdraw.
 - No live payment should be accepted until the merchant account, test flow, database migrations, webhook delivery, and operational controls have been verified.
 
@@ -41,7 +41,7 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 ## Required financial rules before creator withdrawals
 
 1. **Platform commission:** proposed creator membership commission is 15% (1,500 bps), approved by the product owner on 2026-11-10. Each payment attempt snapshots the rate and amounts so future rate changes cannot rewrite past transactions. Provider fees remain separate platform expenses.
-2. **Settlement hold:** product owner must approve the hold period and any minimum payout threshold. Pending funds cannot become withdrawable merely because a webhook arrived.
+2. **Settlement hold:** seven calendar days after verified payment is approved. Pending funds cannot become withdrawable merely because a webhook arrived. A minimum payout threshold has not been approved and is not enforced.
 3. **Double-entry ledger:** every collection, fee, reserve, release, refund, chargeback, and payout must post balanced immutable entries in one database transaction.
 4. **Idempotency:** every provider webhook, payout request, and transfer must have a stable unique key. Replays must not move money twice.
 5. **Server authority:** client-submitted balances, amounts, payout status, and beneficiary codes are never trusted.
@@ -57,6 +57,9 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 - Successful payment ledger postings balance gross clearing debit against creator pending credit plus platform revenue credit.
 - Paystack's verified `fees` amount, when returned as a valid integer, is posted through a separate provider-processing-fee ledger transaction.
 - Creator earnings API and dashboard now show the creator's ledger impact rather than the gross transaction amount.
+- A seven-day settlement release moves matured creator earnings from pending to available, with a unique release key per payment.
+- Authenticated creator payout-request creation and history endpoints are implemented. Requests require a verified, creator-owned Ghana GHS destination, an idempotency key, and sufficient settled available balance. The request reserves funds in a dedicated payout-hold ledger account in the same serializable database transaction.
+- The earnings dashboard displays payout request history and explains the settlement hold.
 - Payout destination onboarding endpoint: `GET /v1/creators/me/payout-destinations`, `POST /v1/creators/me/payout-destinations`, and `PATCH /v1/creators/me/payout-destinations/:destinationId/default`. It is disabled unless `PAYSTACK_TRANSFERS_ENABLED=true`, only accepts Ghana GHS bank/mobile-money recipient types, sends account details directly to Paystack, and stores only a masked account number plus provider recipient code. New destinations are not treated as identity-verified.
 
 ## Implementation sequence
@@ -65,8 +68,8 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 2. Add explicit platform fee configuration only after the approved fee policy is supplied.
 3. Add pending-to-available release rules only after the approved hold and reserve policy is supplied.
 4. Add encrypted beneficiary records, provider recipient creation, step-up verification, and audit trail.
-5. Add creator withdrawal requests and admin review with limits and idempotency.
-6. Add provider transfer execution, signed webhook/status verification, failure/reversal handling, and reconciliation.
+5. Add admin review/verification console, step-up authentication, payout limits and risk review. Creator payout request and balance reservation APIs are in place.
+6. Add provider transfer execution, signed webhook/status verification, failure/reversal handling, and reconciliation. Do not enable the transfer flag before this is tested.
 7. Only then build virtual gifts/tips on top of the same wallet and ledger controls.
 
 ## Secrets and environment
