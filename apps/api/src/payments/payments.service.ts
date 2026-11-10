@@ -1090,9 +1090,9 @@ export class PaymentsService {
   async reconcilePayoutTransfer(adminUserId: string, payoutRequestId: string) {
     const request = await this.prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
     if (!request) throw new NotFoundException('Payout request not found');
-    if (request.provider !== PROVIDER || ![
-      PayoutRequestStatus.SUBMITTED, PayoutRequestStatus.PROCESSING, PayoutRequestStatus.PAID,
-    ].includes(request.status)) {
+    if (request.provider !== PROVIDER || (request.status !== PayoutRequestStatus.SUBMITTED &&
+        request.status !== PayoutRequestStatus.PROCESSING &&
+        request.status !== PayoutRequestStatus.PAID)) {
       throw new ConflictException('Only submitted or completed Paystack payouts can be reconciled');
     }
     const response = await fetch(PAYSTACK_API + '/transfer/verify/' + encodeURIComponent(request.reference.toLowerCase()), {
