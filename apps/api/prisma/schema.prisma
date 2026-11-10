@@ -63,6 +63,7 @@ enum LedgerAccountType {
   PLATFORM_CLEARING
   PLATFORM_REVENUE
   PROVIDER_FEE_EXPENSE
+  CREATOR_PAYOUT_HOLD
 }
 
 enum PayoutRequestStatus {
