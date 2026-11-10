@@ -888,7 +888,7 @@ export class PaymentsService {
       if (request.status === PayoutRequestStatus.PAID) {
         throw new ConflictException('A paid payout requires a provider reversal event, not a failure transition');
       }
-      if ([PayoutRequestStatus.CANCELLED].includes(request.status)) return { duplicate: true };
+      if (request.status === PayoutRequestStatus.CANCELLED) return { duplicate: true };
       const holdKey = 'user:' + request.creator.userId + ':creator-payout-hold:' + request.currency;
       const availableKey = 'user:' + request.creator.userId + ':creator-available:' + request.currency;
       const hold = await tx.ledgerAccount.findUnique({ where: { accountKey: holdKey } });
