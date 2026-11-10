@@ -146,14 +146,14 @@ export class PaymentsService {
   }
 
   async handlePaystackWebhook(
-    body: { event?: string; data?: { reference?: string } },
+    body: { event?: string; data?: Record<string, unknown> & { reference?: string } },
     rawBody: Buffer | undefined,
     signature: string | string[] | undefined,
   ) {
     this.verifySignature(rawBody, signature);
     const eventType = body?.event;
     const reference = body?.data?.reference;
-    if (!reference) return { received: true, ignored: true };
+    if (typeof reference !== 'string' || !reference) return { received: true, ignored: true };
     if (eventType === 'transfer.success' || eventType === 'transfer.failed' || eventType === 'transfer.reversed') {
       return this.handlePaystackTransferWebhook(eventType, reference, body.data || {}, body);
     }
@@ -966,7 +966,7 @@ export class PaymentsService {
         });
         if (eventType === 'transfer.success') {
           if (current.status === PayoutRequestStatus.PAID) return;
-          if (![PayoutRequestStatus.SUBMITTED, PayoutRequestStatus.PROCESSING].includes(current.status)) {
+          if (current.status !== PayoutRequestStatus.SUBMITTED && current.status !== PayoutRequestStatus.PROCESSING) {
             throw new ConflictException('Payout is not in a provider-submitted state');
           }
           const hold = await tx.ledgerAccount.findUnique({ where: { accountKey: 'user:' + current.creator.userId + ':creator-payout-hold:' + current.currency } });
