@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 type LiveRoom = { id: string; title: string; description?: string; isAudioOnly: boolean; status: string; host?: { displayName?: string; creator?: { handle?: string } }; _count?: { stage: number } };
-const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\\/$/, '');
+const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
 export default function LivePage() {
   const [rooms, setRooms] = useState<LiveRoom[]>([]);
