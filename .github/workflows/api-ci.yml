@@ -32,6 +32,14 @@ jobs:
         with:
           node-version: 20
       - run: pnpm install --no-frozen-lockfile
+      - name: Generate dependency lockfile
+        run: pnpm install --lockfile-only --no-frozen-lockfile
+      - name: Upload generated dependency lockfile
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-lockfile
+          path: pnpm-lock.yaml
+          if-no-files-found: error
       - name: Validate Prisma schema
         run: pnpm --filter @voxa/api exec prisma validate
         env:
