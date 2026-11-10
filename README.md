@@ -198,3 +198,13 @@ The live room UI refreshes stage state periodically. It does not yet include rea
 ### Live chat and reactions (early MVP)
 
 The room UI now sends chat messages and emoji reactions over LiveKit's reliable data channel. This is room-scoped and ephemeral: messages are not persisted, are not available as replay history, and are not independently moderated by a server-side chat service yet. Keep LiveKit data publishing enabled for participants. Before a public launch, add server-enforced message rate limits, spam and abuse detection, user blocking/reporting, host/moderator message controls, durable audit records, and retention/privacy rules. Existing host stage controls can remove speakers, but they do not constitute full chat moderation.
+
+### Creator community and notifications (early MVP)
+
+- Creator onboarding is available at `/creator/setup`; public creator pages are available at `/creator/{handle}`.
+- Creator pages show the creator bio, published shows, and currently live public rooms. Signed-in listeners can follow and unfollow creators.
+- A creator receives an inbox notification when a new follower arrives.
+- Followers receive an inbox notification when a creator starts a public live room.
+- The notification inbox is available at `/notifications`. API routes: `GET /v1/notifications`, `PATCH /v1/notifications/:notificationId/read`, and `PATCH /v1/notifications/read-all`.
+- Notifications are stored in PostgreSQL. Push delivery, email delivery, notification preferences, pagination beyond the latest 50, and realtime unread-count updates are not implemented yet.
+- Creator memberships and paid subscriptions are not implemented; they require entitlement checks and payment-provider integration before access can be granted.
