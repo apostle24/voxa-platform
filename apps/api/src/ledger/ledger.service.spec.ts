@@ -56,6 +56,27 @@ describe('LedgerService', () => {
     await expect(service.postTransfer(input)).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it('rejects a concurrent idempotency collision with different transfer details', async () => {
+    prisma.ledgerTransaction.findUnique
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        type: 'OTHER_TRANSFER',
+        currency: 'GHS',
+        amountMinor: input.amountMinor,
+        entries: [
+          { direction: 'DEBIT', accountId: input.debitAccountId },
+          { direction: 'CREDIT', accountId: input.creditAccountId },
+        ],
+      });
+    prisma.ledgerAccount.findMany.mockResolvedValue([
+      { id: input.debitAccountId, currency: 'GHS' },
+      { id: input.creditAccountId, currency: 'GHS' },
+    ]);
+    prisma.$transaction.mockRejectedValue({ code: 'P2002' });
+
+    await expect(service.postTransfer(input)).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('requires both accounts to exist in the requested currency', async () => {
     prisma.ledgerTransaction.findUnique.mockResolvedValue(null);
     prisma.ledgerAccount.findMany.mockResolvedValue([
