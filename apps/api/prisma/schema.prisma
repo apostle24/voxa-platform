@@ -58,6 +58,7 @@ model User {
   liveRooms   LiveRoom[] @relation("RoomHost")
   bookmarks   EpisodeBookmark[]
   playbackProgress PlaybackProgress[]
+  notifications Notification[]
 }
 
 model Creator {
@@ -207,4 +208,21 @@ model StageRequest {
 
   @@unique([roomId, userId])
   @@index([roomId, status, requestedAt])
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  recipientId String
+  actorId     String?
+  type        String
+  title       String
+  body        String?
+  resourceType String?
+  resourceId  String?
+  readAt      DateTime?
+  createdAt   DateTime @default(now())
+  recipient  User     @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, readAt, createdAt])
+  @@index([recipientId, createdAt])
 }
