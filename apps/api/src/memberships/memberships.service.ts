@@ -8,6 +8,21 @@ import { UpdateMembershipPlanDto } from './dto/update-membership-plan.dto';
 export class MembershipsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async myPlans(userId: string) {
+    const creator = await this.prisma.creator.findUnique({
+      where: { userId }, select: { id: true },
+    });
+    if (!creator) throw new ForbiddenException('Creator profile required');
+    return this.prisma.membershipPlan.findMany({
+      where: { creatorId: creator.id },
+      orderBy: [{ isActive: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true, name: true, description: true, priceMinor: true,
+        currency: true, interval: true, isActive: true, createdAt: true,
+      },
+    });
+  }
+
   async listPublicPlans(handle: string) {
     const creator = await this.prisma.creator.findUnique({
       where: { handle: handle.toLowerCase() },
