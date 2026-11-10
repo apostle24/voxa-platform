@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AccessToken } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
 import { LiveRoomStatus, LiveRoomVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
@@ -17,6 +17,34 @@ export class LiveService {
       throw new ServiceUnavailableException('VOXA LIVE is not configured');
     }
     return { url, apiKey, apiSecret };
+  }
+
+  private roomServiceClient() {
+    const { url, apiKey, apiSecret } = this.liveKitConfig();
+    const host = url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+    return new RoomServiceClient(host, apiKey, apiSecret);
+  }
+
+  async endRoom(userId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== userId) throw new ForbiddenException('Only the host can end this room');
+    if (room.status === LiveRoomStatus.ENDED || room.status === LiveRoomStatus.CANCELLED) {
+      return { id: room.id, status: room.status, endedAt: room.endedAt };
+    }
+
+    // DeleteRoom forcibly disconnects all participants and prevents further joins.
+    await this.roomServiceClient().deleteRoom(room.id);
+    const ended = await this.prisma.liveRoom.update({
+      where: { id: roomId },
+      data: { status: LiveRoomStatus.ENDED, endedAt: new Date() },
+      select: { id: true, status: true, endedAt: true },
+    });
+    await this.prisma.liveStageMember.updateMany({
+      where: { roomId, leftAt: null },
+      data: { leftAt: ended.endedAt ?? new Date() },
+    });
+    return ended;
   }
 
   async createRoom(userId: string, input: CreateLiveRoomDto) {
