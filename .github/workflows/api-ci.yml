@@ -37,5 +37,7 @@ jobs:
         env:
           DATABASE_URL: postgresql://voxa:voxa@localhost:5432/voxa_ci
       - run: pnpm --filter @voxa/api prisma:generate
+      - name: Typecheck API and web
+        run: pnpm -r typecheck
       - run: pnpm --filter @voxa/api build
       - run: pnpm --filter @voxa/web build
