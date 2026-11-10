@@ -157,3 +157,21 @@ The database now tracks each uploaded media object as a `MediaAsset` with durabl
 The upload completion endpoint now creates/updates a `MediaAsset` record and returns its processing state. The migration is in `apps/api/prisma/migrations/20261110160000_media_asset_processing`.
 
 **Important boundary:** this commit adds durable processing state, not a functioning transcoder. There is no deployed FFmpeg worker, Redis/BullMQ queue, malware scanner, HLS/DASH packager, or CDN output yet. An asset remains `UPLOADED` until a real worker processes it. Do not advertise production-ready media processing or mark assets `READY` manually.
+
+
+## Step 7 — VOXA LIVE / LiveKit authorization foundation
+
+Initial live-room API routes are now available:
+
+- `GET /v1/live/rooms` — list public live and scheduled rooms.
+- `POST /v1/live/rooms` — create a room (authentication required).
+- `POST /v1/live/rooms/:roomId/join-token` — issue a short-lived LiveKit participant token.
+- `POST /v1/live/rooms/:roomId/stage-requests` — request to join the speaker stage.
+- `POST /v1/live/rooms/:roomId/stage-requests/:requestId/approve` — host approves a speaker.
+- `POST /v1/live/rooms/:roomId/stage-requests/:requestId/reject` — host rejects a speaker.
+
+Configure `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in `apps/api/.env`. The API secret must remain server-side. Tokens expire after ten minutes. The host and approved speakers receive publish permission; audience members receive subscribe-only permissions. A room becomes LIVE when the host requests a join token.
+
+The database now enforces one stage request per participant per room. Apply the migration with the documented Prisma migration workflow.
+
+**Not production complete:** a real LiveKit project and credentials are required. The web/mobile LiveKit client, chat, reactions, moderator roles, stage capacity limits, room ending, recording/replay, restricted-room entitlements, abuse throttling, and automated integration tests remain to be built. Members-only and private rooms reject non-host participants until entitlement checks are implemented.
