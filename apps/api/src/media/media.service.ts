@@ -75,8 +75,13 @@ export class MediaService {
       ? Number(this.config.get('MEDIA_MAX_VIDEO_BYTES', 2147483648))
       : Number(this.config.get('MEDIA_MAX_AUDIO_BYTES', 524288000));
     if (head.ContentLength > maxBytes) throw new ConflictException('Uploaded media exceeds the configured size limit');
+    const asset = await this.prisma.mediaAsset.upsert({
+      where: { objectKey },
+      create: { episodeId, objectKey, contentType: head.ContentType, sizeBytes: BigInt(head.ContentLength), status: 'UPLOADED' },
+      update: { contentType: head.ContentType, sizeBytes: BigInt(head.ContentLength), status: 'UPLOADED', failureReason: null, processedAt: null },
+    });
     await this.prisma.episode.update({ where: { id: episodeId }, data: { mediaKey: objectKey } });
-    return { uploaded: true, episodeId, mediaKey: objectKey, sizeBytes: head.ContentLength, contentType: head.ContentType };
+    return { uploaded: true, episodeId, mediaAssetId: asset.id, processingStatus: asset.status, mediaKey: objectKey, sizeBytes: head.ContentLength, contentType: head.ContentType };
   }
 
   async getPlaybackUrl(episodeId: string) {
