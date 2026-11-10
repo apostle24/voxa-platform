@@ -697,7 +697,7 @@ export class PaymentsService {
     });
   }
 
-  async verifyPayoutDestination(adminUserId: string, destinationId: string) {
+  async verifyPayoutDestination(adminUserId: string, destinationId: string, evidence: { verificationMethod: string; verificationReference: string; notes?: string }) {
     return this.prisma.$transaction(async tx => {
       const destination = await tx.creatorPayoutDestination.findUnique({ where: { id: destinationId } });
       if (!destination) throw new NotFoundException('Payout destination not found');
@@ -709,7 +709,7 @@ export class PaymentsService {
         data: {
           actorUserId: adminUserId, action: 'PAYOUT_DESTINATION_VERIFIED',
           entityType: 'CreatorPayoutDestination', entityId: destinationId,
-          metadata: { creatorId: destination.creatorId, provider: destination.provider, country: destination.country, currency: destination.currency },
+          metadata: { creatorId: destination.creatorId, provider: destination.provider, country: destination.country, currency: destination.currency, verificationMethod: evidence.verificationMethod, verificationReference: evidence.verificationReference, notes: evidence.notes || null },
         },
       });
       return { id: destinationId, isVerified: true };
