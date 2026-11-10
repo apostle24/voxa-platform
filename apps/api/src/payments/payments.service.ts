@@ -153,7 +153,11 @@ export class PaymentsService {
     this.verifySignature(rawBody, signature);
     const eventType = body?.event;
     const reference = body?.data?.reference;
-    if (eventType !== 'charge.success' || !reference) return { received: true, ignored: true };
+    if (!reference) return { received: true, ignored: true };
+    if (eventType === 'transfer.success' || eventType === 'transfer.failed' || eventType === 'transfer.reversed') {
+      return this.handlePaystackTransferWebhook(eventType, reference, body.data || {}, body);
+    }
+    if (eventType !== 'charge.success') return { received: true, ignored: true };
 
     const verified = await this.verifyWithProvider(reference);
     if (
@@ -758,5 +762,309 @@ export class PaymentsService {
       return updated;
     });
   }
+
+
+  async approvePayoutRequest(adminUserId: string, payoutRequestId: string, reason: string) {
+    return this.prisma.$transaction(async tx => {
+      const request = await tx.payoutRequest.findUnique({ where: { id: payoutRequestId } });
+      if (!request) throw new NotFoundException('Payout request not found');
+      if (request.status !== PayoutRequestStatus.UNDER_REVIEW) {
+        throw new ConflictException('Only payout requests under review can be approved');
+      }
+      const destination = await tx.creatorPayoutDestination.findUnique({ where: { id: request.destinationId } });
+      if (!destination?.isVerified || destination.creatorId !== request.creatorId ||
+          destination.provider !== PROVIDER || request.provider !== PROVIDER ||
+          request.currency !== 'GHS' || destination.currency !== 'GHS' || destination.country !== 'GH') {
+        throw new ConflictException('A verified Ghana GHS Paystack destination is required');
+      }
+      const updated = await tx.payoutRequest.update({
+        where: { id: payoutRequestId },
+        data: { status: PayoutRequestStatus.APPROVED },
+        select: { id: true, reference: true, amountMinor: true, currency: true, status: true },
+      });
+      await tx.financialAuditLog.create({
+        data: {
+          actorUserId: adminUserId, action: 'PAYOUT_REQUEST_APPROVED',
+          entityType: 'PayoutRequest', entityId: payoutRequestId,
+          metadata: { reference: request.reference, amountMinor: request.amountMinor, currency: request.currency, reason },
+        },
+      });
+      return updated;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  async submitApprovedPayout(adminUserId: string, payoutRequestId: string) {
+    if (process.env.PAYSTACK_TRANSFERS_ENABLED !== 'true' ||
+        process.env.PAYSTACK_PAYOUT_EXECUTION_ENABLED !== 'true') {
+      throw new ServiceUnavailableException('Paystack payout execution is disabled. Complete provider approval and staging tests before enabling it.');
+    }
+    const request = await this.prisma.payoutRequest.findUnique({
+      where: { id: payoutRequestId },
+      include: { destination: true, creator: { select: { userId: true } } },
+    });
+    if (!request) throw new NotFoundException('Payout request not found');
+    if (request.status !== PayoutRequestStatus.APPROVED) {
+      throw new ConflictException('Only approved payout requests can be submitted');
+    }
+    if (request.provider !== PROVIDER || request.currency !== 'GHS' ||
+        request.destination.provider !== PROVIDER || !request.destination.isVerified) {
+      throw new BadRequestException('Only verified Paystack GHS payouts can be submitted');
+    }
+
+    // Persist SUBMITTED before the network call. If the connection times out,
+    // the same reference can be verified; the request must never be blindly resent.
+    const claimed = await this.prisma.payoutRequest.updateMany({
+      where: { id: payoutRequestId, status: PayoutRequestStatus.APPROVED },
+      data: { status: PayoutRequestStatus.SUBMITTED },
+    });
+    if (claimed.count !== 1) throw new ConflictException('Payout submission is already in progress');
+    await this.prisma.financialAuditLog.create({
+      data: {
+        actorUserId: adminUserId, action: 'PAYOUT_TRANSFER_SUBMISSION_STARTED',
+        entityType: 'PayoutRequest', entityId: payoutRequestId,
+        metadata: { reference: request.reference, amountMinor: request.amountMinor, currency: request.currency },
+      },
+    });
+
+    let response: Response;
+    try {
+      response = await fetch(PAYSTACK_API + '/transfer', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + this.secretKey(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          source: 'balance',
+          amount: request.amountMinor,
+          recipient: request.destination.providerRecipientCode,
+          reference: request.reference.toLowerCase(),
+          currency: request.currency,
+          reason: 'VOXA creator earnings payout',
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch {
+      throw new ServiceUnavailableException('Paystack submission outcome is unknown. Verify this payout by its reference; do not submit it again.');
+    }
+
+    const result = await response.json().catch(() => null) as {
+      status?: boolean; message?: string;
+      data?: { status?: string; reference?: string; transfer_code?: string; amount?: number; currency?: string };
+    } | null;
+    if (!response.ok || !result?.status || !result.data?.reference ||
+        result.data.reference.toLowerCase() !== request.reference.toLowerCase() ||
+        result.data.amount !== request.amountMinor || result.data.currency !== request.currency) {
+      // A provider rejection is definitive only when a valid response body
+      // explicitly says status=false; unreadable/mismatched responses remain held.
+      if (result && result.status === false) {
+        await this.failPayoutAndReleaseHold(request.id, 'PROVIDER_REJECTED', result.message || 'Paystack rejected transfer submission');
+      }
+      throw new ServiceUnavailableException(result?.message || 'Paystack response could not be safely matched; payout remains held for reconciliation');
+    }
+
+    const nextStatus = result.data.status === 'pending'
+      ? PayoutRequestStatus.PROCESSING
+      : PayoutRequestStatus.SUBMITTED;
+    await this.prisma.payoutRequest.updateMany({
+      where: { id: payoutRequestId, status: PayoutRequestStatus.SUBMITTED },
+      data: { status: nextStatus, providerTransferCode: result.data.transfer_code || undefined },
+    });
+    await this.prisma.financialAuditLog.create({
+      data: {
+        actorUserId: adminUserId, action: 'PAYOUT_TRANSFER_ACCEPTED_BY_PROVIDER',
+        entityType: 'PayoutRequest', entityId: payoutRequestId,
+        metadata: { reference: request.reference, providerTransferCode: result.data.transfer_code || null, providerStatus: result.data.status || 'unknown' },
+      },
+    });
+    return { id: request.id, reference: request.reference, status: nextStatus, providerTransferCode: result.data.transfer_code || null };
+  }
+
+  private async failPayoutAndReleaseHold(payoutRequestId: string, eventType: string, reason: string) {
+    return this.prisma.$transaction(async tx => {
+      const request = await tx.payoutRequest.findUnique({
+        where: { id: payoutRequestId },
+        include: { creator: { select: { userId: true } } },
+      });
+      if (!request) throw new NotFoundException('Payout request not found');
+      if (request.status === PayoutRequestStatus.FAILED) return { duplicate: true };
+      if (request.status === PayoutRequestStatus.PAID) {
+        throw new ConflictException('A paid payout requires a provider reversal event, not a failure transition');
+      }
+      if ([PayoutRequestStatus.CANCELLED].includes(request.status)) return { duplicate: true };
+      const holdKey = 'user:' + request.creator.userId + ':creator-payout-hold:' + request.currency;
+      const availableKey = 'user:' + request.creator.userId + ':creator-available:' + request.currency;
+      const hold = await tx.ledgerAccount.findUnique({ where: { accountKey: holdKey } });
+      const available = await tx.ledgerAccount.upsert({
+        where: { accountKey: availableKey },
+        create: { accountKey: availableKey, ownerId: request.creator.userId, type: LedgerAccountType.CREATOR_AVAILABLE, currency: request.currency },
+        update: {},
+      });
+      if (!hold) throw new ConflictException('Payout hold ledger account is missing; manual reconciliation is required');
+      await tx.ledgerTransaction.create({
+        data: {
+          idempotencyKey: 'payout-release-failed:' + request.reference,
+          type: 'CREATOR_PAYOUT_RELEASE_FAILED', currency: request.currency,
+          amountMinor: request.amountMinor, reference: request.reference,
+          entries: { create: [
+            { accountId: hold.id, direction: 'DEBIT', amountMinor: request.amountMinor },
+            { accountId: available.id, direction: 'CREDIT', amountMinor: request.amountMinor },
+          ] },
+        },
+      });
+      await tx.payoutRequest.update({
+        where: { id: request.id },
+        data: { status: PayoutRequestStatus.FAILED, failureReason: reason.slice(0, 500) },
+      });
+      await tx.financialAuditLog.create({
+        data: {
+          actorUserId: 'system:paystack-webhook', action: eventType,
+          entityType: 'PayoutRequest', entityId: request.id,
+          metadata: { reference: request.reference, reason },
+        },
+      });
+      return { failed: true };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  }
+
+  private async handlePaystackTransferWebhook(
+    eventType: string, reference: string, eventData: Record<string, unknown>, body: unknown,
+  ) {
+    const response = await fetch(PAYSTACK_API + '/transfer/verify/' + encodeURIComponent(reference), {
+      headers: { Authorization: 'Bearer ' + this.secretKey() },
+      signal: AbortSignal.timeout(15000),
+    });
+    const verifiedResponse = await response.json().catch(() => null) as {
+      status?: boolean;
+      data?: { status?: string; reference?: string; amount?: number; currency?: string; transfer_code?: string };
+    } | null;
+    if (!response.ok || !verifiedResponse?.status || !verifiedResponse.data) {
+      throw new ServiceUnavailableException('Could not independently verify the Paystack transfer');
+    }
+    const verified = verifiedResponse.data;
+    const expectedStatus = eventType === 'transfer.success' ? 'success'
+      : eventType === 'transfer.failed' ? 'failed' : 'reversed';
+    if (verified.reference?.toLowerCase() !== reference.toLowerCase() || verified.status !== expectedStatus) {
+      throw new BadRequestException('Transfer webhook does not match the independently verified provider status');
+    }
+    const request = await this.prisma.payoutRequest.findFirst({
+      where: { reference: { equals: reference, mode: 'insensitive' }, provider: PROVIDER },
+    });
+    if (!request) throw new NotFoundException('Payout request for transfer reference not found');
+    if (verified.amount !== request.amountMinor || verified.currency !== request.currency) {
+      throw new BadRequestException('Verified transfer amount or currency does not match the payout request');
+    }
+
+    const eventKey = eventType + ':' + request.reference;
+    try {
+      await this.prisma.$transaction(async tx => {
+        await tx.paymentWebhookEvent.create({
+          data: {
+            provider: PROVIDER, eventKey, eventType, reference: request.reference,
+            payload: JSON.parse(JSON.stringify(body)) as Prisma.InputJsonValue,
+          },
+        });
+        const current = await tx.payoutRequest.findUniqueOrThrow({
+          where: { id: request.id }, include: { creator: { select: { userId: true } } },
+        });
+        if (eventType === 'transfer.success') {
+          if (current.status === PayoutRequestStatus.PAID) return;
+          if (![PayoutRequestStatus.SUBMITTED, PayoutRequestStatus.PROCESSING].includes(current.status)) {
+            throw new ConflictException('Payout is not in a provider-submitted state');
+          }
+          const hold = await tx.ledgerAccount.findUnique({ where: { accountKey: 'user:' + current.creator.userId + ':creator-payout-hold:' + current.currency } });
+          const clearing = await tx.ledgerAccount.findUnique({ where: { accountKey: 'platform:clearing:' + current.currency } });
+          if (!hold || !clearing) throw new ConflictException('Payout ledger accounts are missing; reconciliation is required');
+          await tx.ledgerTransaction.create({
+            data: {
+              idempotencyKey: 'payout-paid:' + current.reference, type: 'CREATOR_PAYOUT_PAID',
+              currency: current.currency, amountMinor: current.amountMinor, reference: current.reference,
+              entries: { create: [
+                { accountId: hold.id, direction: 'DEBIT', amountMinor: current.amountMinor },
+                { accountId: clearing.id, direction: 'CREDIT', amountMinor: current.amountMinor },
+              ] },
+            },
+          });
+          await tx.payoutRequest.update({ where: { id: current.id }, data: { status: PayoutRequestStatus.PAID, paidAt: new Date(), providerTransferCode: verified.transfer_code || current.providerTransferCode } });
+        } else if (eventType === 'transfer.failed') {
+          if (current.status !== PayoutRequestStatus.FAILED) {
+            const hold = await tx.ledgerAccount.findUnique({ where: { accountKey: 'user:' + current.creator.userId + ':creator-payout-hold:' + current.currency } });
+            const available = await tx.ledgerAccount.upsert({
+              where: { accountKey: 'user:' + current.creator.userId + ':creator-available:' + current.currency },
+              create: { accountKey: 'user:' + current.creator.userId + ':creator-available:' + current.currency, ownerId: current.creator.userId, type: LedgerAccountType.CREATOR_AVAILABLE, currency: current.currency },
+              update: {},
+            });
+            if (!hold) throw new ConflictException('Payout hold ledger account is missing');
+            await tx.ledgerTransaction.create({
+              data: {
+                idempotencyKey: 'payout-release-failed:' + current.reference, type: 'CREATOR_PAYOUT_RELEASE_FAILED',
+                currency: current.currency, amountMinor: current.amountMinor, reference: current.reference,
+                entries: { create: [
+                  { accountId: hold.id, direction: 'DEBIT', amountMinor: current.amountMinor },
+                  { accountId: available.id, direction: 'CREDIT', amountMinor: current.amountMinor },
+                ] },
+              },
+            });
+            await tx.payoutRequest.update({ where: { id: current.id }, data: { status: PayoutRequestStatus.FAILED, failureReason: String(eventData['failures'] || 'Paystack reported transfer failure').slice(0, 500) } });
+          }
+        } else {
+          // A reversal is distinct from an initial failure: Paystack previously
+          // debited the merchant balance, then returned the funds.
+          if (current.status === PayoutRequestStatus.PAID) {
+            const clearing = await tx.ledgerAccount.findUnique({ where: { accountKey: 'platform:clearing:' + current.currency } });
+            const available = await tx.ledgerAccount.upsert({
+              where: { accountKey: 'user:' + current.creator.userId + ':creator-available:' + current.currency },
+              create: { accountKey: 'user:' + current.creator.userId + ':creator-available:' + current.currency, ownerId: current.creator.userId, type: LedgerAccountType.CREATOR_AVAILABLE, currency: current.currency },
+              update: {},
+            });
+            if (!clearing) throw new ConflictException('Platform clearing account is missing');
+            await tx.ledgerTransaction.create({
+              data: {
+                idempotencyKey: 'payout-reversal:' + current.reference, type: 'CREATOR_PAYOUT_REVERSED',
+                currency: current.currency, amountMinor: current.amountMinor, reference: current.reference,
+                entries: { create: [
+                  { accountId: clearing.id, direction: 'DEBIT', amountMinor: current.amountMinor },
+                  { accountId: available.id, direction: 'CREDIT', amountMinor: current.amountMinor },
+                ] },
+              },
+            });
+          } else if (current.status !== PayoutRequestStatus.FAILED) {
+            const hold = await tx.ledgerAccount.findUnique({ where: { accountKey: 'user:' + current.creator.userId + ':creator-payout-hold:' + current.currency } });
+            const available = await tx.ledgerAccount.upsert({
+              where: { accountKey: 'user:' + current.creator.userId + ':creator-available:' + current.currency },
+              create: { accountKey: 'user:' + current.creator.userId + ':creator-available:' + current.currency, ownerId: current.creator.userId, type: LedgerAccountType.CREATOR_AVAILABLE, currency: current.currency },
+              update: {},
+            });
+            if (!hold) throw new ConflictException('Payout hold ledger account is missing');
+            await tx.ledgerTransaction.create({
+              data: {
+                idempotencyKey: 'payout-release-failed:' + current.reference, type: 'CREATOR_PAYOUT_RELEASE_FAILED',
+                currency: current.currency, amountMinor: current.amountMinor, reference: current.reference,
+                entries: { create: [
+                  { accountId: hold.id, direction: 'DEBIT', amountMinor: current.amountMinor },
+                  { accountId: available.id, direction: 'CREDIT', amountMinor: current.amountMinor },
+                ] },
+              },
+            });
+          }
+          await tx.payoutRequest.update({ where: { id: current.id }, data: { status: PayoutRequestStatus.FAILED, failureReason: 'Paystack reversed the transfer' } });
+        }
+        await tx.paymentWebhookEvent.update({
+          where: { provider_eventKey: { provider: PROVIDER, eventKey } }, data: { processedAt: new Date() },
+        });
+        await tx.financialAuditLog.create({
+          data: {
+            actorUserId: 'system:paystack-webhook', action: eventType.toUpperCase().replace('.', '_'),
+            entityType: 'PayoutRequest', entityId: current.id,
+            metadata: { reference: current.reference, providerTransferCode: verified.transfer_code || null, amountMinor: current.amountMinor, currency: current.currency },
+          },
+        });
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      return { received: true, transferEventProcessed: true };
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+        return { received: true, duplicate: true };
+      }
+      throw error;
+    }
+  }
+
 
 }
