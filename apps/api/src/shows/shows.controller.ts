@@ -4,6 +4,7 @@ import { CreateShowDto } from './dto/create-show.dto';
 import { UpdateShowDto } from './dto/update-show.dto';
 import { CreateEpisodeDto } from './dto/create-episode.dto';
 import { UpdateEpisodeDto } from './dto/update-episode.dto';
+import { SaveProgressDto } from './dto/save-progress.dto';
 import { ShowsService } from './shows.service';
 
 @Controller()
@@ -76,8 +77,8 @@ export class ShowsController {
 
   @Put('episodes/:episodeId/progress')
   @UseGuards(JwtAuthGuard)
-  saveProgress(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string, @Body('positionSeconds') positionSeconds: number) {
-    return this.shows.saveProgress(req.user.id, episodeId, positionSeconds);
+  saveProgress(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string, @Body() input: SaveProgressDto) {
+    return this.shows.saveProgress(req.user.id, episodeId, input.positionSeconds);
   }
 
   @Get('me/playback-progress')
