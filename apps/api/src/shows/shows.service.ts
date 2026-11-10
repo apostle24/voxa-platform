@@ -25,6 +25,30 @@ export class ShowsService {
     return show;
   }
 
+  async listMyShows(userId: string) {
+    const creator = await this.requireCreator(userId);
+    return this.prisma.show.findMany({
+      where: { creatorId: creator.id },
+      orderBy: { updatedAt: 'desc' },
+      take: 100,
+      select: {
+        id: true, title: true, description: true, status: true, category: true,
+        artworkUrl: true, publishedAt: true, updatedAt: true,
+        episodes: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true, title: true, description: true, status: true,
+            durationSeconds: true, mediaKey: true, publishedAt: true,
+            mediaAssets: {
+              orderBy: { createdAt: 'desc' }, take: 1,
+              select: { id: true, status: true, contentType: true, sizeBytes: true },
+            },
+          },
+        },
+      },
+    });
+  }
+
   async createShow(userId: string, input: CreateShowDto) {
     const creator = await this.requireCreator(userId);
     return this.prisma.show.create({
