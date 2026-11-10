@@ -82,3 +82,8 @@ Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in the API enviro
 Added `POST /v1/live/rooms/:roomId/end`. Only the room host can call it. The API asks LiveKit to delete the room (which forcibly disconnects participants), then marks the VOXA room as ENDED and closes active stage memberships. Repeated requests for an already-ended room return its ended state.
 
 The LiveKit room deletion call requires valid server credentials. If LiveKit is unavailable, the API does not falsely report that participants were disconnected; the request fails and the room record is not marked ended.
+
+
+### Host speaker removal
+
+- `POST /v1/live/rooms/:roomId/speakers/:speakerId/remove` — host-only operation. The API removes the active stage member through LiveKit, then records their stage departure. On LiveKit Cloud, participant removal also revokes their current access token. A removed participant must request the stage again and receive a new token to speak.
