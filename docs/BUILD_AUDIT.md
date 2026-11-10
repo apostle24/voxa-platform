@@ -204,3 +204,11 @@ Media processing is still not production complete: the current workflow uses ori
 - The API suite now contains 18 unit test cases across authentication, ledger transfer validation/idempotency, restricted LIVE access, GHS membership currency enforcement, show publishing preconditions and bounded playback progress.
 - The repository README has been refreshed to match the current codebase and to remove claims that mobile/shared-contract source trees already exist.
 - The new podcast listener/creator pages compile in CI. No live database, object-storage bucket, LiveKit account or payment merchant was used to test real user journeys.
+
+
+## Creator monetization and long-form playback progress
+
+- Creator Studio now lists the creator's own GHS monthly membership plans through `GET /v1/creators/me/membership-plans`, allows plan creation, and allows draft episodes to be marked members-only when an active plan exists.
+- Membership-gated playback remains server-checked; listeners must be authenticated and have an active membership period.
+- Signed playback URLs now default to a one-hour lifetime (configurable up to six hours) to avoid short expirations during long-form audio/video playback. Upload URL lifetime remains separately short.
+- The latest changes are awaiting the next full CI run; do not treat the membership Studio UI and playback URL adjustment as build-verified until that run completes.
