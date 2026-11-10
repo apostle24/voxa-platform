@@ -1,0 +1,11 @@
+'use client';
+
+import Link from 'next/link';
+import { useState } from 'react';
+
+const API=(process.env.NEXT_PUBLIC_VOXA_API_URL||'http://localhost:3000/v1').replace(/\/$/,'');
+export default function CreatorSetupPage(){
+ const [handle,setHandle]=useState('');const [bio,setBio]=useState('');const [error,setError]=useState('');const [busy,setBusy]=useState(false);
+ async function submit(event:React.FormEvent){event.preventDefault();setBusy(true);setError('');try{const token=sessionStorage.getItem('voxa_access_token');if(!token)throw new Error('Sign in first.');const response=await fetch(API+'/creators/me',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({handle,bio})});const data=await response.json();if(!response.ok)throw new Error(data.message||'Could not create profile');window.location.href='/creator/'+data.handle;}catch(e){setError(e instanceof Error?e.message:'Could not create profile');}finally{setBusy(false);}}
+ return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← Explore LIVE</Link></nav><section className="authCard"><div className="eyebrow">CREATOR COMMUNITY</div><h1>Create your creator profile.</h1><p>Choose your public handle and tell listeners what you create.</p><form onSubmit={submit}><label>Creator handle</label><input value={handle} onChange={e=>setHandle(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,''))} minLength={3} maxLength={24} required placeholder="yourname" /><label>Short bio</label><textarea value={bio} onChange={e=>setBio(e.target.value)} maxLength={500} rows={4} placeholder="What do you want people to know about your voice?" /><small>Handles use letters, numbers and underscores. Your profile will be public.</small>{error&&<p className="errorText">{error}</p>}<button className="button full" disabled={busy}>{busy?'Creating…':'Create creator profile ↗'}</button></form></section></main>;
+}
