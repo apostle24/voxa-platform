@@ -505,6 +505,10 @@ export class PaymentsService {
     for (const payment of matured) {
       try {
         await this.prisma.$transaction(async tx => {
+          // Share the worker's transaction-scoped lock so on-demand earnings
+          // reads cannot race a scheduled batch on the same ledger entries.
+          const lock = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(731904221, 7) AS locked`;
+          if (!lock[0]?.locked) return;
           const pending = await tx.ledgerAccount.upsert({
             where: { accountKey: 'user:' + creator.userId + ':creator-pending:' + payment.currency },
             create: {
@@ -555,7 +559,7 @@ export class PaymentsService {
         where: { provider: PROVIDER, status: PaymentAttemptStatus.PAID, paidAt: { lte: cutoff } },
         select: { reference: true, creatorNetMinor: true, currency: true, creator: { select: { userId: true } } },
         orderBy: { paidAt: 'asc' },
-        take: 500,
+        take: 100,
       });
       let released = 0;
       for (const payment of matured) {
