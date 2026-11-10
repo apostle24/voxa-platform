@@ -84,13 +84,26 @@ export class MediaService {
     return { uploaded: true, episodeId, mediaAssetId: asset.id, processingStatus: asset.status, mediaKey: objectKey, sizeBytes: head.ContentLength, contentType: head.ContentType };
   }
 
-  async getPlaybackUrl(episodeId: string) {
+  async getPlaybackUrl(episodeId: string, userId?: string) {
     this.ensureConfigured();
     const episode = await this.prisma.episode.findFirst({
       where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
-      select: { mediaKey: true },
+      select: { mediaKey: true, membershipRequired: true, show: { select: { creatorId: true } } },
     });
     if (!episode?.mediaKey) throw new NotFoundException('Published media not found');
+    if (episode.membershipRequired) {
+      if (!userId) throw new ForbiddenException('Sign in and hold an active creator membership to access this episode');
+      const membership = await this.prisma.membershipSubscription.findFirst({
+        where: {
+          subscriberId: userId,
+          creatorId: episode.show.creatorId,
+          status: 'ACTIVE',
+          currentPeriodEnd: { gt: new Date() },
+        },
+        select: { id: true },
+      });
+      if (!membership) throw new ForbiddenException('An active creator membership is required to access this episode');
+    }
     const expiresIn = Math.max(60, Math.min(900, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 300))));
     const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: episode.mediaKey }), { expiresIn });
     return { url, expiresIn };
