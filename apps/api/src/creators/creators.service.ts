@@ -36,6 +36,16 @@ export class CreatorsService {
     });
   }
 
+  async updateMyProfile(userId: string, bio?: string) {
+    const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true } });
+    if (!creator) throw new NotFoundException('Create a creator profile first');
+    return this.prisma.creator.update({
+      where: { userId },
+      data: { bio: bio?.trim() || null },
+      select: { id: true, handle: true, bio: true, verifiedAt: true, createdAt: true },
+    });
+  }
+
   async getByHandle(handle: string) {
     const creator = await this.prisma.creator.findUnique({
       where: { handle: handle.toLowerCase() },
