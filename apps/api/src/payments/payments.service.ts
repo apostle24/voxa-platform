@@ -232,4 +232,54 @@ export class PaymentsService {
       throw error;
     }
   }
+
+  async getCreatorEarnings(userId: string) {
+    const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true } });
+    if (!creator) throw new ForbiddenException('Creator profile required');
+    const accounts = await this.prisma.ledgerAccount.findMany({
+      where: { ownerId: userId, type: { in: [LedgerAccountType.CREATOR_PENDING, LedgerAccountType.CREATOR_AVAILABLE] } },
+      select: { id: true, type: true, currency: true },
+    });
+    const accountIds = accounts.map(account => account.id);
+    if (!accountIds.length) return { balances: [], transactions: [] };
+    const totals = await this.prisma.ledgerEntry.groupBy({
+      by: ['accountId', 'direction'],
+      where: { accountId: { in: accountIds } },
+      _sum: { amountMinor: true },
+    });
+    const balances = accounts.map(account => {
+      const credit = totals.find(row => row.accountId === account.id && row.direction === 'CREDIT')?._sum.amountMinor || 0;
+      const debit = totals.find(row => row.accountId === account.id && row.direction === 'DEBIT')?._sum.amountMinor || 0;
+      return {
+        type: account.type,
+        currency: account.currency,
+        balanceMinor: credit - debit,
+      };
+    });
+    const transactions = await this.prisma.ledgerTransaction.findMany({
+      where: { entries: { some: { accountId: { in: accountIds } } } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true, type: true, currency: true, amountMinor: true, reference: true, createdAt: true,
+        entries: { where: { accountId: { in: accountIds } }, select: { direction: true, amountMinor: true } },
+      },
+    });
+    return { balances, transactions };
+  }
+
+  async getMyPaymentHistory(userId: string) {
+    return this.prisma.paymentAttempt.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      select: {
+        id: true, reference: true, amountMinor: true, currency: true, status: true,
+        checkoutUrl: true, paidAt: true, createdAt: true,
+        creator: { select: { handle: true } },
+        plan: { select: { name: true } },
+      },
+    });
+  }
+
 }
