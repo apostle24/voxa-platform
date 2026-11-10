@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateMembershipCheckoutDto } from './dto/create-membership-checkout.dto';
 import { PaymentsService } from './payments.service';
@@ -21,6 +21,12 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   creatorEarnings(@Req() req: AuthenticatedRequest) {
     return this.payments.getCreatorEarnings(req.user.id);
+  }
+
+  @Get('me/payments/:reference')
+  @UseGuards(JwtAuthGuard)
+  myPaymentAttempt(@Req() req: AuthenticatedRequest, @Param('reference') reference: string) {
+    return this.payments.getMyPaymentAttempt(req.user.id, reference);
   }
 
   @Get('me/payments')
