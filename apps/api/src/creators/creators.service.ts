@@ -45,7 +45,18 @@ export class CreatorsService {
         bio: true,
         verifiedAt: true,
         createdAt: true,
-        user: { select: { displayName: true } },
+        user: {
+          select: {
+            displayName: true,
+            liveRooms: { where: { status: 'LIVE', visibility: 'PUBLIC' }, orderBy: { startedAt: 'desc' }, take: 3,
+              select: { id: true, title: true, description: true, startedAt: true } },
+          },
+        },
+        shows: {
+          where: { status: 'PUBLISHED' }, orderBy: { publishedAt: 'desc' }, take: 12,
+          select: { id: true, title: true, description: true, artworkUrl: true, category: true, publishedAt: true,
+            _count: { select: { episodes: true } } },
+        },
         _count: { select: { followers: true, shows: true } },
       },
     });
