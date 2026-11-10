@@ -3,6 +3,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
   ServiceUnavailableException,
   UnauthorizedException,
@@ -16,7 +17,32 @@ const PAYSTACK_API = 'https://api.paystack.co';
 
 @Injectable()
 export class PaymentsService {
+  private readonly logger = new Logger(PaymentsService.name);
+  private settlementTimer?: ReturnType<typeof setInterval>;
+  private settlementRunInProgress = false;
+
   constructor(private readonly prisma: PrismaService) {}
+
+  onModuleInit() {
+    if (process.env.SETTLEMENT_WORKER_ENABLED !== 'true') {
+      this.logger.log('Scheduled settlement worker is disabled');
+      return;
+    }
+    const intervalMs = Math.max(15_000, Number(process.env.SETTLEMENT_WORKER_INTERVAL_MS || 60_000));
+    this.logger.log('Scheduled settlement worker enabled; interval ' + intervalMs + 'ms');
+    void this.runScheduledSettlementBatch().catch(error => this.logger.error('Initial settlement batch failed', error instanceof Error ? error.stack : String(error)));
+    this.settlementTimer = setInterval(() => {
+      if (this.settlementRunInProgress) return;
+      this.settlementRunInProgress = true;
+      void this.runScheduledSettlementBatch()
+        .catch(error => this.logger.error('Scheduled settlement batch failed', error instanceof Error ? error.stack : String(error)))
+        .finally(() => { this.settlementRunInProgress = false; });
+    }, intervalMs);
+  }
+
+  onModuleDestroy() {
+    if (this.settlementTimer) clearInterval(this.settlementTimer);
+  }
 
   private secretKey() {
     const secret = process.env.PAYSTACK_SECRET_KEY;
@@ -509,6 +535,56 @@ export class PaymentsService {
       }
     }
     return { releasedPaymentsChecked: matured.length, settlementHoldDays: 7 };
+  }
+
+  /**
+   * Global scheduled settlement worker. A transaction-scoped PostgreSQL advisory
+   * lock prevents two API replicas from releasing the same batch concurrently.
+   * Each payment still has a stable ledger idempotency key as a second safeguard.
+   */
+  async runScheduledSettlementBatch() {
+    return this.prisma.$transaction(async tx => {
+      const lock = await tx.$queryRaw<Array<{ locked: boolean }>>`SELECT pg_try_advisory_xact_lock(731904221, 7) AS locked`;
+      if (!lock[0]?.locked) return { skipped: true, reason: 'another settlement worker holds the lock', checked: 0, released: 0 };
+
+      const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const matured = await tx.paymentAttempt.findMany({
+        where: { provider: PROVIDER, status: PaymentAttemptStatus.PAID, paidAt: { lte: cutoff } },
+        select: { reference: true, creatorNetMinor: true, currency: true, creator: { select: { userId: true } } },
+        orderBy: { paidAt: 'asc' },
+        take: 500,
+      });
+      let released = 0;
+      for (const payment of matured) {
+        const idempotencyKey = 'settlement-release:' + payment.reference;
+        const existing = await tx.ledgerTransaction.findUnique({ where: { idempotencyKey }, select: { id: true } });
+        if (existing) continue;
+
+        const userId = payment.creator.userId;
+        const pending = await tx.ledgerAccount.upsert({
+          where: { accountKey: 'user:' + userId + ':creator-pending:' + payment.currency },
+          create: { accountKey: 'user:' + userId + ':creator-pending:' + payment.currency, ownerId: userId, type: LedgerAccountType.CREATOR_PENDING, currency: payment.currency },
+          update: {},
+        });
+        const available = await tx.ledgerAccount.upsert({
+          where: { accountKey: 'user:' + userId + ':creator-available:' + payment.currency },
+          create: { accountKey: 'user:' + userId + ':creator-available:' + payment.currency, ownerId: userId, type: LedgerAccountType.CREATOR_AVAILABLE, currency: payment.currency },
+          update: {},
+        });
+        await tx.ledgerTransaction.create({
+          data: {
+            idempotencyKey, type: 'SETTLEMENT_RELEASE', currency: payment.currency,
+            amountMinor: payment.creatorNetMinor, reference: payment.reference,
+            entries: { create: [
+              { accountId: pending.id, direction: 'DEBIT', amountMinor: payment.creatorNetMinor },
+              { accountId: available.id, direction: 'CREDIT', amountMinor: payment.creatorNetMinor },
+            ] },
+          },
+        });
+        released += 1;
+      }
+      return { skipped: false, checked: matured.length, released, settlementHoldDays: 7, batchLimit: 500, cutoff: cutoff.toISOString() };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 });
   }
 
   async createPayoutRequest(userId: string, destinationId: string, amountMinor: number, idempotencyKey: string | undefined) {
