@@ -39,5 +39,7 @@ jobs:
       - run: pnpm --filter @voxa/api prisma:generate
       - name: Typecheck API and web
         run: pnpm -r typecheck
+      - name: Run API unit tests
+        run: pnpm --filter @voxa/api test
       - run: pnpm --filter @voxa/api build
       - run: pnpm --filter @voxa/web build
