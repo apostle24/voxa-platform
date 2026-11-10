@@ -308,6 +308,112 @@ export class PaymentsService {
     }
   }
 
+  async listPayoutDestinations(userId: string) {
+    const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true } });
+    if (!creator) throw new ForbiddenException('Creator profile required');
+    return this.prisma.creatorPayoutDestination.findMany({
+      where: { creatorId: creator.id },
+      orderBy: [{ isDefault: 'desc' }, { createdAt: 'desc' }],
+      select: {
+        id: true, provider: true, currency: true, country: true, channel: true,
+        accountName: true, maskedAccountNumber: true, isVerified: true, isDefault: true,
+        createdAt: true,
+      },
+    });
+  }
+
+  async createPayoutDestination(userId: string, input: {
+    name: string; type: 'ghipss' | 'mobile_money'; bankCode: string; accountNumber: string;
+  }) {
+    const creator = await this.prisma.creator.findUnique({
+      where: { userId }, select: { id: true },
+    });
+    if (!creator) throw new ForbiddenException('Creator profile required');
+    if (process.env.PAYSTACK_TRANSFERS_ENABLED !== 'true') {
+      throw new ServiceUnavailableException(
+        'Creator payout onboarding is not enabled yet. VOXA must first complete Paystack Transfers approval and staging checks.',
+      );
+    }
+
+    const secret = this.secretKey();
+    let response: Response;
+    try {
+      response = await fetch(PAYSTACK_API + '/transferrecipient', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + secret, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: input.type,
+          name: input.name.trim(),
+          account_number: input.accountNumber,
+          bank_code: input.bankCode,
+          currency: 'GHS',
+          metadata: { platform: 'VOXA', creatorId: creator.id },
+        }),
+        signal: AbortSignal.timeout(15000),
+      });
+    } catch {
+      throw new ServiceUnavailableException(
+        'Paystack recipient creation could not be confirmed. Retry after checking your payout destinations.',
+      );
+    }
+
+    const result = await response.json().catch(() => null) as {
+      status?: boolean;
+      message?: string;
+      data?: {
+        active?: boolean;
+        currency?: string;
+        name?: string;
+        recipient_code?: string;
+        type?: string;
+        details?: { account_number?: string; account_name?: string };
+      };
+    } | null;
+    const recipient = result?.data;
+    if (!response.ok || !result?.status || !recipient?.recipient_code || recipient.currency !== 'GHS') {
+      throw new ServiceUnavailableException(result?.message || 'Paystack could not register this payout destination');
+    }
+
+    const existing = await this.prisma.creatorPayoutDestination.findUnique({
+      where: { providerRecipientCode: recipient.recipient_code },
+    });
+    if (existing && existing.creatorId !== creator.id) {
+      throw new ConflictException('This payout destination is already linked to another VOXA creator');
+    }
+    if (existing) return existing;
+
+    const masked = (recipient.details?.account_number || input.accountNumber).slice(-4).padStart(4, '*');
+    const destinationCount = await this.prisma.creatorPayoutDestination.count({ where: { creatorId: creator.id } });
+    return this.prisma.$transaction(async tx => {
+      if (destinationCount === 0) {
+        await tx.creatorPayoutDestination.updateMany({
+          where: { creatorId: creator.id }, data: { isDefault: false },
+        });
+      }
+      return tx.creatorPayoutDestination.create({
+        data: {
+          creatorId: creator.id,
+          provider: PROVIDER,
+          providerRecipientCode: recipient.recipient_code!,
+          currency: 'GHS',
+          country: 'GH',
+          channel: input.type,
+          accountName: recipient.details?.account_name || recipient.name || input.name.trim(),
+          maskedAccountNumber: '••••' + masked.slice(-4),
+          // Paystack's "active" recipient flag means the recipient record is active;
+          // it is not proof of creator identity or account ownership.
+          isVerified: false,
+          isDefault: destinationCount === 0,
+        },
+        select: {
+          id: true, provider: true, currency: true, country: true, channel: true,
+          accountName: true, maskedAccountNumber: true, isVerified: true, isDefault: true,
+          createdAt: true,
+        },
+      });
+    });
+  }
+
   async getCreatorEarnings(userId: string) {
     const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true } });
     if (!creator) throw new ForbiddenException('Creator profile required');
