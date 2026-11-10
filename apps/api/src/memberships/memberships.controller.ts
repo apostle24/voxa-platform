@@ -8,6 +8,12 @@ import { MembershipsService } from './memberships.service';
 export class MembershipsController {
   constructor(private readonly memberships: MembershipsService) {}
 
+  @Get('creators/me/membership-plans')
+  @UseGuards(JwtAuthGuard)
+  myPlans(@Req() req: AuthenticatedRequest) {
+    return this.memberships.myPlans(req.user.id);
+  }
+
   @Get('creators/:handle/membership-plans')
   listPublicPlans(@Param('handle') handle: string) {
     return this.memberships.listPublicPlans(handle);
