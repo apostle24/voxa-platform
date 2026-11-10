@@ -8,7 +8,7 @@ const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1')
 type Episode = {
   id: string; title: string; description?: string | null; status: string;
   durationSeconds?: number | null; mediaKey?: string | null;
-  mediaAssets: { id: string; status: string; contentType: string; sizeBytes: string }[];
+  mediaAssets: { id: string; status: string; contentType: string }[];
 };
 type Show = {
   id: string; title: string; description?: string | null; status: string;
