@@ -24,4 +24,10 @@ export class MediaController {
   playbackUrl(@Param('episodeId') episodeId: string) {
     return this.media.getPlaybackUrl(episodeId);
   }
+
+  @Get('episodes/:episodeId/member-playback-url')
+  @UseGuards(JwtAuthGuard)
+  memberPlaybackUrl(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.media.getPlaybackUrl(episodeId, req.user.id);
+  }
 }
