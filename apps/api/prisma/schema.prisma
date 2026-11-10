@@ -436,6 +436,19 @@ model PayoutRequest {
   @@index([provider, status, requestedAt])
 }
 
+model FinancialAuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  action      String
+  entityType  String
+  entityId    String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId, createdAt])
+  @@index([entityType, entityId, createdAt])
+}
+
 model PaymentWebhookEvent {
   id          String   @id @default(cuid())
   provider    String
