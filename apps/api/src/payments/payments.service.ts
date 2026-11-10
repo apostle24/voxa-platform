@@ -590,8 +590,8 @@ export class PaymentsService {
         });
         released += 1;
       }
-      return { skipped: false, checked: matured.length, released, settlementHoldDays: 7, batchLimit: 500, cutoff: cutoff.toISOString() };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30_000 });
+      return { skipped: false, checked: matured.length, released, settlementHoldDays: 7, batchLimit: 100, cutoff: cutoff.toISOString() };
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 60_000 });
   }
 
   async createPayoutRequest(userId: string, destinationId: string, amountMinor: number, idempotencyKey: string | undefined) {
