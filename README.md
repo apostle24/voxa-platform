@@ -167,6 +167,7 @@ Initial live-room API routes are now available:
 - `POST /v1/live/rooms` — create a room (authentication required).
 - `POST /v1/live/rooms/:roomId/join-token` — issue a short-lived LiveKit participant token.
 - `POST /v1/live/rooms/:roomId/end` — host ends the room and LiveKit disconnects all participants.
+- `POST /v1/live/rooms/:roomId/speakers/:speakerId/remove` — host removes an approved speaker and disconnects them from LiveKit.
 - `POST /v1/live/rooms/:roomId/stage-requests` — request to join the speaker stage.
 - `POST /v1/live/rooms/:roomId/stage-requests/:requestId/approve` — host approves a speaker.
 - `POST /v1/live/rooms/:roomId/stage-requests/:requestId/reject` — host rejects a speaker.
