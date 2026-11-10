@@ -59,4 +59,19 @@ Never implement gifts as a client-side balance decrement or a client-side earnin
 
 ## Technical integration
 
-Recommended media layer: LiveKit / WebRTC SFU. API issues short-lived room tokens and applies room authorization. Application services own chat policy, stage approvals, gift ledger, room metadata, moderation, and replay entitlements. See https://docs.livekit.io/ for provider integration documentation.
+LiveKit / WebRTC SFU is the real-time media layer. The API issues short-lived room tokens and applies room authorization. Application services own chat policy, stage approvals, gift ledger, room metadata, moderation, and replay entitlements. See https://docs.livekit.io/ for provider integration documentation.
+
+## Step 7 — LiveKit room authorization foundation
+
+The API now includes these initial endpoints:
+
+- `GET /v1/live/rooms` — list public live and scheduled rooms.
+- `POST /v1/live/rooms` — authenticated user creates a room.
+- `POST /v1/live/rooms/:roomId/join-token` — authenticated participant receives a short-lived LiveKit token.
+- `POST /v1/live/rooms/:roomId/stage-requests` — audience member requests to speak.
+- `POST /v1/live/rooms/:roomId/stage-requests/:requestId/approve` — room host approves a speaker.
+- `POST /v1/live/rooms/:roomId/stage-requests/:requestId/reject` — room host rejects a request.
+
+Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in the API environment. Keep the API secret server-side. A room is marked LIVE when its host first requests a join token. Tokens expire after ten minutes. Hosts and approved stage members receive publish permission; audience tokens are subscribe-only.
+
+**Not yet implemented:** client-side LiveKit SDK integration, chat/reactions, stage capacity limits, moderator roles, room ending/cleanup, recording, replay, scheduled-room start orchestration, restricted-room entitlements, abuse throttling, and automated integration tests. Membership/private rooms are deliberately denied to non-hosts until entitlement checks exist. A real LiveKit project and credentials are required before live media can connect.
