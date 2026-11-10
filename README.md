@@ -17,6 +17,7 @@ VOXA is a global audio, video, podcast, creator, and community platform. The pro
 
 - `apps/mobile` — Expo / React Native client foundation.
 - `apps/api` — NestJS API foundation.
+- `apps/web` — Next.js web client foundation (landing page, account sign-in/registration, LIVE discovery, room controls).
 - `packages/contracts` — shared API/event contracts (planned).
 - `infra` — local development dependencies.
 - `docs` — product, architecture, live, security, and delivery specifications.
@@ -177,3 +178,19 @@ Configure `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in `apps/ap
 The database now enforces one stage request per participant per room. Apply the migration with the documented Prisma migration workflow.
 
 **Not production complete:** a real LiveKit project and credentials are required. The web/mobile LiveKit client, chat, reactions, moderator roles, stage capacity limits, room ending, recording/replay, restricted-room entitlements, abuse throttling, and automated integration tests remain to be built. Members-only and private rooms reject non-host participants until entitlement checks are implemented.
+
+
+## Web client (early MVP)
+
+The Next.js app lives in `apps/web`.
+
+1. Copy `apps/web/.env.example` to `apps/web/.env.local`.
+2. Set `NEXT_PUBLIC_VOXA_API_URL` to the API base URL, including `/v1`.
+3. Add the web origin to the API's `CORS_ORIGINS` setting.
+4. Install workspace dependencies from the repository root with `pnpm install`.
+5. Start the web client with `pnpm --filter @voxa/web dev`.
+6. Open `http://localhost:3001` (or the port shown by Next.js).
+
+The client includes email/password sign-in and registration, public live-room discovery, room creation, LiveKit connection, microphone/camera controls, audience stage requests, host approval/rejection, and speaker removal. The current MVP stores its short-lived access token in `sessionStorage`; this is a development convenience, not the production session design. Add secure HTTP-only cookie sessions, refresh-token rotation, CSRF protection, and rate limiting before production.
+
+The live room UI refreshes stage state periodically. It does not yet include real-time chat, reactions, audience counts from LiveKit, moderator roles, recording, replay, or complete accessibility and device-selection controls. LiveKit credentials, a working API/database deployment, and browser microphone/camera permissions are required for an actual broadcast.
