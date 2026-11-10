@@ -68,7 +68,7 @@ export class MediaService {
     const prefix = `users/${userId}/episodes/${episodeId}/`;
     if (!objectKey.startsWith(prefix) || objectKey.includes('..')) throw new ForbiddenException('Invalid media object key');
     const head = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: objectKey }));
-    if (!head.ContentLength || !head.ContentType || !EXTENSIONS[head.ContentType]) {
+    if (!head.ContentLength || !head.ContentType || !EXTENSIONS[head.ContentType] || head.Metadata?.ownerid !== userId || head.Metadata?.episodeid !== episodeId) {
       throw new ConflictException('Uploaded media is empty or has an unsupported content type');
     }
     const maxBytes = head.ContentType.startsWith('video/')
