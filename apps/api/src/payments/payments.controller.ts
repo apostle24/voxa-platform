@@ -4,6 +4,7 @@ import { CreateMembershipCheckoutDto } from './dto/create-membership-checkout.dt
 import { CreatePayoutDestinationDto } from './dto/create-payout-destination.dto';
 import { CreatePayoutRequestDto } from './dto/create-payout-request.dto';
 import { VerifyPayoutDestinationDto } from './dto/verify-payout-destination.dto';
+import { AdminPayoutActionDto } from './dto/admin-payout-action.dto';
 import { PaymentsService } from './payments.service';
 
 type WebhookRequest = {
@@ -100,6 +101,20 @@ export class PaymentsController {
   adminMarkPayoutUnderReview(@Req() req: AuthenticatedRequest, @Param('payoutRequestId') payoutRequestId: string) {
     if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
     return this.payments.markPayoutRequestUnderReview(req.user.id, payoutRequestId);
+  }
+
+  @Patch('admin/finance/payout-requests/:payoutRequestId/approve')
+  @UseGuards(JwtAuthGuard)
+  adminApprovePayout(@Req() req: AuthenticatedRequest, @Param('payoutRequestId') payoutRequestId: string, @Body() input: AdminPayoutActionDto) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
+    return this.payments.approvePayoutRequest(req.user.id, payoutRequestId, input.reason);
+  }
+
+  @Post('admin/finance/payout-requests/:payoutRequestId/submit')
+  @UseGuards(JwtAuthGuard)
+  adminSubmitPayout(@Req() req: AuthenticatedRequest, @Param('payoutRequestId') payoutRequestId: string) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
+    return this.payments.submitApprovedPayout(req.user.id, payoutRequestId);
   }
 
   @Post('webhooks/paystack')
