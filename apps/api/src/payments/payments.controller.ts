@@ -3,6 +3,7 @@ import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateMembershipCheckoutDto } from './dto/create-membership-checkout.dto';
 import { CreatePayoutDestinationDto } from './dto/create-payout-destination.dto';
 import { CreatePayoutRequestDto } from './dto/create-payout-request.dto';
+import { VerifyPayoutDestinationDto } from './dto/verify-payout-destination.dto';
 import { PaymentsService } from './payments.service';
 
 type WebhookRequest = {
@@ -82,9 +83,9 @@ export class PaymentsController {
 
   @Patch('admin/finance/payout-destinations/:destinationId/verify')
   @UseGuards(JwtAuthGuard)
-  adminVerifyPayoutDestination(@Req() req: AuthenticatedRequest, @Param('destinationId') destinationId: string) {
+  adminVerifyPayoutDestination(@Req() req: AuthenticatedRequest, @Param('destinationId') destinationId: string, @Body() input: VerifyPayoutDestinationDto) {
     if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
-    return this.payments.verifyPayoutDestination(req.user.id, destinationId);
+    return this.payments.verifyPayoutDestination(req.user.id, destinationId, input);
   }
 
   @Get('admin/finance/payout-requests')
