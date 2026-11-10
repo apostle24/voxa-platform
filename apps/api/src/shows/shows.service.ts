@@ -73,7 +73,6 @@ export class ShowsService {
         showId,
         title: input.title.trim(),
         description: input.description?.trim() || null,
-        mediaKey: input.mediaKey?.trim() || null,
         artworkUrl: input.artworkUrl || null,
         durationSeconds: input.durationSeconds,
         isExplicit: input.isExplicit ?? false,
@@ -94,7 +93,6 @@ export class ShowsService {
       data: {
         ...(input.title !== undefined ? { title: input.title.trim() } : {}),
         ...(input.description !== undefined ? { description: input.description.trim() || null } : {}),
-        ...(input.mediaKey !== undefined ? { mediaKey: input.mediaKey.trim() || null } : {}),
         ...(input.artworkUrl !== undefined ? { artworkUrl: input.artworkUrl || null } : {}),
         ...(input.durationSeconds !== undefined ? { durationSeconds: input.durationSeconds } : {}),
         ...(input.isExplicit !== undefined ? { isExplicit: input.isExplicit } : {}),
@@ -190,4 +188,56 @@ export class ShowsService {
       select: { episodeId: true, positionSeconds: true, completed: true, updatedAt: true, episode: { select: { title: true, artworkUrl: true, durationSeconds: true, show: { select: { id: true, title: true } } } } },
     });
   }
+
+  async discoverShows(params: { q?: string; category?: string; language?: string; cursor?: string; limit?: number }) {
+    const limit = Math.max(1, Math.min(50, Number(params.limit) || 20));
+    const where: any = { status: PublicationStatus.PUBLISHED };
+    if (params.category) where.category = { equals: params.category, mode: 'insensitive' };
+    if (params.language) where.language = { equals: params.language, mode: 'insensitive' };
+    if (params.q) where.OR = [
+      { title: { contains: params.q, mode: 'insensitive' } },
+      { description: { contains: params.q, mode: 'insensitive' } },
+      { creator: { handle: { contains: params.q, mode: 'insensitive' } } },
+    ];
+    const items = await this.prisma.show.findMany({
+      where, take: limit + 1, ...(params.cursor ? { skip: 1, cursor: { id: params.cursor } } : {}),
+      orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, title: true, description: true, language: true, category: true, artworkUrl: true, publishedAt: true,
+        creator: { select: { handle: true, user: { select: { displayName: true } } } },
+        _count: { select: { episodes: { where: { status: PublicationStatus.PUBLISHED } } } } },
+    });
+    const hasMore = items.length > limit;
+    const page = hasMore ? items.slice(0, limit) : items;
+    return { items: page, nextCursor: hasMore ? page[page.length - 1].id : null };
+  }
+
+  async discoverEpisodes(params: { q?: string; category?: string; language?: string; cursor?: string; limit?: number }) {
+    const limit = Math.max(1, Math.min(50, Number(params.limit) || 20));
+    const where: any = { status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } };
+    if (params.category) where.show.category = { equals: params.category, mode: 'insensitive' };
+    if (params.language) where.show.language = { equals: params.language, mode: 'insensitive' };
+    if (params.q) where.OR = [
+      { title: { contains: params.q, mode: 'insensitive' } },
+      { description: { contains: params.q, mode: 'insensitive' } },
+      { show: { title: { contains: params.q, mode: 'insensitive' } } },
+    ];
+    const items = await this.prisma.episode.findMany({
+      where, take: limit + 1, ...(params.cursor ? { skip: 1, cursor: { id: params.cursor } } : {}),
+      orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, publishedAt: true,
+        show: { select: { id: true, title: true, category: true, language: true, creator: { select: { handle: true, user: { select: { displayName: true } } } } } } },
+    });
+    const hasMore = items.length > limit;
+    const page = hasMore ? items.slice(0, limit) : items;
+    return { items: page, nextCursor: hasMore ? page[page.length - 1].id : null };
+  }
+
+  async discoveryCategories() {
+    const categories = await this.prisma.show.findMany({
+      where: { status: PublicationStatus.PUBLISHED, category: { not: null }, episodes: { some: { status: PublicationStatus.PUBLISHED } } },
+      distinct: ['category'], orderBy: { category: 'asc' }, select: { category: true },
+    });
+    return { items: categories.map(item => item.category).filter((value): value is string => !!value) };
+  }
+
 }
