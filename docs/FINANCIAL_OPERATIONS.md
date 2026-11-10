@@ -2,11 +2,13 @@
 
 ## Current release boundary
 
-The current Paystack integration is a GHS-only, one-time monthly membership checkout foundation. It verifies signed webhooks and independently verifies transactions with Paystack before activating membership. It records gross membership value in a double-entry ledger.
+The current Paystack integration is a GHS-only, one-time monthly membership checkout foundation. It verifies signed webhooks and independently verifies transactions with Paystack before activating membership. Membership revenue is allocated using a 1,500 basis-point (15%) VOXA platform commission snapshot on each payment attempt. The creator receives 85% of gross membership value before any provider fees; the platform commission is recorded as VOXA revenue. Paystack's verified transaction `fees` field is recorded as a separate platform processing expense and is not deducted from creator earnings.
 
 It is not yet a payout-ready wallet:
-- Creator receipts are currently recorded in a creator-pending account.
-- There is no platform commission policy, settlement hold/release process, withdrawal request, beneficiary onboarding, payout execution, refund workflow, chargeback workflow, or financial reconciliation job.
+- Creator net receipts (85% of gross) are recorded in a creator-pending account. VOXA's 15% commission is credited to a separate platform-revenue account.
+- When Paystack returns a valid non-negative `fees` amount on its server-side transaction verification response, that cost is posted as a separate provider-processing-fee expense and reduces the platform-clearing account. It does not reduce the creator's recorded net earnings.
+- Payout destination records and payout request records now exist in the schema. A gated API can register Ghanaian GHS Paystack recipients and stores only the provider recipient code and masked account number. Destinations are deliberately not marked verified yet.
+- There is no settlement hold/release process, withdrawal execution, refund workflow, chargeback workflow, or financial reconciliation job. Payout destinations are only an onboarding foundation; no withdrawal can be requested or paid yet.
 - A displayed pending ledger balance must not be described as cash available to withdraw.
 - No live payment should be accepted until the merchant account, test flow, database migrations, webhook delivery, and operational controls have been verified.
 
@@ -38,7 +40,7 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 
 ## Required financial rules before creator withdrawals
 
-1. **Platform commission:** product owner must approve the percentage and whether provider fees are absorbed by VOXA or passed through. Do not silently invent a fee.
+1. **Platform commission:** proposed creator membership commission is 15% (1,500 bps), approved by the product owner on 2026-11-10. Each payment attempt snapshots the rate and amounts so future rate changes cannot rewrite past transactions. Provider fees remain separate platform expenses.
 2. **Settlement hold:** product owner must approve the hold period and any minimum payout threshold. Pending funds cannot become withdrawable merely because a webhook arrived.
 3. **Double-entry ledger:** every collection, fee, reserve, release, refund, chargeback, and payout must post balanced immutable entries in one database transaction.
 4. **Idempotency:** every provider webhook, payout request, and transfer must have a stable unique key. Replays must not move money twice.
@@ -48,6 +50,14 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 8. **Risk controls:** velocity limits, minimum/maximum thresholds, fraud review, account takeover controls, sanctions/compliance review where applicable, and a manual admin hold path.
 9. **Reconciliation:** regularly compare local attempts, provider transactions, settlement balances, transfers, fees, refunds, and chargebacks. Unmatched entries must alert operators.
 10. **Operational separation:** use test keys in development/staging and live keys only in production secrets. Never place secrets in the browser, source control, logs, or support tickets.
+
+## Implemented in this milestone
+
+- Membership attempts snapshot a 15% platform fee and creator net amount.
+- Successful payment ledger postings balance gross clearing debit against creator pending credit plus platform revenue credit.
+- Paystack's verified `fees` amount, when returned as a valid integer, is posted through a separate provider-processing-fee ledger transaction.
+- Creator earnings API and dashboard now show the creator's ledger impact rather than the gross transaction amount.
+- Payout destination onboarding endpoint: `GET /v1/creators/me/payout-destinations` and `POST /v1/creators/me/payout-destinations`. It is disabled unless `PAYSTACK_TRANSFERS_ENABLED=true`, only accepts Ghana GHS bank/mobile-money recipient types, sends account details directly to Paystack, and stores only a masked account number plus provider recipient code. New destinations are not treated as identity-verified.
 
 ## Implementation sequence
 
@@ -64,6 +74,7 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 Keep all provider credentials on the API server:
 - `PAYSTACK_SECRET_KEY` — use the Paystack test secret key in staging; live secret key only in production.
 - `PAYSTACK_CALLBACK_URL` — the public web payment-return URL.
+- `PAYSTACK_TRANSFERS_ENABLED=false` — keep false until Paystack approves VOXA's Transfers product and the staging payout flow is reviewed. Do not enable just because the API key exists.
 - `DATABASE_URL` — PostgreSQL connection string.
 - `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_URL` — server-side LiveKit credentials for live rooms.
 
