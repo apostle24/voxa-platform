@@ -688,6 +688,60 @@ export class PaymentsService {
   }
 
 
+  async getAdminFinanceOverview() {
+    const accounts = await this.prisma.ledgerAccount.findMany({ select: { id: true, type: true, currency: true } });
+    const accountIds = accounts.map(account => account.id);
+    const entries = accountIds.length ? await this.prisma.ledgerEntry.groupBy({
+      by: ['accountId', 'direction'], where: { accountId: { in: accountIds } }, _sum: { amountMinor: true },
+    }) : [];
+    const balance = (accountId: string, normal: 'CREDIT' | 'DEBIT') => {
+      const credit = entries.find(row => row.accountId === accountId && row.direction === 'CREDIT')?._sum.amountMinor || 0;
+      const debit = entries.find(row => row.accountId === accountId && row.direction === 'DEBIT')?._sum.amountMinor || 0;
+      return normal === 'CREDIT' ? credit - debit : debit - credit;
+    };
+    const currencies = Array.from(new Set(accounts.map(account => account.currency)));
+    const payments = await this.prisma.paymentAttempt.groupBy({
+      by: ['currency'], where: { status: PaymentAttemptStatus.PAID },
+      _sum: { amountMinor: true, platformFeeMinor: true, creatorNetMinor: true, providerFeeMinor: true },
+      _count: { _all: true },
+    });
+    const payouts = await this.prisma.payoutRequest.groupBy({
+      by: ['currency', 'status'], _sum: { amountMinor: true }, _count: { _all: true },
+    });
+    const balances = currencies.map(currency => {
+      const matching = accounts.filter(account => account.currency === currency);
+      const sumType = (type: LedgerAccountType, normal: 'CREDIT' | 'DEBIT') =>
+        matching.filter(account => account.type === type).reduce((total, account) => total + balance(account.id, normal), 0);
+      const payment = payments.find(row => row.currency === currency);
+      const payoutRows = payouts.filter(row => row.currency === currency);
+      const creatorPending = sumType(LedgerAccountType.CREATOR_PENDING, 'CREDIT');
+      const creatorAvailable = sumType(LedgerAccountType.CREATOR_AVAILABLE, 'CREDIT');
+      const payoutHolds = sumType(LedgerAccountType.CREATOR_PAYOUT_HOLD, 'CREDIT');
+      return {
+        currency, collectionsGrossMinor: payment?._sum.amountMinor || 0,
+        platformCommissionMinor: sumType(LedgerAccountType.PLATFORM_REVENUE, 'CREDIT'),
+        creatorPendingMinor: creatorPending, creatorAvailableMinor: creatorAvailable,
+        payoutHoldsMinor: payoutHolds, creatorLiabilitiesMinor: creatorPending + creatorAvailable + payoutHolds,
+        providerFeeExpenseMinor: sumType(LedgerAccountType.PROVIDER_FEE_EXPENSE, 'DEBIT'),
+        platformClearingBalanceMinor: sumType(LedgerAccountType.PLATFORM_CLEARING, 'DEBIT'),
+        paidMembershipCount: payment?._count._all || 0,
+        payouts: payoutRows.map(row => ({ status: row.status, amountMinor: row._sum.amountMinor || 0, count: row._count._all })),
+      };
+    });
+    const [recentLedgerTransactions, recentAuditEvents] = await Promise.all([
+      this.prisma.ledgerTransaction.findMany({
+        orderBy: { createdAt: 'desc' }, take: 20,
+        select: { id: true, type: true, currency: true, amountMinor: true, reference: true, createdAt: true,
+          entries: { select: { direction: true, amountMinor: true, account: { select: { type: true } } } } },
+      }),
+      this.prisma.financialAuditLog.findMany({
+        orderBy: { createdAt: 'desc' }, take: 20,
+        select: { id: true, actorUserId: true, action: true, entityType: true, entityId: true, createdAt: true },
+      }),
+    ]);
+    return { generatedAt: new Date().toISOString(), balances, recentLedgerTransactions, recentAuditEvents };
+  }
+
   async listAdminPayoutDestinations() {
     return this.prisma.creatorPayoutDestination.findMany({
       where: { isVerified: false },
