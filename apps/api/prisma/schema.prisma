@@ -278,6 +278,8 @@ model MembershipSubscription {
   subscriberId           String
   creatorId              String
   planId                 String
+  priceMinor             Int
+  currency               String   @default("USD")
   status                 MembershipSubscriptionStatus @default(PENDING)
   provider               String?
   providerSubscriptionId String?  @unique
