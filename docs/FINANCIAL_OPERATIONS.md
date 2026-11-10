@@ -61,7 +61,8 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 - Authenticated creator payout-request creation and history endpoints are implemented. Requests require a verified, creator-owned Ghana GHS destination, an idempotency key, and sufficient settled available balance. The request reserves funds in a dedicated payout-hold ledger account in the same serializable database transaction.
 - The earnings dashboard displays payout request history and explains the settlement hold.
 - Payout destination onboarding endpoint: `GET /v1/creators/me/payout-destinations`, `POST /v1/creators/me/payout-destinations`, and `PATCH /v1/creators/me/payout-destinations/:destinationId/default`. It is disabled unless `PAYSTACK_TRANSFERS_ENABLED=true`, only accepts Ghana GHS bank/mobile-money recipient types, sends account details directly to Paystack, and stores only a masked account number plus provider recipient code. New destinations are not treated as identity-verified.
-- Admin finance console at `/admin/finance` and admin-only endpoints: `GET /v1/admin/finance/payout-destinations/pending`, `PATCH /v1/admin/finance/payout-destinations/:destinationId/verify`, `GET /v1/admin/finance/payout-requests`, and `PATCH /v1/admin/finance/payout-requests/:payoutRequestId/review`. Destination verification requires a verification method and evidence reference. Admin destination verification and payout-review actions are recorded in `FinancialAuditLog`. The review action only moves a request from REQUESTED to UNDER_REVIEW; it does not authorize or send a transfer.
+- Admin finance console at `/admin/finance` and admin-only endpoints: `GET /v1/admin/finance/payout-destinations/pending`, `PATCH /v1/admin/finance/payout-destinations/:destinationId/verify`, `GET /v1/admin/finance/payout-requests`, `PATCH /v1/admin/finance/payout-requests/:payoutRequestId/review`, `PATCH /v1/admin/finance/payout-requests/:payoutRequestId/approve`, `POST /v1/admin/finance/payout-requests/:payoutRequestId/submit`, and `POST /v1/admin/finance/payout-requests/:payoutRequestId/reconcile`. Approval requires an audit reason. Submission is separately gated by both transfer flags. Before any transfer request, the payout is moved to SUBMITTED; ambiguous network outcomes remain held and must be reconciled by the same provider reference rather than blindly resubmitted.
+- Signed Paystack `transfer.success`, `transfer.failed`, and `transfer.reversed` webhooks are independently checked against Paystack's transfer verification endpoint, including matching reference, amount, currency, and final provider status. Successful payouts debit the creator payout-hold ledger and credit platform clearing. Definitive failures release the payout hold back to creator available earnings. A reversal after a previously paid transfer debits platform clearing and credits creator available earnings through a separate immutable ledger transaction. Webhook events are idempotent and audited. A provider-reversed payout is marked FAILED for creator-facing history; its failure reason records the reversal.
 
 ## Implementation sequence
 
@@ -69,8 +70,8 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 2. Add explicit platform fee configuration only after the approved fee policy is supplied.
 3. Add pending-to-available release rules only after the approved hold and reserve policy is supplied.
 4. Add encrypted beneficiary records, provider recipient creation, step-up verification, and audit trail. The initial evidence-backed admin verification and review console is implemented; stronger step-up authentication and risk limits remain required.
-5. Add payout limits, fraud/risk review, and approval controls. Creator payout request and balance reservation APIs are in place; requests can be moved into review but cannot yet be approved or paid.
-6. Add provider transfer execution, signed webhook/status verification, failure/reversal handling, and reconciliation. Do not enable the transfer flag before this is tested.
+5. Add payout limits, fraud/risk review, step-up authentication, and dual-control approval for high-risk payouts.
+6. Run end-to-end staging tests for provider submission, duplicate webhooks, timeouts, OTP/approval requirements, failed transfers, reversals, and ledger reconciliation. Keep execution disabled until Paystack has approved VOXA and all tests pass.
 7. Only then build virtual gifts/tips on top of the same wallet and ledger controls.
 
 ## Secrets and environment
@@ -78,7 +79,8 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 Keep all provider credentials on the API server:
 - `PAYSTACK_SECRET_KEY` — use the Paystack test secret key in staging; live secret key only in production.
 - `PAYSTACK_CALLBACK_URL` — the public web payment-return URL.
-- `PAYSTACK_TRANSFERS_ENABLED=false` — keep false until Paystack approves VOXA's Transfers product and the staging payout flow is reviewed. Do not enable just because the API key exists.
+- `PAYSTACK_TRANSFERS_ENABLED=false` — keeps recipient onboarding disabled until Paystack approves VOXA's Transfers product.
+- `PAYSTACK_PAYOUT_EXECUTION_ENABLED=false` — separate kill switch for initiating creator transfers. Keep false until merchant approval, transfer-approval configuration, OTP policy, and full staging tests are complete. Both flags must be explicitly enabled before submission is possible.
 - `DATABASE_URL` — PostgreSQL connection string.
 - `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_URL` — server-side LiveKit credentials for live rooms.
 
