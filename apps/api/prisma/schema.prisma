@@ -61,6 +61,19 @@ enum LedgerAccountType {
   CREATOR_AVAILABLE
   CREATOR_PENDING
   PLATFORM_CLEARING
+  PLATFORM_REVENUE
+  PROVIDER_FEE_EXPENSE
+}
+
+enum PayoutRequestStatus {
+  REQUESTED
+  UNDER_REVIEW
+  APPROVED
+  SUBMITTED
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
 }
 
 enum LedgerEntryDirection {
@@ -91,6 +104,8 @@ model User {
   membershipSubscriptions MembershipSubscription[] @relation("SubscriberSubscriptions")
   ledgerAccounts LedgerAccount[]
   paymentAttempts PaymentAttempt[]
+  payoutDestinations CreatorPayoutDestination[]
+  payoutRequests PayoutRequest[]
 }
 
 model Creator {
@@ -360,6 +375,11 @@ model PaymentAttempt {
   amountMinor Int
   currency    String
   status      PaymentAttemptStatus @default(INITIALIZED)
+  platformFeeBps Int @default(1500)
+  platformFeeMinor Int
+  creatorNetMinor Int
+  providerFeeMinor Int?
+  providerFeeRecordedAt DateTime?
   checkoutUrl String?
   paidAt      DateTime?
   createdAt   DateTime @default(now())
@@ -370,6 +390,49 @@ model PaymentAttempt {
 
   @@index([userId, createdAt])
   @@index([creatorId, status, createdAt])
+}
+
+model CreatorPayoutDestination {
+  id                    String   @id @default(cuid())
+  creatorId             String
+  provider              String
+  providerRecipientCode String   @unique
+  currency              String
+  country               String
+  channel               String
+  accountName           String
+  maskedAccountNumber   String
+  isVerified            Boolean  @default(false)
+  isDefault             Boolean  @default(false)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  creator               Creator  @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  payoutRequests        PayoutRequest[]
+
+  @@index([creatorId, isDefault, createdAt])
+}
+
+model PayoutRequest {
+  id                   String   @id @default(cuid())
+  creatorId            String
+  destinationId        String
+  provider             String
+  reference            String   @unique
+  idempotencyKey       String   @unique
+  amountMinor          Int
+  currency             String
+  status               PayoutRequestStatus @default(REQUESTED)
+  providerTransferCode String?  @unique
+  failureReason        String?
+  requestedAt          DateTime @default(now())
+  reviewedAt           DateTime?
+  paidAt               DateTime?
+  updatedAt             DateTime @updatedAt
+  creator               Creator  @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  destination           CreatorPayoutDestination @relation(fields: [destinationId], references: [id], onDelete: Restrict)
+
+  @@index([creatorId, status, requestedAt])
+  @@index([provider, status, requestedAt])
 }
 
 model PaymentWebhookEvent {
