@@ -933,7 +933,7 @@ export class PaymentsService {
     });
     const verifiedResponse = await response.json().catch(() => null) as {
       status?: boolean;
-      data?: { status?: string; reference?: string; amount?: number; currency?: string; transfer_code?: string };
+      data?: { status?: string; reference?: string; amount?: number; currency?: string; transfer_code?: string; fees?: number };
     } | null;
     if (!response.ok || !verifiedResponse?.status || !verifiedResponse.data) {
       throw new ServiceUnavailableException('Could not independently verify the Paystack transfer');
@@ -982,6 +982,25 @@ export class PaymentsService {
               ] },
             },
           });
+
+          if (typeof verified.fees === 'number' && Number.isSafeInteger(verified.fees) && verified.fees > 0) {
+            const expense = await tx.ledgerAccount.upsert({
+              where: { accountKey: 'platform:provider-fee-expense:' + current.currency },
+              create: { accountKey: 'platform:provider-fee-expense:' + current.currency, ownerId: null, type: LedgerAccountType.PROVIDER_FEE_EXPENSE, currency: current.currency },
+              update: {},
+            });
+            await tx.ledgerTransaction.create({
+              data: {
+                idempotencyKey: 'paystack:payout-provider-fee:' + current.reference,
+                type: 'PAYOUT_PROVIDER_PROCESSING_FEE', currency: current.currency,
+                amountMinor: verified.fees, reference: current.reference,
+                entries: { create: [
+                  { accountId: expense.id, direction: 'DEBIT', amountMinor: verified.fees },
+                  { accountId: clearing.id, direction: 'CREDIT', amountMinor: verified.fees },
+                ] },
+              },
+            });
+          }
           await tx.payoutRequest.update({ where: { id: current.id }, data: { status: PayoutRequestStatus.PAID, paidAt: new Date(), providerTransferCode: verified.transfer_code || current.providerTransferCode } });
         } else if (eventType === 'transfer.failed') {
           if (current.status !== PayoutRequestStatus.FAILED) {
@@ -1082,7 +1101,7 @@ export class PaymentsService {
     });
     const result = await response.json().catch(() => null) as {
       status?: boolean;
-      data?: { status?: string; reference?: string; amount?: number; currency?: string; failures?: unknown };
+      data?: { status?: string; reference?: string; amount?: number; currency?: string; failures?: unknown; fees?: number };
     } | null;
     if (!response.ok || !result?.status || !result.data ||
         result.data.reference?.toLowerCase() !== request.reference.toLowerCase() ||
@@ -1107,7 +1126,7 @@ export class PaymentsService {
       throw new ServiceUnavailableException('Paystack returned a non-final transfer status; no ledger changes were made');
     }
     const processed = await this.handlePaystackTransferWebhook(
-      eventType, request.reference, { failures: result.data.failures || null },
+      eventType, request.reference, { failures: result.data.failures || null, fees: result.data.fees },
       { event: eventType, data: { reference: request.reference, status: providerStatus } },
     );
     await this.prisma.financialAuditLog.create({
