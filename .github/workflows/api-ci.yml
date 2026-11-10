@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - "apps/api/**"
+      - "apps/web/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -28,3 +29,4 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm --filter @voxa/api prisma:generate
       - run: pnpm --filter @voxa/api build
+      - run: pnpm --filter @voxa/web build
