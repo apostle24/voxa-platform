@@ -132,7 +132,7 @@ export default function AdminFinancePage() {
               <button className="primaryButton" disabled={busy === item.id || (approvalReasons[item.id] || '').trim().length < 6} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/approve', { reason: approvalReasons[item.id].trim() })}>Approve payout</button>
             </div>}
             {item.status === 'APPROVED' && <button className="ghostButton" disabled={busy === item.id} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/submit', undefined, 'POST')}>Submit transfer (feature-gated)</button>}
-            {(item.status === 'SUBMITTED' || item.status === 'PROCESSING') && <small>Awaiting Paystack confirmation. Do not resubmit.</small>}
+            {(item.status === 'SUBMITTED' || item.status === 'PROCESSING') && <div style={{ display: 'grid', gap: 6 }}><small>Awaiting Paystack confirmation. Do not resubmit.</small><button className="ghostButton" disabled={busy === item.id} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/reconcile', undefined, 'POST')}>Check provider status</button></div>}
           </div>
         </article>)}</div> : <div className="emptyState"><p>No payout requests are awaiting review.</p></div>}
       </>}
