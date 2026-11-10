@@ -26,6 +26,7 @@ export default function AdminFinancePage() {
   const [methods, setMethods] = useState<Record<string, string>>({});
   const [references, setReferences] = useState<Record<string, string>>({});
   const [notes, setNotes] = useState<Record<string, string>>({});
+  const [approvalReasons, setApprovalReasons] = useState<Record<string, string>>({});
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(true);
@@ -83,7 +84,7 @@ export default function AdminFinancePage() {
       <div className="communityHeader"><div><h1>Financial operations</h1><p>Review payout destinations and creator withdrawal requests.</p></div></div>
       <div className="emptyState" style={{ marginBottom: 24 }}>
         <strong>Safety boundary</strong>
-        <p>Verification actions require documented evidence and are recorded in the audit log. This console does not send money, approve transfers, or mark payouts as paid.</p>
+        <p>Verification actions require documented evidence and are recorded in the audit log. Approval is audited. Transfer submission is separately gated by server flags. Only independently verified Paystack webhook results can mark a payout paid.</p>
       </div>
       {error && <p className="errorText">{error}</p>}
       {notice && <p className="helperText">{notice}</p>}
@@ -126,6 +127,12 @@ export default function AdminFinancePage() {
             {item.status === 'REQUESTED' && <button className="ghostButton" disabled={busy === item.id || !item.destination.isVerified} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/review')}>
               {busy === item.id ? 'Saving…' : 'Move to review'}
             </button>}
+            {item.status === 'UNDER_REVIEW' && <div style={{ display: 'grid', gap: 8, minWidth: 230 }}>
+              <input value={approvalReasons[item.id] || ''} onChange={e => setApprovalReasons(v => ({ ...v, [item.id]: e.target.value }))} placeholder="Approval reason (required)" />
+              <button className="primaryButton" disabled={busy === item.id || (approvalReasons[item.id] || '').trim().length < 6} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/approve', { reason: approvalReasons[item.id].trim() })}>Approve payout</button>
+            </div>}
+            {item.status === 'APPROVED' && <button className="ghostButton" disabled={busy === item.id} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/submit')}>Submit transfer (feature-gated)</button>}
+            {(item.status === 'SUBMITTED' || item.status === 'PROCESSING') && <small>Awaiting Paystack confirmation. Do not resubmit.</small>}
           </div>
         </article>)}</div> : <div className="emptyState"><p>No payout requests are awaiting review.</p></div>}
       </>}
