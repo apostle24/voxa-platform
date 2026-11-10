@@ -45,6 +45,29 @@ enum LiveRoomVisibility {
   PRIVATE
 }
 
+enum MembershipInterval {
+  MONTH
+}
+
+enum MembershipSubscriptionStatus {
+  PENDING
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  EXPIRED
+}
+
+enum LedgerAccountType {
+  CREATOR_AVAILABLE
+  CREATOR_PENDING
+  PLATFORM_CLEARING
+}
+
+enum LedgerEntryDirection {
+  DEBIT
+  CREDIT
+}
+
 model User {
   id          String     @id @default(cuid())
   email       String     @unique
@@ -59,6 +82,8 @@ model User {
   bookmarks   EpisodeBookmark[]
   playbackProgress PlaybackProgress[]
   notifications Notification[]
+  membershipSubscriptions MembershipSubscription[] @relation("SubscriberSubscriptions")
+  ledgerAccounts LedgerAccount[]
 }
 
 model Creator {
@@ -71,6 +96,8 @@ model Creator {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   shows       Show[]
   followers   Follow[]
+  membershipPlans MembershipPlan[]
+  subscriptions MembershipSubscription[] @relation("CreatorSubscriptions")
 }
 
 model Show {
@@ -98,6 +125,7 @@ model Episode {
   artworkUrl      String?
   durationSeconds Int?
   isExplicit      Boolean  @default(false)
+  membershipRequired Boolean @default(false)
   status          PublicationStatus @default(DRAFT)
   publishedAt     DateTime?
   createdAt       DateTime @default(now())
@@ -225,4 +253,86 @@ model Notification {
 
   @@index([recipientId, readAt, createdAt])
   @@index([recipientId, createdAt])
+}
+
+
+model MembershipPlan {
+  id          String   @id @default(cuid())
+  creatorId   String
+  name        String
+  description String?
+  priceMinor  Int
+  currency    String   @default("USD")
+  interval    MembershipInterval @default(MONTH)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  creator     Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  subscriptions MembershipSubscription[]
+
+  @@index([creatorId, isActive, createdAt])
+}
+
+model MembershipSubscription {
+  id                     String   @id @default(cuid())
+  subscriberId           String
+  creatorId              String
+  planId                 String
+  status                 MembershipSubscriptionStatus @default(PENDING)
+  provider               String?
+  providerSubscriptionId String?  @unique
+  currentPeriodStart     DateTime?
+  currentPeriodEnd       DateTime?
+  cancelAtPeriodEnd      Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  subscriber             User     @relation("SubscriberSubscriptions", fields: [subscriberId], references: [id], onDelete: Cascade)
+  creator                Creator  @relation("CreatorSubscriptions", fields: [creatorId], references: [id], onDelete: Cascade)
+  plan                   MembershipPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@unique([subscriberId, creatorId])
+  @@index([creatorId, status, currentPeriodEnd])
+  @@index([subscriberId, status, currentPeriodEnd])
+}
+
+model LedgerAccount {
+  id        String   @id @default(cuid())
+  ownerId   String?
+  type      LedgerAccountType
+  currency  String
+  createdAt DateTime @default(now())
+  owner     User?    @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  entries   LedgerEntry[]
+
+  @@unique([ownerId, type, currency])
+  @@index([ownerId, currency])
+}
+
+model LedgerTransaction {
+  id             String   @id @default(cuid())
+  idempotencyKey String   @unique
+  type           String
+  currency       String
+  amountMinor    Int
+  status         String   @default("POSTED")
+  reference      String?
+  createdAt      DateTime @default(now())
+  entries        LedgerEntry[]
+
+  @@index([type, createdAt])
+  @@index([reference])
+}
+
+model LedgerEntry {
+  id            String   @id @default(cuid())
+  transactionId String
+  accountId     String
+  direction     LedgerEntryDirection
+  amountMinor   Int
+  createdAt     DateTime @default(now())
+  transaction   LedgerTransaction @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+  account       LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([transactionId, accountId, direction])
+  @@index([accountId, createdAt])
 }
