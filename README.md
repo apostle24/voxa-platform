@@ -127,3 +127,18 @@ Configure an S3-compatible bucket (AWS S3, Cloudflare R2, or MinIO) using the `S
 Upload URLs expire quickly; object keys are scoped to the authenticated user and episode. Configure bucket CORS to allow PUT from your web/mobile app origins and keep the bucket private. Set lifecycle rules and CDN/cache policy deliberately. Do not expose storage credentials in client apps.
 
 **Production gaps:** this foundation does not yet transcode media, generate adaptive bitrate HLS/DASH renditions, scan files for malware, inspect actual codecs/duration, moderate content, or integrate a CDN. The client-supplied duration remains untrusted until a media-processing worker is added. Production release must add those controls, plus storage lifecycle/cleanup for abandoned uploads.
+
+
+## Step 5 — Discovery and media-pipeline hardening
+
+Public discovery endpoints now provide cursor-paginated, published-only content:
+
+- `GET /v1/discovery/shows?q=&category=&language=&cursor=&limit=` — search shows by title, description, or creator handle.
+- `GET /v1/discovery/episodes?q=&category=&language=&cursor=&limit=` — search published episodes and filter through their show's category/language.
+- `GET /v1/discovery/categories` — list categories that currently contain published episodes.
+
+The page size is capped at 50. Results are ordered newest-first; this is not yet a personalized or popularity-ranked recommendation engine. Search currently uses PostgreSQL case-insensitive substring matching; production search should move to a dedicated search index as catalogue size grows.
+
+**Upload security correction:** episode creation and editing no longer accept a client-supplied `mediaKey`. Media keys are attached only through the authenticated signed-upload completion flow.
+
+**Media processing status:** uploads are stored and can be served through short-lived signed URLs, but transcoding and validation are not falsely marked as complete. The next media milestone must add a durable processing-job state machine and worker (probe actual codecs/duration, malware scan, transcode to adaptive HLS/DASH, generate thumbnails/waveforms, and publish only after successful validation). Until that worker is deployed, creator-supplied duration metadata must not be treated as verified and this API is not ready for production media traffic.
