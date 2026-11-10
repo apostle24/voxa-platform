@@ -61,14 +61,15 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 - Authenticated creator payout-request creation and history endpoints are implemented. Requests require a verified, creator-owned Ghana GHS destination, an idempotency key, and sufficient settled available balance. The request reserves funds in a dedicated payout-hold ledger account in the same serializable database transaction.
 - The earnings dashboard displays payout request history and explains the settlement hold.
 - Payout destination onboarding endpoint: `GET /v1/creators/me/payout-destinations`, `POST /v1/creators/me/payout-destinations`, and `PATCH /v1/creators/me/payout-destinations/:destinationId/default`. It is disabled unless `PAYSTACK_TRANSFERS_ENABLED=true`, only accepts Ghana GHS bank/mobile-money recipient types, sends account details directly to Paystack, and stores only a masked account number plus provider recipient code. New destinations are not treated as identity-verified.
+- Admin finance console at `/admin/finance` and admin-only endpoints: `GET /v1/admin/finance/payout-destinations/pending`, `PATCH /v1/admin/finance/payout-destinations/:destinationId/verify`, `GET /v1/admin/finance/payout-requests`, and `PATCH /v1/admin/finance/payout-requests/:payoutRequestId/review`. Destination verification requires a verification method and evidence reference. Admin destination verification and payout-review actions are recorded in `FinancialAuditLog`. The review action only moves a request from REQUESTED to UNDER_REVIEW; it does not authorize or send a transfer.
 
 ## Implementation sequence
 
 1. Harden and test checkout/webhook behavior, including ambiguous network outcomes and duplicate delivery.
 2. Add explicit platform fee configuration only after the approved fee policy is supplied.
 3. Add pending-to-available release rules only after the approved hold and reserve policy is supplied.
-4. Add encrypted beneficiary records, provider recipient creation, step-up verification, and audit trail.
-5. Add admin review/verification console, step-up authentication, payout limits and risk review. Creator payout request and balance reservation APIs are in place.
+4. Add encrypted beneficiary records, provider recipient creation, step-up verification, and audit trail. The initial evidence-backed admin verification and review console is implemented; stronger step-up authentication and risk limits remain required.
+5. Add payout limits, fraud/risk review, and approval controls. Creator payout request and balance reservation APIs are in place; requests can be moved into review but cannot yet be approved or paid.
 6. Add provider transfer execution, signed webhook/status verification, failure/reversal handling, and reconciliation. Do not enable the transfer flag before this is tested.
 7. Only then build virtual gifts/tips on top of the same wallet and ledger controls.
 
