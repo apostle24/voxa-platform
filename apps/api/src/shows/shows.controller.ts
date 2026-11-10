@@ -65,6 +65,12 @@ export class ShowsController {
     return this.shows.discoveryCategories();
   }
 
+  @Patch('shows/:showId/episodes/:episodeId/membership')
+  @UseGuards(JwtAuthGuard)
+  setEpisodeMembership(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: { membershipRequired: boolean }) {
+    return this.shows.setEpisodeMembership(req.user.id, showId, episodeId, input.membershipRequired);
+  }
+
   @Get('shows/:showId')
   getShow(@Param('showId') showId: string) {
     return this.shows.getShow(showId);
