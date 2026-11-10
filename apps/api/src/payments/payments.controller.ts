@@ -127,7 +127,7 @@ export class PaymentsController {
   @Post('webhooks/paystack')
   paystackWebhook(
     @Req() req: WebhookRequest,
-    @Body() body: { event?: string; data?: { reference?: string } },
+    @Body() body: { event?: string; data?: Record<string, unknown> & { reference?: string } },
     @Headers('x-paystack-signature') signature: string | string[] | undefined,
   ) {
     return this.payments.handlePaystackWebhook(body, req.rawBody, signature);
