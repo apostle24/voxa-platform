@@ -117,6 +117,27 @@ export class LiveService {
     return { serverUrl: url, roomName: room.id, token: await token.toJwt(), canPublish: isHost || isSpeaker, expiresInSeconds: 600 };
   }
 
+  async removeSpeaker(hostId: string, roomId: string, speakerId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the host can remove speakers');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Room is not live');
+    if (speakerId === hostId) throw new ConflictException('The host cannot remove themselves from the stage');
+
+    const member = await this.prisma.liveStageMember.findUnique({
+      where: { roomId_userId: { roomId, userId: speakerId } },
+    });
+    if (!member || member.leftAt) throw new NotFoundException('Active stage member not found');
+
+    // LiveKit removes the participant and revokes the current token on LiveKit Cloud.
+    await this.roomServiceClient().removeParticipant(roomId, speakerId);
+    await this.prisma.liveStageMember.update({
+      where: { roomId_userId: { roomId, userId: speakerId } },
+      data: { leftAt: new Date() },
+    });
+    return { roomId, userId: speakerId, removedFromStage: true };
+  }
+
   async requestStage(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, visibility: true } });
     if (!room) throw new NotFoundException('Live room not found');
