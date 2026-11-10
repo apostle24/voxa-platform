@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateShowDto } from './dto/create-show.dto';
 import { UpdateShowDto } from './dto/update-show.dto';
@@ -45,6 +45,24 @@ export class ShowsController {
   @UseGuards(JwtAuthGuard)
   publishEpisode(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
     return this.shows.publishEpisode(req.user.id, showId, episodeId);
+  }
+
+
+  @Get('discovery/shows')
+  discoverShows(@Query('q') q?: string, @Query('category') category?: string, @Query('language') language?: string,
+    @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
+    return this.shows.discoverShows({ q, category, language, cursor, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('discovery/episodes')
+  discoverEpisodes(@Query('q') q?: string, @Query('category') category?: string, @Query('language') language?: string,
+    @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
+    return this.shows.discoverEpisodes({ q, category, language, cursor, limit: limit ? Number(limit) : undefined });
+  }
+
+  @Get('discovery/categories')
+  discoveryCategories() {
+    return this.shows.discoveryCategories();
   }
 
   @Get('shows/:showId')
