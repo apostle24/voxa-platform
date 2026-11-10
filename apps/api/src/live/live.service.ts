@@ -96,7 +96,7 @@ export class LiveService {
         select: { status: true, requestedAt: true },
       }) : Promise.resolve(null),
     ]);
-    return { isHost, requests, speakers, ownRequest, status: room.status };
+    return { isHost, hostId: room.hostId, requests, speakers, ownRequest, status: room.status };
   }
 
   async joinToken(userId: string, roomId: string) {
