@@ -58,11 +58,11 @@ export default function AdminFinancePage() {
       .finally(() => setLoading(false));
   }, [load]);
 
-  async function runAction(key: string, url: string, body?: unknown) {
+  async function runAction(key: string, url: string, body?: unknown, method = 'PATCH') {
     setBusy(key); setError(''); setNotice('');
     try {
       const response = await fetch(API + url, {
-        method: 'PATCH',
+        method,
         headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
       });
@@ -131,7 +131,7 @@ export default function AdminFinancePage() {
               <input value={approvalReasons[item.id] || ''} onChange={e => setApprovalReasons(v => ({ ...v, [item.id]: e.target.value }))} placeholder="Approval reason (required)" />
               <button className="primaryButton" disabled={busy === item.id || (approvalReasons[item.id] || '').trim().length < 6} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/approve', { reason: approvalReasons[item.id].trim() })}>Approve payout</button>
             </div>}
-            {item.status === 'APPROVED' && <button className="ghostButton" disabled={busy === item.id} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/submit')}>Submit transfer (feature-gated)</button>}
+            {item.status === 'APPROVED' && <button className="ghostButton" disabled={busy === item.id} onClick={() => runAction(item.id, '/admin/finance/payout-requests/' + item.id + '/submit', undefined, 'POST')}>Submit transfer (feature-gated)</button>}
             {(item.status === 'SUBMITTED' || item.status === 'PROCESSING') && <small>Awaiting Paystack confirmation. Do not resubmit.</small>}
           </div>
         </article>)}</div> : <div className="emptyState"><p>No payout requests are awaiting review.</p></div>}
