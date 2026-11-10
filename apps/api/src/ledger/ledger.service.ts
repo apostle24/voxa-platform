@@ -30,7 +30,21 @@ export class LedgerService {
       where: { idempotencyKey: input.idempotencyKey },
       include: { entries: true },
     });
-    if (existing) return existing;
+    if (existing) {
+      const existingDebit = existing.entries.find(entry => entry.direction === 'DEBIT');
+      const existingCredit = existing.entries.find(entry => entry.direction === 'CREDIT');
+      if (
+        existing.type !== input.type ||
+        existing.currency !== input.currency ||
+        existing.amountMinor !== input.amountMinor ||
+        !existingDebit || !existingCredit ||
+        existingDebit.accountId !== input.debitAccountId ||
+        existingCredit.accountId !== input.creditAccountId
+      ) {
+        throw new BadRequestException('Idempotency key was already used for a different ledger transfer');
+      }
+      return existing;
+    }
 
     const accounts = await this.prisma.ledgerAccount.findMany({
       where: { id: { in: [input.debitAccountId, input.creditAccountId] } },
