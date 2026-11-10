@@ -5,6 +5,7 @@ import { UpdateShowDto } from './dto/update-show.dto';
 import { CreateEpisodeDto } from './dto/create-episode.dto';
 import { UpdateEpisodeDto } from './dto/update-episode.dto';
 import { SaveProgressDto } from './dto/save-progress.dto';
+import { SetEpisodeMembershipDto } from './dto/set-episode-membership.dto';
 import { ShowsService } from './shows.service';
 
 @Controller()
@@ -67,7 +68,7 @@ export class ShowsController {
 
   @Patch('shows/:showId/episodes/:episodeId/membership')
   @UseGuards(JwtAuthGuard)
-  setEpisodeMembership(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: { membershipRequired: boolean }) {
+  setEpisodeMembership(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: SetEpisodeMembershipDto) {
     return this.shows.setEpisodeMembership(req.user.id, showId, episodeId, input.membershipRequired);
   }
 
