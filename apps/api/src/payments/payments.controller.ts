@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, Param, Patch, Post, Req, UseGuards } fr
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateMembershipCheckoutDto } from './dto/create-membership-checkout.dto';
 import { CreatePayoutDestinationDto } from './dto/create-payout-destination.dto';
+import { CreatePayoutRequestDto } from './dto/create-payout-request.dto';
 import { PaymentsService } from './payments.service';
 
 type WebhookRequest = {
@@ -34,6 +35,23 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   createPayoutDestination(@Req() req: AuthenticatedRequest, @Body() input: CreatePayoutDestinationDto) {
     return this.payments.createPayoutDestination(req.user.id, input);
+  }
+
+
+  @Post('creators/me/payout-requests')
+  @UseGuards(JwtAuthGuard)
+  createPayoutRequest(
+    @Req() req: AuthenticatedRequest,
+    @Body() input: CreatePayoutRequestDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+  ) {
+    return this.payments.createPayoutRequest(req.user.id, input.destinationId, input.amountMinor, idempotencyKey);
+  }
+
+  @Get('creators/me/payout-requests')
+  @UseGuards(JwtAuthGuard)
+  payoutRequests(@Req() req: AuthenticatedRequest) {
+    return this.payments.getCreatorPayoutRequests(req.user.id);
   }
 
   @Get('creators/me/earnings')
