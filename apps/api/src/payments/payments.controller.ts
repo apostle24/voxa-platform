@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Headers, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateMembershipCheckoutDto } from './dto/create-membership-checkout.dto';
 import { CreatePayoutDestinationDto } from './dto/create-payout-destination.dto';
@@ -70,6 +70,35 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   myPaymentHistory(@Req() req: AuthenticatedRequest) {
     return this.payments.getMyPaymentHistory(req.user.id);
+  }
+
+
+  @Get('admin/finance/payout-destinations/pending')
+  @UseGuards(JwtAuthGuard)
+  adminPendingPayoutDestinations(@Req() req: AuthenticatedRequest) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
+    return this.payments.listAdminPayoutDestinations();
+  }
+
+  @Patch('admin/finance/payout-destinations/:destinationId/verify')
+  @UseGuards(JwtAuthGuard)
+  adminVerifyPayoutDestination(@Req() req: AuthenticatedRequest, @Param('destinationId') destinationId: string) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
+    return this.payments.verifyPayoutDestination(req.user.id, destinationId);
+  }
+
+  @Get('admin/finance/payout-requests')
+  @UseGuards(JwtAuthGuard)
+  adminPayoutRequests(@Req() req: AuthenticatedRequest) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
+    return this.payments.listAdminPayoutRequests();
+  }
+
+  @Patch('admin/finance/payout-requests/:payoutRequestId/review')
+  @UseGuards(JwtAuthGuard)
+  adminMarkPayoutUnderReview(@Req() req: AuthenticatedRequest, @Param('payoutRequestId') payoutRequestId: string) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
+    return this.payments.markPayoutRequestUnderReview(req.user.id, payoutRequestId);
   }
 
   @Post('webhooks/paystack')
