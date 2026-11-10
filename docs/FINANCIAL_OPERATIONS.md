@@ -57,7 +57,7 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 - Successful payment ledger postings balance gross clearing debit against creator pending credit plus platform revenue credit.
 - Paystack's verified `fees` amount, when returned as a valid integer, is posted through a separate provider-processing-fee ledger transaction.
 - Creator earnings API and dashboard now show the creator's ledger impact rather than the gross transaction amount.
-- Payout destination onboarding endpoint: `GET /v1/creators/me/payout-destinations` and `POST /v1/creators/me/payout-destinations`. It is disabled unless `PAYSTACK_TRANSFERS_ENABLED=true`, only accepts Ghana GHS bank/mobile-money recipient types, sends account details directly to Paystack, and stores only a masked account number plus provider recipient code. New destinations are not treated as identity-verified.
+- Payout destination onboarding endpoint: `GET /v1/creators/me/payout-destinations`, `POST /v1/creators/me/payout-destinations`, and `PATCH /v1/creators/me/payout-destinations/:destinationId/default`. It is disabled unless `PAYSTACK_TRANSFERS_ENABLED=true`, only accepts Ghana GHS bank/mobile-money recipient types, sends account details directly to Paystack, and stores only a masked account number plus provider recipient code. New destinations are not treated as identity-verified.
 
 ## Implementation sequence
 
