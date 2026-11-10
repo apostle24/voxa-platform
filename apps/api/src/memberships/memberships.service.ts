@@ -94,7 +94,7 @@ export class MembershipsService {
         subscriberId: userId,
         creatorId,
         status: MembershipSubscriptionStatus.ACTIVE,
-        OR: [{ currentPeriodEnd: null }, { currentPeriodEnd: { gt: new Date() } }],
+        currentPeriodEnd: { gt: new Date() },
       },
       select: { id: true },
     });
