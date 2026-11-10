@@ -117,6 +117,13 @@ export class PaymentsController {
     return this.payments.submitApprovedPayout(req.user.id, payoutRequestId);
   }
 
+  @Post('admin/finance/payout-requests/:payoutRequestId/reconcile')
+  @UseGuards(JwtAuthGuard)
+  adminReconcilePayout(@Req() req: AuthenticatedRequest, @Param('payoutRequestId') payoutRequestId: string) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
+    return this.payments.reconcilePayoutTransfer(req.user.id, payoutRequestId);
+  }
+
   @Post('webhooks/paystack')
   paystackWebhook(
     @Req() req: WebhookRequest,
