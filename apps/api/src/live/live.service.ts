@@ -75,6 +75,30 @@ export class LiveService {
     });
   }
 
+
+  async getStageState(userId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    const isHost = room.hostId === userId;
+    const [requests, speakers, ownRequest] = await Promise.all([
+      isHost ? this.prisma.stageRequest.findMany({
+        where: { roomId, status: 'PENDING' },
+        orderBy: { requestedAt: 'asc' },
+        select: { id: true, userId: true, status: true, requestedAt: true },
+      }) : Promise.resolve([]),
+      this.prisma.liveStageMember.findMany({
+        where: { roomId, leftAt: null },
+        orderBy: { joinedAt: 'asc' },
+        select: { userId: true, role: true, joinedAt: true },
+      }),
+      !isHost ? this.prisma.stageRequest.findUnique({
+        where: { roomId_userId: { roomId, userId } },
+        select: { status: true, requestedAt: true },
+      }) : Promise.resolve(null),
+    ]);
+    return { isHost, requests, speakers, ownRequest, status: room.status };
+  }
+
   async joinToken(userId: string, roomId: string) {
     const { url, apiKey, apiSecret } = this.liveKitConfig();
     const room = await this.prisma.liveRoom.findUnique({
