@@ -196,3 +196,11 @@ Media processing is still not production complete: the current workflow uses ori
 - CI run `42921621664` passed API/web typechecking, the expanded API unit tests, API build and web build. The suite contains 15 test cases covering auth, ledger validation/idempotency, restricted LIVE access and GHS membership currency boundaries.
 - The pnpm lockfile was generated and committed as `pnpm-lock.yaml` (commit `0034d497b7bc8b4cab480a21367baab1b9918a90`).
 - The workflow now requires `pnpm install --frozen-lockfile`; run `42921801214` completed successfully with the frozen install, Prisma validation/generation, API/web typecheck, all API unit tests, and both builds passing.
+
+
+## Latest checkpoint — 10 November 2026
+
+- CI run `42922043798` completed successfully on the creator-show publishing test update. Frozen dependency install, Prisma validation/generation, API/web typecheck, all API unit tests, API build and web build passed.
+- The API suite now contains 18 unit test cases across authentication, ledger transfer validation/idempotency, restricted LIVE access, GHS membership currency enforcement, show publishing preconditions and bounded playback progress.
+- The repository README has been refreshed to match the current codebase and to remove claims that mobile/shared-contract source trees already exist.
+- The new podcast listener/creator pages compile in CI. No live database, object-storage bucket, LiveKit account or payment merchant was used to test real user journeys.
