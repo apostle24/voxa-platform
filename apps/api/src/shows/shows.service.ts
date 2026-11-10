@@ -41,7 +41,7 @@ export class ShowsService {
             durationSeconds: true, mediaKey: true, publishedAt: true,
             mediaAssets: {
               orderBy: { createdAt: 'desc' }, take: 1,
-              select: { id: true, status: true, contentType: true, sizeBytes: true },
+              select: { id: true, status: true, contentType: true },
             },
           },
         },
