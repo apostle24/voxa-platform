@@ -74,3 +74,7 @@ ALTER TABLE "PayoutRequest"
   FOREIGN KEY ("creatorId") REFERENCES "Creator"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
   ADD CONSTRAINT "PayoutRequest_destinationId_fkey"
   FOREIGN KEY ("destinationId") REFERENCES "CreatorPayoutDestination"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- A creator may have many saved destinations but only one default destination.
+CREATE UNIQUE INDEX "CreatorPayoutDestination_one_default_per_creator_key"
+  ON "CreatorPayoutDestination"("creatorId") WHERE "isDefault" = true;
