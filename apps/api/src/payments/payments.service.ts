@@ -129,7 +129,7 @@ export class PaymentsService {
     if (
       verified.status !== 'success' ||
       verified.reference !== reference ||
-      !Number.isSafeInteger(verified.amount) ||
+      (typeof verified.amount !== 'number' || !Number.isSafeInteger(verified.amount)) ||
       !verified.currency
     ) {
       throw new BadRequestException('Payment verification did not return a successful transaction');
@@ -146,7 +146,7 @@ export class PaymentsService {
         await tx.paymentWebhookEvent.create({
           data: {
             provider: PROVIDER, eventKey, eventType, reference,
-            payload: body as Prisma.InputJsonValue,
+            payload: JSON.parse(JSON.stringify(body)) as Prisma.InputJsonValue,
           },
         });
 
