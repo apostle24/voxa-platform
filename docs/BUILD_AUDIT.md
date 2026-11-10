@@ -195,4 +195,4 @@ Media processing is still not production complete: the current workflow uses ori
 
 - CI run `42921621664` passed API/web typechecking, the expanded API unit tests, API build and web build. The suite contains 15 test cases covering auth, ledger validation/idempotency, restricted LIVE access and GHS membership currency boundaries.
 - The pnpm lockfile was generated and committed as `pnpm-lock.yaml` (commit `0034d497b7bc8b4cab480a21367baab1b9918a90`).
-- The workflow has since been changed to require `pnpm install --frozen-lockfile`. Run `42921801214` is verifying this stricter install path against the current main commit; record it as passed only after completion.
+- The workflow now requires `pnpm install --frozen-lockfile`; run `42921801214` completed successfully with the frozen install, Prisma validation/generation, API/web typecheck, all API unit tests, and both builds passing.
