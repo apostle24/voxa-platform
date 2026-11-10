@@ -239,3 +239,21 @@ The database has ledger accounts, immutable transaction/entry records, unique id
 - Payment attempts, webhook payloads, and ledger entries are retained for audit. No creator withdrawal or payout API is enabled.
 
 **Before production:** run the new Prisma migration against a disposable/staging database; configure Paystack test credentials and webhook URL; test success, failed, duplicate, amount-mismatch, currency-mismatch, and invalid-signature cases; confirm your Paystack merchant account's Ghana eligibility, supported payment channels, settlement rules, fees, refunds and chargeback processes. Current checkout is a GHS one-time monthly pass only. Automatic renewal, mobile-money recurring charges, cross-currency conversion, refunds, settlement release, identity verification, creator withdrawal requests, and transfer execution are not implemented. VOXA's current proposed membership commission is 15%; Paystack processing fees are accounted separately. Do not enable `PAYSTACK_TRANSFERS_ENABLED` until Paystack has approved Transfers for the VOXA business and the payout flow has passed staging review.
+
+
+## Creator memberships, earnings and payout foundations
+
+VOXA currently supports GHS one-time monthly membership checkout through Paystack. Each payment attempt snapshots a 15% VOXA platform commission: 85% is credited to creator pending earnings and 15% to VOXA platform revenue. Verified Paystack processing fees are booked separately as a platform expense and do not reduce the creator's 85% entitlement.
+
+Creator financial endpoints (Bearer token required):
+
+- `GET /v1/creators/me/earnings` — ledger-derived pending and available earnings; triggers release of matured payments.
+- `GET /v1/creators/me/payout-destinations` — list masked payout destinations.
+- `POST /v1/creators/me/payout-destinations` — register a Ghana GHS Paystack bank or mobile-money recipient (only when the Transfers feature flag is explicitly enabled).
+- `PATCH /v1/creators/me/payout-destinations/:destinationId/default` — choose the default destination.
+- `POST /v1/creators/me/payout-requests` — reserve settled available earnings for a payout request. Requires body `{ "destinationId": "...", "amountMinor": 10000 }` and an `Idempotency-Key` header of 12–128 characters. The amount is in minor currency units (pesewas for GHS).
+- `GET /v1/creators/me/payout-requests` — list the creator's payout request history.
+
+A seven-day settlement hold applies after successful payment. Matured funds are moved to available earnings through idempotent double-entry ledger postings. Payout requests require an operations-verified destination and reserve funds in a separate payout-hold ledger account. New provider recipients are not automatically identity-verified. Admin verification/review, scheduled settlement processing, actual Paystack transfers, transfer webhooks, refunds, chargebacks, and reconciliation are not yet implemented. Automatic payouts remain disabled; do not enable `PAYSTACK_TRANSFERS_ENABLED` for production.
+
+See [financial operations](docs/FINANCIAL_OPERATIONS.md) for provider eligibility, controls, and the rollout sequence.
