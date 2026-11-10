@@ -159,7 +159,7 @@ export class ShowsService {
     const episode = await this.prisma.episode.findFirst({
       where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
       select: {
-        id: true, title: true, description: true, mediaKey: true, artworkUrl: true, durationSeconds: true, isExplicit: true, publishedAt: true,
+        id: true, title: true, description: true, mediaKey: true, artworkUrl: true, durationSeconds: true, isExplicit: true, membershipRequired: true, publishedAt: true,
         show: { select: { id: true, title: true, creator: { select: { handle: true, user: { select: { displayName: true } } } } } },
       },
     });
