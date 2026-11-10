@@ -113,3 +113,17 @@ Creator publishing and listener library endpoints:
 - `GET /v1/me/playback-progress` — list recent playback progress (authentication required).
 
 Playback progress is bounded by the episode duration when known. Draft and archived content is not exposed through public show/episode endpoints. The media key is metadata only at this stage: upload signing, transcoding, malware/content checks, CDN delivery, and playback authorization are not yet connected. Configure a trusted media pipeline before accepting real uploads or serving production media.
+
+
+## Step 4 — Media storage integration
+
+Configure an S3-compatible bucket (AWS S3, Cloudflare R2, or MinIO) using the `S3_*` variables in `apps/api/.env.example`. The API never receives the media bytes: it issues a short-lived signed PUT URL so the client uploads directly to object storage.
+
+- `POST /v1/shows/:showId/episodes/:episodeId/upload-url` — authenticated creator requests a signed upload URL. Body: `{ "contentType": "audio/mpeg", "sizeBytes": 12000000 }`.
+- Client uploads bytes to the returned `uploadUrl` with HTTP PUT and the returned `Content-Type` header.
+- `POST /v1/shows/:showId/episodes/:episodeId/complete-upload` — authenticated creator confirms upload. Body: `{ "objectKey": "users/.../episodes/.../....mp3" }`. API checks object existence, type, size, and owner metadata before attaching it to the draft episode.
+- `GET /v1/episodes/:episodeId/playback-url` — returns a short-lived signed GET URL for a published episode.
+
+Upload URLs expire quickly; object keys are scoped to the authenticated user and episode. Configure bucket CORS to allow PUT from your web/mobile app origins and keep the bucket private. Set lifecycle rules and CDN/cache policy deliberately. Do not expose storage credentials in client apps.
+
+**Production gaps:** this foundation does not yet transcode media, generate adaptive bitrate HLS/DASH renditions, scan files for malware, inspect actual codecs/duration, moderate content, or integrate a CDN. The client-supplied duration remains untrusted until a media-processing worker is added. Production release must add those controls, plus storage lifecycle/cleanup for abandoned uploads.
