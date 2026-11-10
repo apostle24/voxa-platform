@@ -1,5 +1,9 @@
 name: API CI
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   push:
     paths:
@@ -26,7 +30,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
+      - name: Validate Prisma schema
+        run: pnpm --filter @voxa/api exec prisma validate
+        env:
+          DATABASE_URL: postgresql://voxa:voxa@localhost:5432/voxa_ci
       - run: pnpm --filter @voxa/api prisma:generate
       - run: pnpm --filter @voxa/api build
       - run: pnpm --filter @voxa/web build
