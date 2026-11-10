@@ -95,3 +95,21 @@ Content-Type: application/json
 ```
 
 The API is still an early foundation. Add refresh-token rotation, email verification, password recovery, request throttling, automated tests, and full deployment configuration before production use.
+
+## Step 3 — Podcast publishing and playback foundation
+
+Creator publishing and listener library endpoints:
+
+- `POST /v1/shows` — create a show (creator authentication required).
+- `PATCH /v1/shows/:showId` — update an owned show.
+- `POST /v1/shows/:showId/episodes` — create a draft episode.
+- `PATCH /v1/shows/:showId/episodes/:episodeId` — update an owned episode.
+- `POST /v1/shows/:showId/episodes/:episodeId/publish` — publish an episode once required metadata and a media key exist.
+- `GET /v1/shows/:showId` — public show and published episodes.
+- `GET /v1/episodes/:episodeId` — public published episode detail.
+- `PUT /v1/episodes/:episodeId/bookmark` and `DELETE /v1/episodes/:episodeId/bookmark` — save/remove a bookmark (authentication required).
+- `GET /v1/me/bookmarks` — list the authenticated listener's saved episodes.
+- `PUT /v1/episodes/:episodeId/progress` — save playback position (authentication required).
+- `GET /v1/me/playback-progress` — list recent playback progress (authentication required).
+
+Playback progress is bounded by the episode duration when known. Draft and archived content is not exposed through public show/episode endpoints. The media key is metadata only at this stage: upload signing, transcoding, malware/content checks, CDN delivery, and playback authorization are not yet connected. Configure a trusted media pipeline before accepting real uploads or serving production media.
