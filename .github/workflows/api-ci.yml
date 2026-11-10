@@ -29,4 +29,5 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --no-frozen-lockfile
+      - run: pnpm --filter @voxa/api prisma:generate
       - run: pnpm --filter @voxa/api build
