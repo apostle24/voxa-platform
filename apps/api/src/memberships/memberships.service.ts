@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { MembershipSubscriptionStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMembershipPlanDto } from './dto/create-membership-plan.dto';
@@ -23,6 +23,7 @@ export class MembershipsService {
   }
 
   async createPlan(userId: string, input: CreateMembershipPlanDto) {
+    if (input.currency !== 'GHS') throw new BadRequestException('Membership plans currently support GHS only');
     const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true } });
     if (!creator) throw new ForbiddenException('Create a creator profile before setting up memberships');
     return this.prisma.membershipPlan.create({
@@ -38,6 +39,9 @@ export class MembershipsService {
   }
 
   async updatePlan(userId: string, planId: string, input: UpdateMembershipPlanDto) {
+    if (input.currency !== undefined && input.currency !== 'GHS') {
+      throw new BadRequestException('Membership plans currently support GHS only');
+    }
     const plan = await this.prisma.membershipPlan.findFirst({
       where: { id: planId, creator: { userId } },
       select: { id: true },
