@@ -25,10 +25,11 @@ function formatTime(seconds: number) {
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const mediaRef = useRef<HTMLMediaElement>(null);
   const lastSavedAt = useRef(0);
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
+  const [mediaType, setMediaType] = useState('audio/mpeg');
   const [bookmarked, setBookmarked] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -46,6 +47,8 @@ export default function EpisodePage() {
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ positionSeconds: Math.floor(positionSeconds) }),
       });
+    } catch {
+      // Playback should continue if progress synchronization is temporarily unavailable.
     } finally {
       setSaving(false);
     }
@@ -73,7 +76,10 @@ export default function EpisodePage() {
         );
         const playback = await playbackResponse.json();
         if (!playbackResponse.ok) throw new Error(playback.message || 'Unable to prepare audio playback');
-        if (active) setAudioUrl(playback.url);
+        if (active) {
+          setAudioUrl(playback.url);
+          setMediaType(playback.contentType || 'audio/mpeg');
+        }
 
         if (accessToken) {
           const progressResponse = await fetch(API + '/me/playback-progress', { headers: { Authorization: 'Bearer ' + accessToken } });
@@ -137,25 +143,44 @@ export default function EpisodePage() {
             </div>
           </div>
           {audioUrl && <section style={{ border: '1px solid var(--border, #30303a)', background: 'var(--surface, #15151c)', borderRadius: 18, padding: 22 }}>
-            <audio
-              ref={audioRef}
-              controls
-              preload="metadata"
-              src={audioUrl}
-              style={{ width: '100%' }}
-              onLoadedMetadata={() => {
-                if (resumeAt > 0 && audioRef.current) audioRef.current.currentTime = resumeAt;
-              }}
-              onTimeUpdate={() => {
-                if (audioRef.current) void saveProgress(audioRef.current.currentTime);
-              }}
-              onPause={() => {
-                if (audioRef.current) void saveProgress(audioRef.current.currentTime, true);
-              }}
-              onEnded={() => void saveProgress(audioRef.current?.duration || 0, true)}
-            />
+            {mediaType.startsWith('video/')
+              ? <video
+                  ref={mediaRef}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  src={audioUrl}
+                  style={{ width: '100%', maxHeight: 560, borderRadius: 12, background: '#000' }}
+                  onLoadedMetadata={() => {
+                    if (resumeAt > 0 && mediaRef.current) mediaRef.current.currentTime = resumeAt;
+                  }}
+                  onTimeUpdate={() => {
+                    if (mediaRef.current) void saveProgress(mediaRef.current.currentTime);
+                  }}
+                  onPause={() => {
+                    if (mediaRef.current) void saveProgress(mediaRef.current.currentTime, true);
+                  }}
+                  onEnded={() => void saveProgress(mediaRef.current?.duration || 0, true)}
+                />
+              : <audio
+                  ref={mediaRef}
+                  controls
+                  preload="metadata"
+                  src={audioUrl}
+                  style={{ width: '100%' }}
+                  onLoadedMetadata={() => {
+                    if (resumeAt > 0 && mediaRef.current) mediaRef.current.currentTime = resumeAt;
+                  }}
+                  onTimeUpdate={() => {
+                    if (mediaRef.current) void saveProgress(mediaRef.current.currentTime);
+                  }}
+                  onPause={() => {
+                    if (mediaRef.current) void saveProgress(mediaRef.current.currentTime, true);
+                  }}
+                  onEnded={() => void saveProgress(mediaRef.current?.duration || 0, true)}
+                />}
             <p style={{ color: 'var(--muted, #a1a1aa)', fontSize: 13, marginBottom: 0 }}>
-              {resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your listening progress is saved when you sign in.'}
+              {resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
               {saving ? ' · Saving progress…' : ''}
             </p>
           </section>}
