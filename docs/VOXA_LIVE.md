@@ -75,3 +75,10 @@ The API now includes these initial endpoints:
 Set `LIVEKIT_URL`, `LIVEKIT_API_KEY`, and `LIVEKIT_API_SECRET` in the API environment. Keep the API secret server-side. A room is marked LIVE when its host first requests a join token. Tokens expire after ten minutes. Hosts and approved stage members receive publish permission; audience tokens are subscribe-only.
 
 **Not yet implemented:** client-side LiveKit SDK integration, chat/reactions, stage capacity limits, moderator roles, room ending/cleanup, recording, replay, scheduled-room start orchestration, restricted-room entitlements, abuse throttling, and automated integration tests. Membership/private rooms are deliberately denied to non-hosts until entitlement checks exist. A real LiveKit project and credentials are required before live media can connect.
+
+
+## Step 7.1 — Host room controls
+
+Added `POST /v1/live/rooms/:roomId/end`. Only the room host can call it. The API asks LiveKit to delete the room (which forcibly disconnects participants), then marks the VOXA room as ENDED and closes active stage memberships. Repeated requests for an already-ended room return its ended state.
+
+The LiveKit room deletion call requires valid server credentials. If LiveKit is unavailable, the API does not falsely report that participants were disconnected; the request fails and the room record is not marked ended.
