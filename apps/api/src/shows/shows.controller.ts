@@ -12,6 +12,12 @@ import { ShowsService } from './shows.service';
 export class ShowsController {
   constructor(private readonly shows: ShowsService) {}
 
+  @Get('creators/me/shows')
+  @UseGuards(JwtAuthGuard)
+  listMyShows(@Req() req: AuthenticatedRequest) {
+    return this.shows.listMyShows(req.user.id);
+  }
+
   @Post('shows')
   @UseGuards(JwtAuthGuard)
   createShow(@Req() req: AuthenticatedRequest, @Body() input: CreateShowDto) {
