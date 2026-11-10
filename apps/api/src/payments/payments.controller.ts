@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateMembershipCheckoutDto } from './dto/create-membership-checkout.dto';
+import { CreatePayoutDestinationDto } from './dto/create-payout-destination.dto';
 import { PaymentsService } from './payments.service';
 
 type WebhookRequest = {
@@ -15,6 +16,18 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   createMembershipCheckout(@Req() req: AuthenticatedRequest, @Body() input: CreateMembershipCheckoutDto) {
     return this.payments.createMembershipCheckout(req.user.id, input.planId);
+  }
+
+  @Get('creators/me/payout-destinations')
+  @UseGuards(JwtAuthGuard)
+  payoutDestinations(@Req() req: AuthenticatedRequest) {
+    return this.payments.listPayoutDestinations(req.user.id);
+  }
+
+  @Post('creators/me/payout-destinations')
+  @UseGuards(JwtAuthGuard)
+  createPayoutDestination(@Req() req: AuthenticatedRequest, @Body() input: CreatePayoutDestinationDto) {
+    return this.payments.createPayoutDestination(req.user.id, input);
   }
 
   @Get('creators/me/earnings')
