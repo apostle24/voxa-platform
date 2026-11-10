@@ -8,7 +8,8 @@
     "build": "nest build",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate",
-    "prisma:migrate": "prisma migrate dev"
+    "prisma:migrate": "prisma migrate dev",
+    "admin:bootstrap": "node scripts/bootstrap-admin.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.15",
