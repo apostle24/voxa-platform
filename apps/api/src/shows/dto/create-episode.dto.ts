@@ -7,9 +7,6 @@ export class CreateEpisodeDto {
   @IsOptional() @IsString() @MaxLength(8000)
   description?: string;
 
-  @IsOptional() @IsString() @MaxLength(512)
-  mediaKey?: string;
-
   @IsOptional() @IsUrl({ require_tld: false }) @MaxLength(2048)
   artworkUrl?: string;
 
