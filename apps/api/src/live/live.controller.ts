@@ -30,6 +30,12 @@ export class LiveController {
     return this.live.joinToken(req.user.id, roomId);
   }
 
+  @Post('rooms/:roomId/speakers/:speakerId/remove')
+  @UseGuards(JwtAuthGuard)
+  removeSpeaker(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('speakerId') speakerId: string) {
+    return this.live.removeSpeaker(req.user.id, roomId, speakerId);
+  }
+
   @Post('rooms/:roomId/stage-requests')
   @UseGuards(JwtAuthGuard)
   requestStage(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
