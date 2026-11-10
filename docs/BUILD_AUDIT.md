@@ -151,3 +151,27 @@ Never put provider credentials in GitHub source files or browser-exposed `NEXT_P
 ## Audit conclusion
 
 The project has a useful technical foundation and a successful compile pipeline, but it is not yet a finished website or a production-ready global platform. The next engineering work should begin with **Stage A stabilization and automated verification**, then complete the podcast listener/creator experience before expanding the product surface. Live payments, payouts, scheduled settlement, and public global launch remain gated.
+
+
+## Audit follow-up — stabilization work in progress
+
+Changes committed after the initial audit:
+- The settlement worker now uses a 100-payment scheduled batch and a 60-second serializable transaction timeout.
+- Request-triggered settlement now acquires the same PostgreSQL advisory lock as the scheduled worker, preventing both release paths from competing for the same ledger movements.
+- A one-time operator-run initial administrator creation script is available at `apps/api/scripts/bootstrap-admin.cjs`, exposed as `pnpm admin:bootstrap` from `apps/api`. It creates a new ADMIN user only; it refuses to promote or overwrite an existing account.
+- Membership plan creation and currency updates now enforce the current GHS-only Paystack checkout boundary.
+- Jest/ts-jest API test tooling and CI test execution have been added.
+- Initial unit tests cover authentication, ledger transfer validation/idempotency, restricted LIVE room access, and the GHS membership currency boundary.
+
+Verification:
+- The earlier CI run `42919754708` passed dependency installation, Prisma validation/generation, API/web typecheck, the first five authentication tests, and both builds.
+- A later CI run is queued/running for the expanded ledger/LIVE/membership test suite. Do not treat those additional tests as passed until that run completes successfully.
+- No production database was used to run the admin bootstrap. No provider credentials or live payment/payout transfers were used.
+- No frozen dependency install is possible yet because `pnpm-lock.yaml` is absent. The workflow therefore remains on `--no-frozen-lockfile` until the lockfile can be generated and committed.
+
+Remaining Stage A exit requirements:
+1. Expanded tests pass in CI.
+2. Commit a generated pnpm lockfile and restore frozen installs.
+3. Add tests for webhook signature/amount/idempotency, creator payout reservation/release/reversal, settlement batch concurrency, and LIVE host/stage authorization.
+4. Add migration drift checks and safe admin bootstrap operational verification in a non-production environment.
+5. Keep the settlement and payout execution flags disabled until staging verification and monitoring are complete.
