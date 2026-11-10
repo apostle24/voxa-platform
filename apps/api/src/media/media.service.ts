@@ -105,7 +105,19 @@ export class MediaService {
       if (!membership) throw new ForbiddenException('An active creator membership is required to access this episode');
     }
     const expiresIn = Math.max(60, Math.min(900, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 300))));
-    const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: episode.mediaKey }), { expiresIn });
-    return { url, expiresIn };
+    const [url, asset] = await Promise.all([
+      getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: episode.mediaKey }), { expiresIn }),
+      this.prisma.mediaAsset.findUnique({
+        where: { objectKey: episode.mediaKey },
+        select: { contentType: true, sizeBytes: true, durationSeconds: true },
+      }),
+    ]);
+    return {
+      url,
+      expiresIn,
+      contentType: asset?.contentType || 'application/octet-stream',
+      sizeBytes: asset?.sizeBytes?.toString() || null,
+      durationSeconds: asset?.durationSeconds ?? null,
+    };
   }
 }
