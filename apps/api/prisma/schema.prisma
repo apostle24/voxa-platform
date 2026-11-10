@@ -104,8 +104,6 @@ model User {
   membershipSubscriptions MembershipSubscription[] @relation("SubscriberSubscriptions")
   ledgerAccounts LedgerAccount[]
   paymentAttempts PaymentAttempt[]
-  payoutDestinations CreatorPayoutDestination[]
-  payoutRequests PayoutRequest[]
 }
 
 model Creator {
@@ -121,6 +119,8 @@ model Creator {
   membershipPlans MembershipPlan[]
   subscriptions MembershipSubscription[] @relation("CreatorSubscriptions")
   paymentAttempts PaymentAttempt[]
+  payoutDestinations CreatorPayoutDestination[]
+  payoutRequests PayoutRequest[]
 }
 
 model Show {
