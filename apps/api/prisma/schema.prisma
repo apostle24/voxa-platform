@@ -20,6 +20,14 @@ enum PublicationStatus {
   ARCHIVED
 }
 
+enum MediaProcessingStatus {
+  UPLOADED
+  QUEUED
+  PROCESSING
+  READY
+  FAILED
+}
+
 enum LiveRoomStatus {
   DRAFT
   SCHEDULED
@@ -96,8 +104,30 @@ model Episode {
   show            Show     @relation(fields: [showId], references: [id], onDelete: Cascade)
   bookmarks       EpisodeBookmark[]
   progress        PlaybackProgress[]
+  mediaAssets     MediaAsset[]
 
   @@index([showId, status, publishedAt])
+}
+
+model MediaAsset {
+  id              String                @id @default(cuid())
+  episodeId       String
+  objectKey       String                @unique
+  contentType     String
+  sizeBytes       BigInt
+  status          MediaProcessingStatus @default(UPLOADED)
+  durationSeconds Int?
+  width           Int?
+  height          Int?
+  playbackKey     String?
+  failureReason   String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  processedAt     DateTime?
+  episode         Episode               @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@index([episodeId, createdAt])
+  @@index([status, createdAt])
 }
 
 model Follow {
