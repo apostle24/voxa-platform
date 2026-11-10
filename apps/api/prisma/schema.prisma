@@ -68,6 +68,12 @@ enum LedgerEntryDirection {
   CREDIT
 }
 
+enum PaymentAttemptStatus {
+  INITIALIZED
+  PAID
+  FAILED
+}
+
 model User {
   id          String     @id @default(cuid())
   email       String     @unique
@@ -84,6 +90,7 @@ model User {
   notifications Notification[]
   membershipSubscriptions MembershipSubscription[] @relation("SubscriberSubscriptions")
   ledgerAccounts LedgerAccount[]
+  paymentAttempts PaymentAttempt[]
 }
 
 model Creator {
@@ -98,6 +105,7 @@ model Creator {
   followers   Follow[]
   membershipPlans MembershipPlan[]
   subscriptions MembershipSubscription[] @relation("CreatorSubscriptions")
+  paymentAttempts PaymentAttempt[]
 }
 
 model Show {
@@ -300,6 +308,7 @@ model MembershipSubscription {
 model LedgerAccount {
   id        String   @id @default(cuid())
   ownerId   String?
+  accountKey String  @unique
   type      LedgerAccountType
   currency  String
   createdAt DateTime @default(now())
@@ -337,4 +346,41 @@ model LedgerEntry {
 
   @@unique([transactionId, accountId, direction])
   @@index([accountId, createdAt])
+}
+
+
+model PaymentAttempt {
+  id          String   @id @default(cuid())
+  userId      String
+  creatorId   String
+  planId      String
+  provider    String
+  reference   String   @unique
+  amountMinor Int
+  currency    String
+  status      PaymentAttemptStatus @default(INITIALIZED)
+  checkoutUrl String?
+  paidAt      DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  creator     Creator  @relation(fields: [creatorId], references: [id], onDelete: Restrict)
+  plan        MembershipPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+
+  @@index([userId, createdAt])
+  @@index([creatorId, status, createdAt])
+}
+
+model PaymentWebhookEvent {
+  id          String   @id @default(cuid())
+  provider    String
+  eventKey    String
+  eventType   String
+  reference   String?
+  payload     Json
+  receivedAt  DateTime @default(now())
+  processedAt DateTime?
+
+  @@unique([provider, eventKey])
+  @@index([reference, provider])
 }
