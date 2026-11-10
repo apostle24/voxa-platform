@@ -722,7 +722,7 @@ export class PaymentsService {
 
   async listAdminPayoutRequests() {
     return this.prisma.payoutRequest.findMany({
-      where: { status: { in: [PayoutRequestStatus.REQUESTED, PayoutRequestStatus.UNDER_REVIEW] } },
+      where: { status: { in: [PayoutRequestStatus.REQUESTED, PayoutRequestStatus.UNDER_REVIEW, PayoutRequestStatus.APPROVED, PayoutRequestStatus.SUBMITTED, PayoutRequestStatus.PROCESSING] } },
       orderBy: { requestedAt: 'asc' },
       take: 100,
       select: {
