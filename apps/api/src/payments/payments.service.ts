@@ -46,11 +46,19 @@ export class PaymentsService {
     const customer = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     if (!customer) throw new NotFoundException('Account not found');
 
+    const platformFeeBps = 1500;
+    const platformFeeMinor = Math.floor((plan.priceMinor * platformFeeBps + 5000) / 10000);
+    const creatorNetMinor = plan.priceMinor - platformFeeMinor;
+    if (!Number.isSafeInteger(platformFeeMinor) || creatorNetMinor <= 0) {
+      throw new BadRequestException('Membership amount is too small to allocate safely');
+    }
+
     const reference = 'VOXA_' + randomUUID().replace(/-/g, '');
     const attempt = await this.prisma.paymentAttempt.create({
       data: {
         userId, creatorId: plan.creatorId, planId: plan.id, provider: PROVIDER,
         reference, amountMinor: plan.priceMinor, currency: plan.currency,
+        platformFeeBps, platformFeeMinor, creatorNetMinor,
       },
     });
 
@@ -129,7 +137,7 @@ export class PaymentsService {
     });
     const result = await response.json() as {
       status?: boolean;
-      data?: { status?: string; reference?: string; amount?: number; currency?: string };
+      data?: { status?: string; reference?: string; amount?: number; currency?: string; fees?: number };
     };
     if (!response.ok || !result.status || !result.data) {
       throw new ServiceUnavailableException('Could not verify the payment with Paystack');
@@ -161,6 +169,11 @@ export class PaymentsService {
     if (attempt.amountMinor !== verified.amount || attempt.currency !== verified.currency) {
       throw new BadRequestException('Verified payment amount or currency does not match the checkout');
     }
+
+    const providerFeeMinor = typeof verified.fees === 'number' &&
+      Number.isSafeInteger(verified.fees) && verified.fees >= 0 && verified.fees <= attempt.amountMinor
+      ? verified.fees
+      : null;
 
     const eventKey = 'charge.success:' + reference;
     try {
@@ -214,6 +227,7 @@ export class PaymentsService {
         });
         const platformKey = 'platform:clearing:' + attempt.currency;
         const creatorKey = 'user:' + creator.userId + ':creator-pending:' + attempt.currency;
+        const revenueKey = 'platform:revenue:' + attempt.currency;
         const platformAccount = await tx.ledgerAccount.upsert({
           where: { accountKey: platformKey },
           create: { accountKey: platformKey, ownerId: null, type: LedgerAccountType.PLATFORM_CLEARING, currency: attempt.currency },
@@ -224,6 +238,11 @@ export class PaymentsService {
           create: { accountKey: creatorKey, ownerId: creator.userId, type: LedgerAccountType.CREATOR_PENDING, currency: attempt.currency },
           update: {},
         });
+        const revenueAccount = await tx.ledgerAccount.upsert({
+          where: { accountKey: revenueKey },
+          create: { accountKey: revenueKey, ownerId: null, type: LedgerAccountType.PLATFORM_REVENUE, currency: attempt.currency },
+          update: {},
+        });
         const transaction = await tx.ledgerTransaction.create({
           data: {
             idempotencyKey: 'paystack:membership:' + reference,
@@ -232,14 +251,48 @@ export class PaymentsService {
             entries: {
               create: [
                 { accountId: platformAccount.id, direction: 'DEBIT', amountMinor: attempt.amountMinor },
-                { accountId: creatorAccount.id, direction: 'CREDIT', amountMinor: attempt.amountMinor },
+                { accountId: creatorAccount.id, direction: 'CREDIT', amountMinor: attempt.creatorNetMinor },
+                { accountId: revenueAccount.id, direction: 'CREDIT', amountMinor: attempt.platformFeeMinor },
               ],
             },
           },
         });
 
+        if (providerFeeMinor !== null && providerFeeMinor > 0) {
+          const expenseKey = 'platform:provider-fee-expense:' + attempt.currency;
+          const expenseAccount = await tx.ledgerAccount.upsert({
+            where: { accountKey: expenseKey },
+            create: {
+              accountKey: expenseKey, ownerId: null,
+              type: LedgerAccountType.PROVIDER_FEE_EXPENSE, currency: attempt.currency,
+            },
+            update: {},
+          });
+          await tx.ledgerTransaction.create({
+            data: {
+              idempotencyKey: 'paystack:provider-fee:' + reference,
+              type: 'PROVIDER_PROCESSING_FEE',
+              currency: attempt.currency,
+              amountMinor: providerFeeMinor,
+              reference,
+              entries: {
+                create: [
+                  { accountId: expenseAccount.id, direction: 'DEBIT', amountMinor: providerFeeMinor },
+                  { accountId: platformAccount.id, direction: 'CREDIT', amountMinor: providerFeeMinor },
+                ],
+              },
+            },
+          });
+        }
+
         await tx.paymentAttempt.update({
-          where: { id: attempt.id }, data: { status: PaymentAttemptStatus.PAID, paidAt: now },
+          where: { id: attempt.id },
+          data: {
+            status: PaymentAttemptStatus.PAID,
+            paidAt: now,
+            providerFeeMinor,
+            providerFeeRecordedAt: providerFeeMinor !== null ? now : null,
+          },
         });
         await tx.paymentWebhookEvent.update({
           where: { provider_eventKey: { provider: PROVIDER, eventKey } },
@@ -287,7 +340,16 @@ export class PaymentsService {
         entries: { where: { accountId: { in: accountIds } }, select: { direction: true, amountMinor: true } },
       },
     });
-    return { balances, transactions };
+    return {
+      balances,
+      transactions: transactions.map(transaction => ({
+        ...transaction,
+        creatorAmountMinor: transaction.entries.reduce(
+          (net, entry) => net + (entry.direction === 'CREDIT' ? entry.amountMinor : -entry.amountMinor),
+          0,
+        ),
+      })),
+    };
   }
 
   async getMyPaymentAttempt(userId: string, reference: string) {
