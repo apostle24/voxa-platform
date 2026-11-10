@@ -407,11 +407,20 @@ export class PaymentsService {
     if (existing && existing.creatorId !== creator.id) {
       throw new ConflictException('This payout destination is already linked to another VOXA creator');
     }
-    if (existing) return existing;
+    if (existing) {
+      return this.prisma.creatorPayoutDestination.findUniqueOrThrow({
+        where: { id: existing.id },
+        select: {
+          id: true, provider: true, currency: true, country: true, channel: true,
+          accountName: true, maskedAccountNumber: true, isVerified: true, isDefault: true,
+          createdAt: true,
+        },
+      });
+    }
 
-    const masked = (recipient.details?.account_number || input.accountNumber).slice(-4).padStart(4, '*');
-    const destinationCount = await this.prisma.creatorPayoutDestination.count({ where: { creatorId: creator.id } });
+    const masked = (recipient.details?.account_number || input.accountNumber).slice(-4);
     return this.prisma.$transaction(async tx => {
+      const destinationCount = await tx.creatorPayoutDestination.count({ where: { creatorId: creator.id } });
       if (destinationCount === 0) {
         await tx.creatorPayoutDestination.updateMany({
           where: { creatorId: creator.id }, data: { isDefault: false },
@@ -426,7 +435,7 @@ export class PaymentsService {
           country: 'GH',
           channel: input.type,
           accountName: recipient.details?.account_name || recipient.name || input.name.trim(),
-          maskedAccountNumber: '••••' + masked.slice(-4),
+          maskedAccountNumber: '••••' + masked,
           // Paystack's "active" recipient flag means the recipient record is active;
           // it is not proof of creator identity or account ownership.
           isVerified: false,
