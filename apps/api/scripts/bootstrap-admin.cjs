@@ -21,21 +21,30 @@ async function main() {
 
   const prisma = new PrismaClient();
   try {
-    const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
-    if (existing) {
-      throw new Error('That email already exists. This bootstrap only creates the first admin and never promotes or overwrites an existing account.');
-    }
-
     const passwordHash = await bcrypt.hash(password, 12);
-    const admin = await prisma.user.create({
-      data: {
-        email,
-        passwordHash,
-        displayName: 'VOXA Administrator',
-        role: UserRole.ADMIN,
-      },
-      select: { id: true, email: true, role: true },
-    });
+    const admin = await prisma.$transaction(async tx => {
+      // Serialize concurrent bootstrap invocations and guarantee this is a
+      // one-time first-admin operation, not a general role-promotion tool.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(731904222, 1)`;
+      const existingAdmin = await tx.user.findFirst({
+        where: { role: UserRole.ADMIN },
+        select: { id: true },
+      });
+      if (existingAdmin) throw new Error('A VOXA administrator already exists. This bootstrap is only for the first administrator.');
+      const existing = await tx.user.findUnique({ where: { email }, select: { id: true } });
+      if (existing) {
+        throw new Error('That email already exists. This bootstrap never promotes or overwrites an existing account.');
+      }
+      return tx.user.create({
+        data: {
+          email,
+          passwordHash,
+          displayName: 'VOXA Administrator',
+          role: UserRole.ADMIN,
+        },
+        select: { id: true, email: true, role: true },
+      });
+    }, { isolationLevel: 'Serializable' });
     process.stdout.write('Created initial VOXA administrator: ' + admin.email + ' (' + admin.id + ')\n');
   } finally {
     await prisma.$disconnect();
