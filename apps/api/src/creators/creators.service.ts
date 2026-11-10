@@ -66,11 +66,19 @@ export class CreatorsService {
     if (!creator) throw new NotFoundException('Creator not found');
     if (creator.userId === userId) throw new ConflictException('You cannot follow your own creator profile');
 
+    const existing = await this.prisma.follow.findUnique({ where: { followerId_creatorId: { followerId: userId, creatorId: creator.id } }, select: { followerId: true } });
     await this.prisma.follow.upsert({
       where: { followerId_creatorId: { followerId: userId, creatorId: creator.id } },
       create: { followerId: userId, creatorId: creator.id },
       update: {},
     });
+    if (!existing) {
+      await this.prisma.notification.create({ data: {
+        recipientId: creator.userId, actorId: userId, type: 'NEW_FOLLOWER',
+        title: 'You have a new follower', body: 'Someone started following your creator profile.',
+        resourceType: 'creator', resourceId: creator.id,
+      } });
+    }
     return { following: true, creatorHandle: handle.toLowerCase() };
   }
 
