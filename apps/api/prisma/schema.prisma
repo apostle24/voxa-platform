@@ -277,6 +277,7 @@ model MembershipPlan {
   updatedAt   DateTime @updatedAt
   creator     Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   subscriptions MembershipSubscription[]
+  paymentAttempts PaymentAttempt[]
 
   @@index([creatorId, isActive, createdAt])
 }
