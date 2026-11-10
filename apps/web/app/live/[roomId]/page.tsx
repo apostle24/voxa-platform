@@ -8,6 +8,7 @@ import { Room, RoomEvent } from 'livekit-client';
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\\/$/, '');
 type StageState = {
   isHost: boolean;
+  hostId: string;
   requests: { id: string; userId: string; requestedAt: string }[];
   speakers: { userId: string; role: string; joinedAt: string }[];
   ownRequest: { status: string; requestedAt: string } | null;
@@ -37,14 +38,13 @@ export default function LiveRoomPage() {
   }, []);
 
   const refreshStage = useCallback(async () => {
-    try { setStage(await api('/live/rooms/' + roomId + '/stage')); }
+    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
   }, [api, roomId]);
 
   const connect = useCallback(async () => {
     try {
       const data = await api('/live/rooms/' + roomId + '/join-token', 'POST');
-      setIsHost(Boolean(data.canPublish));
       setStatus('Connecting to live media…');
       const old = roomRef.current;
       if (old) await old.disconnect();
@@ -119,7 +119,7 @@ export default function LiveRoomPage() {
           <div className="sectionTitle"><div><span className="eyebrow">HOST CONTROLS</span><h2>Stage requests <span className="countBadge">{stage?.requests.length ?? 0}</span></h2></div><button className="ghostButton" onClick={()=>void refreshStage()}>↻ Refresh</button></div>
           {!stage?.requests.length ? <p className="helperText">No pending requests. New requests appear automatically.</p> : <div className="moderationList">{stage.requests.map(request=><div className="moderationRow" key={request.id}><div><b>Listener</b><small>{request.userId}</small></div><div className="moderationActions"><button className="approveButton" disabled={!!busy} onClick={()=>void action('approve-'+request.id,'/live/rooms/'+roomId+'/stage-requests/'+request.id+'/approve')}>Approve</button><button className="rejectButton" disabled={!!busy} onClick={()=>void action('reject-'+request.id,'/live/rooms/'+roomId+'/stage-requests/'+request.id+'/reject')}>Reject</button></div></div>)}</div>}
           <div className="sectionTitle speakerHeading"><div><span className="eyebrow">ON AIR</span><h2>Speakers</h2></div></div>
-          <div className="moderationList">{stage?.speakers.map(speaker=><div className="moderationRow" key={speaker.userId}><div><b>{speaker.userId===stage.speakers[0]?.userId && isHost ? 'Host' : 'Speaker'}</b><small>{speaker.userId}</small></div>{speaker.userId!==stage.speakers[0]?.userId && <button className="rejectButton" disabled={!!busy} onClick={()=>void removeSpeaker(speaker.userId)}>Remove</button>}</div>)}</div>
+          <div className="moderationList"><div className="moderationRow"><div><b>Host</b><small>{stage?.hostId}</small></div></div>{stage?.speakers.filter(speaker=>speaker.userId!==stage.hostId).map(speaker=><div className="moderationRow" key={speaker.userId}><div><b>Speaker</b><small>{speaker.userId}</small></div><button className="rejectButton" disabled={!!busy} onClick={()=>void removeSpeaker(speaker.userId)}>Remove</button></div>)}</div>
         </section>}
         {!isHost && <p className="helperText">{pending ? 'Your request is waiting for the host.' : approved ? 'The host approved your request. Reconnect to refresh your speaking permissions.' : 'You are listening. Request the stage whenever you are ready to speak.'}</p>}
       </>}
