@@ -69,3 +69,29 @@ Passwords are hashed with bcrypt. Access tokens are signed JWTs with a short 15-
 7. Start the API with `pnpm dev:api`.
 
 Do not use the sample local database password or example JWT secret in production.
+
+## Step 2 — Creator profiles and follows
+
+Initial creator endpoints are available:
+
+- `POST /v1/creators/me` — create a creator profile for the authenticated account.
+- `GET /v1/creators/:handle` — view a public creator profile and follower/show counts.
+- `POST /v1/creators/:handle/follow` — follow a creator (requires Bearer token).
+- `DELETE /v1/creators/:handle/follow` — unfollow a creator (requires Bearer token).
+
+Creator handles are normalized to lowercase. A user cannot follow their own creator profile. Follow requests are idempotent. Creator onboarding changes the account role within a database transaction.
+
+Example creator onboarding request:
+
+```http
+POST /v1/creators/me
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "handle": "myshow",
+  "bio": "Conversations about faith, culture, and ideas."
+}
+```
+
+The API is still an early foundation. Add refresh-token rotation, email verification, password recovery, request throttling, automated tests, and full deployment configuration before production use.
