@@ -223,3 +223,15 @@ The room UI now sends chat messages and emoji reactions over LiveKit's reliable 
 The database now has ledger accounts, immutable transaction/entry records, unique idempotency keys, and a server-side balanced-transfer service. A transfer creates matching debit and credit entries in one database transaction and rejects reuse of an idempotency key with different transfer details. No public wallet-balance mutation or payout endpoint exists. Wallet balances must be derived from ledger entries; never trust client-side balances.
 
 **Still required before real money:** payment-provider selection and country support checks, signed webhook verification, webhook event deduplication, reconciliation, refunds/chargebacks, payout onboarding/KYC, tax and consumer-law review, fraud controls, operational monitoring, and financial/security testing.
+
+
+### Paystack membership checkout (GHS pilot foundation)
+
+- Authenticated listeners can start checkout with `POST /v1/memberships/checkout` and `{ "planId": "..." }`. The API reads the plan price and currency from PostgreSQL; clients cannot submit an amount.
+- This initial provider path accepts GHS plans only and creates a one-time payment for one month of access. It does not create automatic recurring card charges.
+- Configure `PAYSTACK_SECRET_KEY` on the API server and set `PAYSTACK_CALLBACK_URL` to the frontend's payment-return page. Never expose the secret to the browser.
+- Configure Paystack to send webhooks to `POST /v1/webhooks/paystack`. The API verifies the HMAC SHA-512 signature against the raw request body, then independently verifies the transaction with Paystack before activating membership.
+- Successful payments are recorded as idempotent webhook events, activate/extend the membership period, and create matching ledger debit/credit entries. Replayed success events do not create a second membership credit.
+- Payment attempts, webhook payloads, and ledger entries are retained for audit. No creator withdrawal or payout API is enabled.
+
+**Before production:** run the new Prisma migration against a disposable/staging database; configure Paystack test credentials and webhook URL; test success, failed, duplicate, amount-mismatch, currency-mismatch, and invalid-signature cases; confirm your Paystack merchant account's Ghana eligibility, supported payment channels, settlement rules, fees, refunds and chargeback processes. Current checkout is a GHS one-time monthly pass only. Automatic renewal, mobile-money recurring charges, cross-currency conversion, platform fees and creator payouts are not implemented.
