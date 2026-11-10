@@ -136,6 +136,23 @@ export class LiveService {
         where: { id: roomId },
         data: { status: LiveRoomStatus.LIVE, startedAt: new Date() },
       });
+      const creator = await this.prisma.creator.findUnique({
+        where: { userId },
+        select: { id: true, followers: { select: { followerId: true } } },
+      });
+      if (creator?.followers.length) {
+        await this.prisma.notification.createMany({
+          data: creator.followers.map(({ followerId }) => ({
+            recipientId: followerId,
+            actorId: userId,
+            type: 'CREATOR_LIVE',
+            title: 'A creator you follow is live',
+            body: room.title,
+            resourceType: 'live_room',
+            resourceId: room.id,
+          })),
+        });
+      }
     }
 
     return { serverUrl: url, roomName: room.id, token: await token.toJwt(), canPublish: isHost || isSpeaker, expiresInSeconds: 600 };
