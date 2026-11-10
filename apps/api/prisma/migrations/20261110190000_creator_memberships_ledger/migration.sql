@@ -26,6 +26,8 @@ CREATE TABLE "MembershipSubscription" (
   "subscriberId" TEXT NOT NULL,
   "creatorId" TEXT NOT NULL,
   "planId" TEXT NOT NULL,
+  "priceMinor" INTEGER NOT NULL,
+  "currency" TEXT NOT NULL DEFAULT 'USD',
   "status" "MembershipSubscriptionStatus" NOT NULL DEFAULT 'PENDING',
   "provider" TEXT,
   "providerSubscriptionId" TEXT,
