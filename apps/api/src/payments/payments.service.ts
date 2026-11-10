@@ -1067,4 +1067,58 @@ export class PaymentsService {
   }
 
 
+
+  async reconcilePayoutTransfer(adminUserId: string, payoutRequestId: string) {
+    const request = await this.prisma.payoutRequest.findUnique({ where: { id: payoutRequestId } });
+    if (!request) throw new NotFoundException('Payout request not found');
+    if (request.provider !== PROVIDER || ![
+      PayoutRequestStatus.SUBMITTED, PayoutRequestStatus.PROCESSING, PayoutRequestStatus.PAID,
+    ].includes(request.status)) {
+      throw new ConflictException('Only submitted or completed Paystack payouts can be reconciled');
+    }
+    const response = await fetch(PAYSTACK_API + '/transfer/verify/' + encodeURIComponent(request.reference.toLowerCase()), {
+      headers: { Authorization: 'Bearer ' + this.secretKey() },
+      signal: AbortSignal.timeout(15000),
+    });
+    const result = await response.json().catch(() => null) as {
+      status?: boolean;
+      data?: { status?: string; reference?: string; amount?: number; currency?: string; failures?: unknown };
+    } | null;
+    if (!response.ok || !result?.status || !result.data ||
+        result.data.reference?.toLowerCase() !== request.reference.toLowerCase() ||
+        result.data.amount !== request.amountMinor || result.data.currency !== request.currency) {
+      throw new ServiceUnavailableException('Paystack could not confirm a matching transfer. The payout remains unchanged.');
+    }
+    const providerStatus = result.data.status;
+    if (providerStatus === 'pending' || providerStatus === 'otp' || providerStatus === 'received') {
+      await this.prisma.financialAuditLog.create({
+        data: {
+          actorUserId: adminUserId, action: 'PAYOUT_TRANSFER_RECONCILIATION_PENDING',
+          entityType: 'PayoutRequest', entityId: request.id,
+          metadata: { reference: request.reference, providerStatus },
+        },
+      });
+      return { reference: request.reference, status: request.status, providerStatus, reconciled: false };
+    }
+    const eventType = providerStatus === 'success' ? 'transfer.success'
+      : providerStatus === 'failed' ? 'transfer.failed'
+      : providerStatus === 'reversed' ? 'transfer.reversed' : null;
+    if (!eventType) {
+      throw new ServiceUnavailableException('Paystack returned a non-final transfer status; no ledger changes were made');
+    }
+    const processed = await this.handlePaystackTransferWebhook(
+      eventType, request.reference, { failures: result.data.failures || null },
+      { event: eventType, data: { reference: request.reference, status: providerStatus } },
+    );
+    await this.prisma.financialAuditLog.create({
+      data: {
+        actorUserId: adminUserId, action: 'PAYOUT_TRANSFER_RECONCILED',
+        entityType: 'PayoutRequest', entityId: request.id,
+        metadata: { reference: request.reference, providerStatus },
+      },
+    });
+    return { reference: request.reference, providerStatus, reconciled: true, result: processed };
+  }
+
+
 }
