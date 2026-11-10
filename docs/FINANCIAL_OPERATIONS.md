@@ -67,6 +67,9 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 
 - Admin financial monitoring endpoint: `GET /v1/admin/finance/overview`. The `/admin/finance` console now displays currency-separated gross membership collections, ledger-backed VOXA commission, creator pending/available/payout-hold liabilities, provider-fee expenses, platform clearing balance, payout totals by state, recent ledger postings, and recent financial audit actions. Figures are derived from posted ledger entries and verified paid payment attempts; provider fees remain separate VOXA expenses, not creator deductions. The dashboard is an operational view, not a substitute for bank/provider settlement reconciliation or formal accounting.
 
+
+- **Scheduled settlement worker:** the API can automatically scan for successful membership payments older than the seven-day hold and move creator net earnings from pending to available. It runs only when `SETTLEMENT_WORKER_ENABLED=true`, checks every `SETTLEMENT_WORKER_INTERVAL_MS` (default 60 seconds; minimum 15 seconds), and processes up to 500 matured payments per batch. A PostgreSQL transaction-scoped advisory lock prevents concurrent batches across API replicas; each release also has a stable per-payment ledger idempotency key. The batch runs atomically and logs failures for the next interval to retry. The creator earnings/payout API retains its on-demand release path as a fallback.
+
 ## Implementation sequence
 
 1. Harden and test checkout/webhook behavior, including ambiguous network outcomes and duplicate delivery.
@@ -84,7 +87,9 @@ Keep all provider credentials on the API server:
 - `PAYSTACK_CALLBACK_URL` — the public web payment-return URL.
 - `PAYSTACK_TRANSFERS_ENABLED=false` — keeps recipient onboarding disabled until Paystack approves VOXA's Transfers product.
 - `PAYSTACK_PAYOUT_EXECUTION_ENABLED=false` — separate kill switch for initiating creator transfers. Keep false until merchant approval, transfer-approval configuration, OTP policy, and full staging tests are complete. Both flags must be explicitly enabled before submission is possible.
-- `DATABASE_URL` — PostgreSQL connection string.
+- `DATABASE_URL` — PostgreSQL connection string. The settlement worker uses PostgreSQL advisory locks; do not enable it against a non-PostgreSQL database.
+- `SETTLEMENT_WORKER_ENABLED=false` — explicitly enable with `true` only after deploying and monitoring the worker.
+- `SETTLEMENT_WORKER_INTERVAL_MS=60000` — polling interval in milliseconds (minimum 15000).
 - `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_URL` — server-side LiveKit credentials for live rooms.
 
 Configure these in the deployment platform's server environment or GitHub Actions secrets for CI jobs that genuinely require them. Never prefix a secret with `NEXT_PUBLIC_`.
