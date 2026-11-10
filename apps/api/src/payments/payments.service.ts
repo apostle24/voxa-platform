@@ -268,6 +268,19 @@ export class PaymentsService {
     return { balances, transactions };
   }
 
+  async getMyPaymentAttempt(userId: string, reference: string) {
+    const attempt = await this.prisma.paymentAttempt.findFirst({
+      where: { userId, reference },
+      select: {
+        reference: true, amountMinor: true, currency: true, status: true, paidAt: true,
+        creator: { select: { handle: true } },
+        plan: { select: { name: true } },
+      },
+    });
+    if (!attempt) throw new NotFoundException('Payment attempt not found');
+    return attempt;
+  }
+
   async getMyPaymentHistory(userId: string) {
     return this.prisma.paymentAttempt.findMany({
       where: { userId },
