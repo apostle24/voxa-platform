@@ -322,6 +322,33 @@ export class PaymentsService {
     });
   }
 
+  async setDefaultPayoutDestination(userId: string, destinationId: string) {
+    const creator = await this.prisma.creator.findUnique({
+      where: { userId }, select: { id: true },
+    });
+    if (!creator) throw new ForbiddenException('Creator profile required');
+    const destination = await this.prisma.creatorPayoutDestination.findFirst({
+      where: { id: destinationId, creatorId: creator.id },
+      select: { id: true },
+    });
+    if (!destination) throw new NotFoundException('Payout destination not found');
+
+    return this.prisma.$transaction(async tx => {
+      await tx.creatorPayoutDestination.updateMany({
+        where: { creatorId: creator.id }, data: { isDefault: false },
+      });
+      return tx.creatorPayoutDestination.update({
+        where: { id: destination.id },
+        data: { isDefault: true },
+        select: {
+          id: true, provider: true, currency: true, country: true, channel: true,
+          accountName: true, maskedAccountNumber: true, isVerified: true, isDefault: true,
+          createdAt: true,
+        },
+      });
+    });
+  }
+
   async createPayoutDestination(userId: string, input: {
     name: string; type: 'ghipss' | 'mobile_money'; bankCode: string; accountNumber: string;
   }) {
