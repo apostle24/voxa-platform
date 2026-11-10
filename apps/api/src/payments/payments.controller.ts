@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateMembershipCheckoutDto } from './dto/create-membership-checkout.dto';
 import { CreatePayoutDestinationDto } from './dto/create-payout-destination.dto';
@@ -22,6 +22,12 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard)
   payoutDestinations(@Req() req: AuthenticatedRequest) {
     return this.payments.listPayoutDestinations(req.user.id);
+  }
+
+  @Patch('creators/me/payout-destinations/:destinationId/default')
+  @UseGuards(JwtAuthGuard)
+  setDefaultPayoutDestination(@Req() req: AuthenticatedRequest, @Param('destinationId') destinationId: string) {
+    return this.payments.setDefaultPayoutDestination(req.user.id, destinationId);
   }
 
   @Post('creators/me/payout-destinations')
