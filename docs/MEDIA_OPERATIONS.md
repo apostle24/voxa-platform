@@ -20,7 +20,7 @@ Set these on the API server only:
 - `S3_SECRET_ACCESS_KEY`
 - `S3_FORCE_PATH_STYLE` where required by the provider
 - `S3_UPLOAD_URL_TTL_SECONDS`
-- `S3_PLAYBACK_URL_TTL_SECONDS`
+- `S3_PLAYBACK_URL_TTL_SECONDS` (default 3600 seconds; maximum 21600 seconds so long-form playback URLs do not expire too quickly)
 - `MEDIA_MAX_AUDIO_BYTES`
 - `MEDIA_MAX_VIDEO_BYTES`
 
