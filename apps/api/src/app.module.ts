@@ -6,12 +6,13 @@ import { AuthModule } from './auth/auth.module';
 import { CatalogController } from './catalog.controller';
 import { CreatorsModule } from './creators/creators.module';
 import { LiveModule } from './live/live.module';
+import { MembershipsModule } from './memberships/memberships.module';
 import { ShowsModule } from './shows/shows.module';
 import { HealthController } from './health.controller';
 import { PrismaModule } from './prisma/prisma.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, CreatorsModule, ShowsModule, MediaModule, LiveModule, NotificationsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, CreatorsModule, ShowsModule, MediaModule, LiveModule, NotificationsModule, MembershipsModule],
   controllers: [HealthController, CatalogController],
 })
 export class AppModule {}
