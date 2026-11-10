@@ -68,7 +68,7 @@ Flutterwave remains a possible provider adapter, not an assumed production fallb
 - Admin financial monitoring endpoint: `GET /v1/admin/finance/overview`. The `/admin/finance` console now displays currency-separated gross membership collections, ledger-backed VOXA commission, creator pending/available/payout-hold liabilities, provider-fee expenses, platform clearing balance, payout totals by state, recent ledger postings, and recent financial audit actions. Figures are derived from posted ledger entries and verified paid payment attempts; provider fees remain separate VOXA expenses, not creator deductions. The dashboard is an operational view, not a substitute for bank/provider settlement reconciliation or formal accounting.
 
 
-- **Scheduled settlement worker:** the API can automatically scan for successful membership payments older than the seven-day hold and move creator net earnings from pending to available. It runs only when `SETTLEMENT_WORKER_ENABLED=true`, checks every `SETTLEMENT_WORKER_INTERVAL_MS` (default 60 seconds; minimum 15 seconds), and processes up to 500 matured payments per batch. A PostgreSQL transaction-scoped advisory lock prevents concurrent batches across API replicas; each release also has a stable per-payment ledger idempotency key. The batch runs atomically and logs failures for the next interval to retry. The creator earnings/payout API retains its on-demand release path as a fallback.
+- **Scheduled settlement worker:** the API can automatically scan for successful membership payments older than the seven-day hold and move creator net earnings from pending to available. It runs only when `SETTLEMENT_WORKER_ENABLED=true`, checks every `SETTLEMENT_WORKER_INTERVAL_MS` (default 60 seconds; minimum 15 seconds), and processes up to 100 matured payments per batch. A PostgreSQL transaction-scoped advisory lock prevents concurrent batches across API replicas; each release also has a stable per-payment ledger idempotency key. The batch runs atomically and logs failures for the next interval to retry. The creator earnings/payout API retains its on-demand release path as a fallback.
 
 ## Implementation sequence
 
@@ -93,3 +93,8 @@ Keep all provider credentials on the API server:
 - `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`, and `LIVEKIT_URL` — server-side LiveKit credentials for live rooms.
 
 Configure these in the deployment platform's server environment or GitHub Actions secrets for CI jobs that genuinely require them. Never prefix a secret with `NEXT_PUBLIC_`.
+
+
+### Settlement concurrency hardening (November 2026)
+
+The scheduled worker now processes at most 100 matured payments per transaction, with a 60-second transaction timeout. The request-triggered earnings release path acquires the same PostgreSQL transaction-scoped advisory lock as the scheduled worker, so the two release paths do not race each other. Each payment retains the unique `settlement-release:<reference>` ledger idempotency key. Keep the worker disabled until staging concurrency and database-load tests pass.
