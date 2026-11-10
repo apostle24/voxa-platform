@@ -142,3 +142,18 @@ The page size is capped at 50. Results are ordered newest-first; this is not yet
 **Upload security correction:** episode creation and editing no longer accept a client-supplied `mediaKey`. Media keys are attached only through the authenticated signed-upload completion flow.
 
 **Media processing status:** uploads are stored and can be served through short-lived signed URLs, but transcoding and validation are not falsely marked as complete. The next media milestone must add a durable processing-job state machine and worker (probe actual codecs/duration, malware scan, transcode to adaptive HLS/DASH, generate thumbnails/waveforms, and publish only after successful validation). Until that worker is deployed, creator-supplied duration metadata must not be treated as verified and this API is not ready for production media traffic.
+
+
+## Step 6 — Media asset processing state
+
+The database now tracks each uploaded media object as a `MediaAsset` with durable states:
+
+- `UPLOADED` — object storage upload was confirmed.
+- `QUEUED` — accepted by a processing queue (queue integration is not yet enabled).
+- `PROCESSING` — a worker has claimed the asset.
+- `READY` — validation and output generation have succeeded.
+- `FAILED` — processing failed and needs retry or review.
+
+The upload completion endpoint now creates/updates a `MediaAsset` record and returns its processing state. The migration is in `apps/api/prisma/migrations/20261110160000_media_asset_processing`.
+
+**Important boundary:** this commit adds durable processing state, not a functioning transcoder. There is no deployed FFmpeg worker, Redis/BullMQ queue, malware scanner, HLS/DASH packager, or CDN output yet. An asset remains `UPLOADED` until a real worker processes it. Do not advertise production-ready media processing or mark assets `READY` manually.
