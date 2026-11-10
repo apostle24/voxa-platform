@@ -7,9 +7,10 @@ const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1')
 
 type Episode = {
   id: string; title: string; description?: string | null; status: string;
-  durationSeconds?: number | null; mediaKey?: string | null;
+  durationSeconds?: number | null; mediaKey?: string | null; membershipRequired: boolean;
   mediaAssets: { id: string; status: string; contentType: string }[];
 };
+type MembershipPlan = { id: string; name: string; description?: string | null; priceMinor: number; currency: string; isActive: boolean };
 type Show = {
   id: string; title: string; description?: string | null; status: string;
   category?: string | null; artworkUrl?: string | null; episodes: Episode[];
@@ -18,6 +19,10 @@ type Show = {
 export default function CreatorStudioPage() {
   const [token, setToken] = useState('');
   const [shows, setShows] = useState<Show[]>([]);
+  const [plans, setPlans] = useState<MembershipPlan[]>([]);
+  const [planName, setPlanName] = useState('');
+  const [planDescription, setPlanDescription] = useState('');
+  const [planPrice, setPlanPrice] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -47,6 +52,16 @@ export default function CreatorStudioPage() {
     if (!episodeShowId && data?.[0]?.id) setEpisodeShowId(data[0].id);
   }
 
+  async function loadPlans() {
+    if (!token) return;
+    const data = await request('/creators/me/membership-plans');
+    setPlans(data || []);
+  }
+
+  async function loadWorkspace() {
+    await Promise.all([loadShows(), loadPlans()]);
+  }
+
   useEffect(() => {
     const savedToken = sessionStorage.getItem('voxa_access_token') || '';
     setToken(savedToken);
@@ -54,7 +69,7 @@ export default function CreatorStudioPage() {
 
   useEffect(() => {
     if (!token) return;
-    void loadShows().catch(reason => setError(reason instanceof Error ? reason.message : 'Unable to load creator studio'));
+    void loadWorkspace().catch(reason => setError(reason instanceof Error ? reason.message : 'Unable to load creator studio'));
   }, [token]);
 
   async function createShow(event: FormEvent<HTMLFormElement>) {
@@ -66,6 +81,39 @@ export default function CreatorStudioPage() {
       await loadShows();
       setNotice('Your show draft has been created.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to create show'); }
+    finally { setBusy(false); }
+  }
+
+  async function createPlan(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await request('/creators/me/membership-plans', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: planName,
+          description: planDescription,
+          priceMinor: Math.round(Number(planPrice) * 100),
+          currency: 'GHS',
+        }),
+      });
+      setPlanName(''); setPlanDescription(''); setPlanPrice('');
+      await loadPlans();
+      setNotice('Your GHS monthly membership plan is active.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to create membership plan'); }
+    finally { setBusy(false); }
+  }
+
+  async function toggleEpisodeMembership(showId: string, episodeId: string, membershipRequired: boolean) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/membership', {
+        method: 'PATCH',
+        body: JSON.stringify({ membershipRequired: !membershipRequired }),
+      });
+      await loadShows();
+      setNotice(!membershipRequired ? 'Episode access is now limited to active members.' : 'Episode is now publicly accessible.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to change episode access'); }
     finally { setBusy(false); }
   }
 
@@ -150,7 +198,16 @@ export default function CreatorStudioPage() {
             <label>Duration in seconds<input type="number" min={1} max={86400} value={duration} onChange={event => setDuration(event.target.value)} placeholder="Example: 1800" /></label>
             <button className="button full" disabled={busy || !shows.length}>{busy ? 'Please wait…' : 'Create episode draft'}</button>
           </form>
+          <form className="createPanel" onSubmit={createPlan}>
+            <div className="eyebrow">03 · CREATOR MEMBERSHIP</div><h2>Offer <em>membership.</em></h2>
+            <label>Plan name<input required minLength={2} maxLength={40} value={planName} onChange={event => setPlanName(event.target.value)} placeholder="Supporter" /></label>
+            <label>Description<textarea rows={3} maxLength={300} value={planDescription} onChange={event => setPlanDescription(event.target.value)} placeholder="What members receive" /></label>
+            <label>Monthly price (GHS)<input required type="number" min="0.01" step="0.01" max="1000000" value={planPrice} onChange={event => setPlanPrice(event.target.value)} placeholder="25.00" /></label>
+            <small>Creator membership checkout currently supports GHS only. VOXA's 15% commission is calculated server-side; provider fees are accounted separately.</small>
+            <button className="button full" disabled={busy}>{busy ? 'Please wait…' : 'Create membership plan'}</button>
+          </form>
         </div>
+        {plans.length > 0 && <><div className="eyebrow sectionEyebrow">YOUR MEMBERSHIP PLANS</div><div className="membershipGrid">{plans.map(plan => <article className="membershipCard" key={plan.id}><span>{plan.isActive ? 'ACTIVE PLAN' : 'INACTIVE PLAN'}</span><h3>{plan.name}</h3><p>{plan.description || 'Monthly creator membership'}</p><strong>{new Intl.NumberFormat(undefined, { style: 'currency', currency: plan.currency }).format(plan.priceMinor / 100)} <small>/ month</small></strong></article>)}</div></>}
         <div className="eyebrow sectionEyebrow">YOUR SHOWS AND EPISODES</div>
         {shows.length ? <div style={{ display: 'grid', gap: 18 }}>
           {shows.map(show => <article key={show.id} style={{ padding: 22, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12 }}>
@@ -166,6 +223,7 @@ export default function CreatorStudioPage() {
                 <div><b style={{ fontSize: 13 }}>{episode.title}</b><small style={{ display: 'block', color: 'var(--muted)', fontSize: 10, marginTop: 5 }}>{episode.status} · {episode.durationSeconds ? Math.floor(episode.durationSeconds / 60) + ' min' : 'Duration not set'} · {episode.mediaKey ? 'Media attached' : 'Media required'}</small></div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {episode.status !== 'PUBLISHED' && <label className="ghostButton" style={{ cursor: 'pointer' }}>{uploadingId === episode.id ? 'Uploading…' : 'Upload media'}<input type="file" accept="audio/*,video/mp4,video/webm,video/quicktime" disabled={uploadingId === episode.id} onChange={event => void uploadMedia(show.id, episode.id, event)} style={{ display: 'none' }} /></label>}
+                  <button className="ghostButton" disabled={busy || plans.length === 0 || episode.status === 'PUBLISHED'} onClick={() => void toggleEpisodeMembership(show.id, episode.id, episode.membershipRequired)}>{episode.membershipRequired ? 'Members only ✓' : 'Make members only'}</button>
                   {episode.status !== 'PUBLISHED' && <button className="button small" disabled={busy || show.status !== 'PUBLISHED' || !episode.mediaKey || !episode.durationSeconds} onClick={() => void publishEpisode(show.id, episode.id)}>Publish episode</button>}
                   {episode.status === 'PUBLISHED' && <Link className="ghostButton" href={'/episodes/' + episode.id}>Open episode ↗</Link>}
                 </div>
