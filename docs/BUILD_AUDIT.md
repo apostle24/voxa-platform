@@ -175,3 +175,24 @@ Remaining Stage A exit requirements:
 3. Add tests for webhook signature/amount/idempotency, creator payout reservation/release/reversal, settlement batch concurrency, and LIVE host/stage authorization.
 4. Add migration drift checks and safe admin bootstrap operational verification in a non-production environment.
 5. Keep the settlement and payout execution flags disabled until staging verification and monitoring are complete.
+
+
+## Product build progress — podcast journey
+
+The first Stage B implementation is now in the repository:
+- `/discover`: search published shows and episodes and filter by available categories.
+- `/shows/:showId`: public show detail with published episode list.
+- `/episodes/:episodeId`: native audio/video player, member-only playback handling, bookmark action, and saved/resume playback progress for signed-in users.
+- `/library`: saved episodes and unfinished listening progress.
+- `/creator/studio`: create show and episode drafts, upload supported audio/video directly to configured object storage, complete upload, and publish shows/episodes.
+- `GET /v1/creators/me/shows`: creator-owned show/episode listing for the studio.
+- Playback responses now include recorded asset MIME type and safe metadata for selecting audio or video playback.
+- Homepage navigation now links to discovery, the personal library and Creator Studio.
+
+Media processing is still not production complete: the current workflow uses original uploaded files and does not provide transcoding, malware scanning, codec/file-signature inspection, HLS packaging, CDN delivery or moderation. See `docs/MEDIA_OPERATIONS.md`.
+
+## Latest verification evidence
+
+- CI run `42921621664` passed API/web typechecking, the expanded API unit tests, API build and web build. The suite contains 15 test cases covering auth, ledger validation/idempotency, restricted LIVE access and GHS membership currency boundaries.
+- The pnpm lockfile was generated and committed as `pnpm-lock.yaml` (commit `0034d497b7bc8b4cab480a21367baab1b9918a90`).
+- The workflow has since been changed to require `pnpm install --frozen-lockfile`. Run `42921801214` is verifying this stricter install path against the current main commit; record it as passed only after completion.
