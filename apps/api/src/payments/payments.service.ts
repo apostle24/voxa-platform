@@ -30,7 +30,10 @@ export class PaymentsService {
     }
     const intervalMs = Math.max(15_000, Number(process.env.SETTLEMENT_WORKER_INTERVAL_MS || 60_000));
     this.logger.log('Scheduled settlement worker enabled; interval ' + intervalMs + 'ms');
-    void this.runScheduledSettlementBatch().catch(error => this.logger.error('Initial settlement batch failed', error instanceof Error ? error.stack : String(error)));
+    this.settlementRunInProgress = true;
+    void this.runScheduledSettlementBatch()
+      .catch(error => this.logger.error('Initial settlement batch failed', error instanceof Error ? error.stack : String(error)))
+      .finally(() => { this.settlementRunInProgress = false; });
     this.settlementTimer = setInterval(() => {
       if (this.settlementRunInProgress) return;
       this.settlementRunInProgress = true;
