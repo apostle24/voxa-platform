@@ -8,7 +8,7 @@ const features = [
 
 export default function HomePage() {
   return <main>
-    <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/live">Explore LIVE</Link><a href="#about">About</a></div><Link className="button small" href="/live">Enter VOXA <span>↗</span></Link></nav>
+    <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/live">Explore LIVE</Link><Link href="/creator/setup">Become a creator</Link><Link href="/notifications">Notifications</Link><a href="#about">About</a></div><Link className="button small" href="/live">Enter VOXA <span>↗</span></Link></nav>
     <section className="hero">
       <div className="eyebrow"><span className="pulse" /> THE WORLD IS LISTENING</div>
       <h1>Every voice<br />has a <em>place.</em></h1>
