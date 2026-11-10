@@ -18,6 +18,12 @@ export class LiveController {
     return this.live.createRoom(req.user.id, input);
   }
 
+  @Post('rooms/:roomId/end')
+  @UseGuards(JwtAuthGuard)
+  endRoom(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.endRoom(req.user.id, roomId);
+  }
+
   @Post('rooms/:roomId/join-token')
   @UseGuards(JwtAuthGuard)
   joinToken(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
