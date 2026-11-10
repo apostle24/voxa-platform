@@ -207,4 +207,19 @@ The room UI now sends chat messages and emoji reactions over LiveKit's reliable 
 - Followers receive an inbox notification when a creator starts a public live room.
 - The notification inbox is available at `/notifications`. API routes: `GET /v1/notifications`, `PATCH /v1/notifications/:notificationId/read`, and `PATCH /v1/notifications/read-all`.
 - Notifications are stored in PostgreSQL. Push delivery, email delivery, notification preferences, pagination beyond the latest 50, and realtime unread-count updates are not implemented yet.
-- Creator memberships and paid subscriptions are not implemented; they require entitlement checks and payment-provider integration before access can be granted.
+### Creator memberships and premium episodes (foundation)
+
+- Creators can create and update monthly membership plans through `POST /v1/creators/me/membership-plans` and `PATCH /v1/creators/me/membership-plans/:planId`.
+- Public visitors can list active plans with `GET /v1/creators/:handle/membership-plans`.
+- Creators can restrict an episode with `PATCH /v1/shows/:showId/episodes/:episodeId/membership` and body `{ "membershipRequired": true }`. An active membership plan must exist first.
+- Listeners can inspect their membership records at `GET /v1/me/memberships`; creators can inspect their subscriber records at `GET /v1/creators/me/memberships`.
+- Premium playback uses `GET /v1/episodes/:episodeId/member-playback-url` with a valid Bearer token. The API checks for an ACTIVE subscription whose paid period has not expired. The public playback URL refuses premium episodes.
+- Prices are stored as integer minor currency units (for example, 1299 means 12.99 in a two-decimal currency). Currency is an ISO-style three-letter uppercase code. No client-supplied amount is used to authorize access.
+
+**Important payment boundary:** there is no checkout provider, verified webhook, subscription activation/cancellation workflow, refund flow, or payout integration yet. Subscription records remain PENDING unless a future verified provider integration activates them; do not manually mark a user ACTIVE from the client. Membership plan configuration is not the same as accepting payments.
+
+### Financial ledger foundation
+
+The database now has ledger accounts, immutable transaction/entry records, unique idempotency keys, and a server-side balanced-transfer service. A transfer creates matching debit and credit entries in one database transaction and rejects reuse of an idempotency key with different transfer details. No public wallet-balance mutation or payout endpoint exists. Wallet balances must be derived from ledger entries; never trust client-side balances.
+
+**Still required before real money:** payment-provider selection and country support checks, signed webhook verification, webhook event deduplication, reconciliation, refunds/chargebacks, payout onboarding/KYC, tax and consumer-law review, fraud controls, operational monitoring, and financial/security testing.
