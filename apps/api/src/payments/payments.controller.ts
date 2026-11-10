@@ -75,6 +75,13 @@ export class PaymentsController {
   }
 
 
+  @Get('admin/finance/overview')
+  @UseGuards(JwtAuthGuard)
+  adminFinanceOverview(@Req() req: AuthenticatedRequest) {
+    if (req.user.role !== 'ADMIN') throw new ForbiddenException('Administrator access required');
+    return this.payments.getAdminFinanceOverview();
+  }
+
   @Get('admin/finance/payout-destinations/pending')
   @UseGuards(JwtAuthGuard)
   adminPendingPayoutDestinations(@Req() req: AuthenticatedRequest) {
