@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type Balance = { type: 'CREATOR_PENDING' | 'CREATOR_AVAILABLE'; currency: string; balanceMinor: number };
-type Transaction = { id: string; type: string; currency: string; amountMinor: number; reference?: string | null; createdAt: string; entries: { direction: string; amountMinor: number }[] };
+type Transaction = { id: string; type: string; currency: string; amountMinor: number; creatorAmountMinor: number; reference?: string | null; createdAt: string; entries: { direction: string; amountMinor: number }[] };
 type Earnings = { balances: Balance[]; transactions: Transaction[] };
 
 function money(amountMinor: number, currency: string) {
@@ -52,9 +52,9 @@ export default function CreatorEarningsPage() {
         <div className="sectionTitle"><div><div className="eyebrow">LEDGER</div><h2>Recent transactions</h2></div></div>
         {data.transactions.length ? <div className="earningList">{data.transactions.map(transaction => <article className="earningRow" key={transaction.id}>
           <div><b>{transaction.type.replaceAll('_', ' ')}</b><small>{new Date(transaction.createdAt).toLocaleString()} · {transaction.reference || transaction.id}</small></div>
-          <div className="earningAmount">{money(transaction.amountMinor, transaction.currency)}</div>
+          <div className="earningAmount">{money(transaction.creatorAmountMinor, transaction.currency)}</div>
         </article>)}</div> : <div className="emptyState"><p>Your verified payment ledger is currently empty.</p></div>}
-        <p className="helperText">Pending earnings are not withdrawable. Creator payouts, available-balance transfers and withdrawal onboarding are not enabled yet.</p>
+        <p className="helperText">Membership earnings shown here are your share after VOXA's 15% platform commission. Payment-provider processing fees are tracked separately and are not deducted from this creator amount. Pending earnings are not withdrawable. Payout destinations, settlement holds and withdrawals are not enabled yet.</p>
       </>}
     </section>
   </main>;
