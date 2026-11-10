@@ -2,11 +2,13 @@
 
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { Room, RoomEvent, Track } from 'livekit-client';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
-export default function LiveRoomPage({ params }: { params: { roomId: string } }) {
+export default function LiveRoomPage() {
+  const params = useParams<{ roomId: string }>();
   const roomRef = useRef<Room | null>(null);
   const [status, setStatus] = useState('Not connected');
   const [error, setError] = useState('');
@@ -33,6 +35,13 @@ export default function LiveRoomPage({ params }: { params: { roomId: string } })
         room.on(RoomEvent.Connected, () => active && setStatus('Connected · Live'));
         room.on(RoomEvent.Disconnected, () => active && setStatus('Disconnected'));
         room.on(RoomEvent.ParticipantConnected, () => active && setStatus('Connected · Live'));
+        room.on(RoomEvent.TrackSubscribed, (track) => {
+          const element = track.attach();
+          element.setAttribute('data-voxa-track', 'true');
+          const container = document.getElementById('voxa-media');
+          if (container) container.appendChild(element);
+        });
+        room.on(RoomEvent.TrackUnsubscribed, (track) => track.detach().forEach(element => element.remove()));
         await room.connect(data.serverUrl, data.token);
         if (!active) { await room.disconnect(); return; }
         if (data.canPublish && !room.localParticipant.isCameraEnabled && !room.localParticipant.isMicrophoneEnabled) {
@@ -63,7 +72,7 @@ export default function LiveRoomPage({ params }: { params: { roomId: string } })
 
   return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> LIVE</span></nav>
     <section className="stagePage"><div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>{roomTitle}</h1><p>{status}</p></div>
-      <div className="stageSurface"><div className="stageGlow" /><div className="stageMark">V<span>.</span></div><h2>The room is yours.</h2><p>When people join, their live audio and video tracks connect here.</p><div className="connectionStatus"><i /> {status}</div></div>
+      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" /><div className="stageMark">V<span>.</span></div><h2>The room is yours.</h2><p>When people join, their live audio and video tracks connect here.</p><div className="connectionStatus"><i /> {status}</div></div>
       {error && <p className="errorText">{error}</p>}
       <div className="stageControls"><button className={mic ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleMic()} disabled={!isHost}> {mic ? 'Mic on' : 'Mic off'} </button><button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost}> {camera ? 'Camera on' : 'Camera off'} </button>{isHost && <button className="button danger" onClick={()=>void endRoom()}>End room</button>}</div>
       {!isHost && <p className="helperText">You joined as a listener. The host must approve your stage request before you can speak.</p>}
