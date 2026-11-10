@@ -40,6 +40,9 @@ export class PaymentsService {
     if (!Number.isSafeInteger(plan.priceMinor) || plan.priceMinor <= 0) {
       throw new BadRequestException('Membership plan price is invalid');
     }
+    // Resolve configuration before creating a payment attempt. A missing key must
+    // never leave behind a misleading FAILED attempt.
+    const paystackSecret = this.secretKey();
     const customer = await this.prisma.user.findUnique({ where: { id: userId }, select: { email: true } });
     if (!customer) throw new NotFoundException('Account not found');
 
@@ -51,11 +54,12 @@ export class PaymentsService {
       },
     });
 
+    let response: Response;
     try {
-      const response = await fetch(PAYSTACK_API + '/transaction/initialize', {
+      response = await fetch(PAYSTACK_API + '/transaction/initialize', {
         method: 'POST',
         headers: {
-          Authorization: 'Bearer ' + this.secretKey(),
+          Authorization: 'Bearer ' + paystackSecret,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -66,27 +70,45 @@ export class PaymentsService {
           callback_url: process.env.PAYSTACK_CALLBACK_URL || undefined,
           metadata: { platform: 'VOXA', purpose: 'CREATOR_MEMBERSHIP', paymentAttemptId: attempt.id, planId: plan.id },
         }),
-      });
-      const result = await response.json() as {
-        status?: boolean;
-        message?: string;
-        data?: { authorization_url?: string };
-      };
-      if (!response.ok || !result.status || !result.data?.authorization_url) {
-        throw new Error(result.message || 'Paystack did not return a checkout URL');
-      }
-      return this.prisma.paymentAttempt.update({
-        where: { id: attempt.id },
-        data: { checkoutUrl: result.data.authorization_url },
-        select: { id: true, reference: true, amountMinor: true, currency: true, status: true, checkoutUrl: true },
+        signal: AbortSignal.timeout(15000),
       });
     } catch {
+      // A timeout or connection reset is ambiguous: Paystack may have accepted
+      // the request. Keep INITIALIZED so a later webhook/reconciliation can settle it.
+      throw new ServiceUnavailableException(
+        'Payment initialization could not be confirmed. Check payment history before retrying.',
+      );
+    }
+
+    let result: {
+      status?: boolean;
+      message?: string;
+      data?: { authorization_url?: string };
+    };
+    try {
+      result = await response.json() as typeof result;
+    } catch {
+      // A malformed/truncated response is not proof that the provider rejected
+      // the transaction. Preserve the attempt for safe reconciliation.
+      throw new ServiceUnavailableException(
+        'Paystack returned an unreadable response. Check payment history before retrying.',
+      );
+    }
+
+    if (!response.ok || !result.status || !result.data?.authorization_url) {
+      // We received a definitive provider response, so this attempt can be closed.
       await this.prisma.paymentAttempt.update({
         where: { id: attempt.id },
         data: { status: PaymentAttemptStatus.FAILED },
       });
-      throw new ServiceUnavailableException('Unable to initialize payment with Paystack');
+      throw new ServiceUnavailableException(result.message || 'Paystack rejected payment initialization');
     }
+
+    return this.prisma.paymentAttempt.update({
+      where: { id: attempt.id },
+      data: { checkoutUrl: result.data.authorization_url },
+      select: { id: true, reference: true, amountMinor: true, currency: true, status: true, checkoutUrl: true },
+    });
   }
 
   private verifySignature(rawBody: Buffer | undefined, signature: string | string[] | undefined) {
