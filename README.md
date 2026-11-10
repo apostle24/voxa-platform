@@ -29,6 +29,7 @@ There is **no mobile app source tree yet** and no shared contracts package yet. 
 - Create a creator profile at `/creator/setup`.
 - View a public creator profile at `/creator/[handle]`.
 - Create show and episode drafts in Creator Studio at `/creator/studio`.
+- Create GHS monthly membership plans and mark eligible episodes as members-only from Creator Studio.
 - Request a signed media upload URL, upload directly to S3-compatible storage, and confirm the upload.
 - Publish a show and then publish an episode once its required metadata and media are attached.
 - View creator earnings at `/creator/earnings`.
@@ -68,7 +69,7 @@ The API uses the global `/v1` prefix. Core endpoint groups include:
 - Media: signed upload URL, upload completion, public/member playback URL.
 - LIVE: rooms, join tokens, stage requests and host stage controls.
 - Notifications: inbox, mark read, mark all read.
-- Memberships: plans, checkout, subscriptions and membership-gated episode access.
+- Memberships: creator-owned plan listing/creation, checkout, subscriptions and membership-gated episode access.
 - Finance: earnings, payout destinations, payout requests, admin review/approval/submission/reconciliation and finance overview.
 
 See the relevant controllers under `apps/api/src` and the operational documents under `docs` for request shapes and safeguards.
