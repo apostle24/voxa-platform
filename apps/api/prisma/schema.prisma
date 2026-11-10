@@ -52,6 +52,7 @@ model Creator {
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   shows       Show[]
+  followers   Follow[]
 }
 
 model Show {
@@ -67,15 +68,15 @@ model Show {
 }
 
 model Episode {
-  id             String   @id @default(cuid())
-  showId         String
-  title          String
-  description    String?
-  mediaKey       String?
+  id              String   @id @default(cuid())
+  showId          String
+  title           String
+  description     String?
+  mediaKey        String?
   durationSeconds Int?
-  publishedAt    DateTime?
-  createdAt      DateTime @default(now())
-  show           Show     @relation(fields: [showId], references: [id], onDelete: Cascade)
+  publishedAt     DateTime?
+  createdAt       DateTime @default(now())
+  show            Show     @relation(fields: [showId], references: [id], onDelete: Cascade)
 }
 
 model Follow {
@@ -104,17 +105,19 @@ model LiveRoom {
   host        User               @relation("RoomHost", fields: [hostId], references: [id])
   stage       LiveStageMember[]
   requests    StageRequest[]
+
   @@index([status, scheduledAt])
 }
 
 model LiveStageMember {
-  id        String   @id @default(cuid())
-  roomId    String
-  userId    String
-  role      String
-  joinedAt  DateTime @default(now())
-  leftAt    DateTime?
-  room      LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  id       String   @id @default(cuid())
+  roomId   String
+  userId   String
+  role     String
+  joinedAt DateTime @default(now())
+  leftAt   DateTime?
+  room     LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
   @@unique([roomId, userId])
 }
 
@@ -126,5 +129,6 @@ model StageRequest {
   requestedAt DateTime @default(now())
   decidedAt   DateTime?
   room        LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
   @@index([roomId, status, requestedAt])
 }
