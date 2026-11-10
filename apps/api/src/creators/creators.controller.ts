@@ -5,11 +5,13 @@ import {
   Get,
   Param,
   Post,
+  Patch,
   Req,
   UseGuards,
 } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateCreatorDto } from './dto/create-creator.dto';
+import { UpdateCreatorDto } from './dto/update-creator.dto';
 import { CreatorsService } from './creators.service';
 
 @Controller('creators')
@@ -20,6 +22,12 @@ export class CreatorsController {
   @UseGuards(JwtAuthGuard)
   onboard(@Req() request: AuthenticatedRequest, @Body() input: CreateCreatorDto) {
     return this.creators.onboard(request.user.id, input);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateMyProfile(@Req() request: AuthenticatedRequest, @Body() input: UpdateCreatorDto) {
+    return this.creators.updateMyProfile(request.user.id, input.bio);
   }
 
   @Get(':handle')
