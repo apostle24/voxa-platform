@@ -8,7 +8,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
-import { Prisma, PaymentAttemptStatus, MembershipSubscriptionStatus, LedgerAccountType } from '@prisma/client';
+import { Prisma, PaymentAttemptStatus, MembershipSubscriptionStatus, LedgerAccountType, PayoutRequestStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 const PROVIDER = 'paystack';
@@ -450,7 +450,169 @@ export class PaymentsService {
     });
   }
 
+
+  /**
+   * Release creator revenue only after the seven-day settlement hold.
+   * Each payment is moved once using a stable ledger idempotency key.
+   */
+  async releaseMaturedCreatorEarnings(userId: string) {
+    const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true, userId: true } });
+    if (!creator) throw new ForbiddenException('Creator profile required');
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const matured = await this.prisma.paymentAttempt.findMany({
+      where: {
+        creatorId: creator.id, provider: PROVIDER, status: PaymentAttemptStatus.PAID,
+        paidAt: { lte: cutoff },
+      },
+      select: { id: true, reference: true, creatorNetMinor: true, currency: true },
+      orderBy: { paidAt: 'asc' },
+      take: 500,
+    });
+
+    for (const payment of matured) {
+      try {
+        await this.prisma.$transaction(async tx => {
+          const pending = await tx.ledgerAccount.upsert({
+            where: { accountKey: 'user:' + creator.userId + ':creator-pending:' + payment.currency },
+            create: {
+              accountKey: 'user:' + creator.userId + ':creator-pending:' + payment.currency,
+              ownerId: creator.userId, type: LedgerAccountType.CREATOR_PENDING, currency: payment.currency,
+            },
+            update: {},
+          });
+          const available = await tx.ledgerAccount.upsert({
+            where: { accountKey: 'user:' + creator.userId + ':creator-available:' + payment.currency },
+            create: {
+              accountKey: 'user:' + creator.userId + ':creator-available:' + payment.currency,
+              ownerId: creator.userId, type: LedgerAccountType.CREATOR_AVAILABLE, currency: payment.currency,
+            },
+            update: {},
+          });
+          await tx.ledgerTransaction.create({
+            data: {
+              idempotencyKey: 'settlement-release:' + payment.reference,
+              type: 'SETTLEMENT_RELEASE', currency: payment.currency,
+              amountMinor: payment.creatorNetMinor, reference: payment.reference,
+              entries: { create: [
+                { accountId: pending.id, direction: 'DEBIT', amountMinor: payment.creatorNetMinor },
+                { accountId: available.id, direction: 'CREDIT', amountMinor: payment.creatorNetMinor },
+              ] },
+            },
+          });
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error) {
+        if (!(error && typeof error === 'object' && 'code' in error && error.code === 'P2002')) throw error;
+      }
+    }
+    return { releasedPaymentsChecked: matured.length, settlementHoldDays: 7 };
+  }
+
+  async createPayoutRequest(userId: string, destinationId: string, amountMinor: number, idempotencyKey: string | undefined) {
+    if (!idempotencyKey || !/^[A-Za-z0-9._:-]{12,128}$/.test(idempotencyKey)) {
+      throw new BadRequestException('A valid Idempotency-Key header (12–128 characters) is required');
+    }
+    if (!Number.isSafeInteger(amountMinor) || amountMinor <= 0) {
+      throw new BadRequestException('Payout amount must be a positive whole number of minor currency units');
+    }
+    const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true } });
+    if (!creator) throw new ForbiddenException('Creator profile required');
+
+    const prior = await this.prisma.payoutRequest.findUnique({ where: { idempotencyKey } });
+    if (prior) {
+      if (prior.creatorId !== creator.id || prior.destinationId !== destinationId || prior.amountMinor !== amountMinor) {
+        throw new ConflictException('Idempotency key was already used for a different payout request');
+      }
+      return prior;
+    }
+
+    await this.releaseMaturedCreatorEarnings(userId);
+    const destination = await this.prisma.creatorPayoutDestination.findFirst({
+      where: { id: destinationId, creatorId: creator.id, isVerified: true },
+    });
+    if (!destination) {
+      throw new ForbiddenException('A verified payout destination belonging to this creator is required');
+    }
+    if (destination.currency !== 'GHS' || destination.country !== 'GH') {
+      throw new BadRequestException('This payout flow currently supports verified Ghana GHS destinations only');
+    }
+
+    const reference = 'VOXA_PAYOUT_' + randomUUID().replace(/-/g, '');
+    try {
+      return await this.prisma.$transaction(async tx => {
+        const available = await tx.ledgerAccount.findUnique({
+          where: { accountKey: 'user:' + userId + ':creator-available:' + destination.currency },
+        });
+        if (!available) throw new BadRequestException('There are no settled creator earnings available for payout');
+        const totals = await tx.ledgerEntry.groupBy({
+          by: ['direction'],
+          where: { accountId: available.id },
+          _sum: { amountMinor: true },
+        });
+        const credits = totals.find(row => row.direction === 'CREDIT')?._sum.amountMinor || 0;
+        const debits = totals.find(row => row.direction === 'DEBIT')?._sum.amountMinor || 0;
+        const balance = credits - debits;
+        if (amountMinor > balance) {
+          throw new BadRequestException('Requested payout exceeds your settled available balance');
+        }
+
+        const hold = await tx.ledgerAccount.upsert({
+          where: { accountKey: 'user:' + userId + ':creator-payout-hold:' + destination.currency },
+          create: {
+            accountKey: 'user:' + userId + ':creator-payout-hold:' + destination.currency,
+            ownerId: userId, type: LedgerAccountType.CREATOR_PAYOUT_HOLD, currency: destination.currency,
+          },
+          update: {},
+        });
+        const request = await tx.payoutRequest.create({
+          data: {
+            creatorId: creator.id, destinationId, provider: destination.provider,
+            reference, idempotencyKey, amountMinor, currency: destination.currency,
+            status: PayoutRequestStatus.REQUESTED,
+          },
+          select: {
+            id: true, reference: true, amountMinor: true, currency: true, status: true,
+            requestedAt: true, destination: { select: { accountName: true, maskedAccountNumber: true, channel: true } },
+          },
+        });
+        await tx.ledgerTransaction.create({
+          data: {
+            idempotencyKey: 'payout-reserve:' + reference,
+            type: 'CREATOR_PAYOUT_RESERVE', currency: destination.currency,
+            amountMinor, reference,
+            entries: { create: [
+              { accountId: available.id, direction: 'DEBIT', amountMinor },
+              { accountId: hold.id, direction: 'CREDIT', amountMinor },
+            ] },
+          },
+        });
+        return request;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'P2002') {
+        const duplicate = await this.prisma.payoutRequest.findUnique({ where: { idempotencyKey } });
+        if (duplicate && duplicate.creatorId === creator.id && duplicate.destinationId === destinationId && duplicate.amountMinor === amountMinor) return duplicate;
+      }
+      throw error;
+    }
+  }
+
+  async getCreatorPayoutRequests(userId: string) {
+    const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true } });
+    if (!creator) throw new ForbiddenException('Creator profile required');
+    return this.prisma.payoutRequest.findMany({
+      where: { creatorId: creator.id },
+      orderBy: { requestedAt: 'desc' },
+      take: 50,
+      select: {
+        id: true, reference: true, amountMinor: true, currency: true, status: true,
+        failureReason: true, requestedAt: true, reviewedAt: true, paidAt: true,
+        destination: { select: { accountName: true, maskedAccountNumber: true, channel: true } },
+      },
+    });
+  }
+
   async getCreatorEarnings(userId: string) {
+    await this.releaseMaturedCreatorEarnings(userId);
     const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true } });
     if (!creator) throw new ForbiddenException('Creator profile required');
     const accounts = await this.prisma.ledgerAccount.findMany({
