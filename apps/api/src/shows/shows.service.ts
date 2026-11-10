@@ -147,7 +147,7 @@ export class ShowsService {
         episodes: {
           where: { status: PublicationStatus.PUBLISHED },
           orderBy: { publishedAt: 'desc' },
-          select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, publishedAt: true },
+          select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, membershipRequired: true, publishedAt: true },
         },
       },
     });
