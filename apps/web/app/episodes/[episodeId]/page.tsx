@@ -174,7 +174,8 @@ export default function EpisodePage() {
         const item = data as Episode;
         if (!active) return;
         setEpisode(item);
-        const requestedTime = Number(new URLSearchParams(window.location.search).get('t'));
+        const requestedTimeValue = new URLSearchParams(window.location.search).get('t');
+        const requestedTime = requestedTimeValue === null ? NaN : Number(requestedTimeValue);
         const hasRequestedTime = Number.isFinite(requestedTime) && requestedTime >= 0;
         if (hasRequestedTime) setResumeAt(requestedTime);
         try {
