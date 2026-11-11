@@ -1,0 +1,27 @@
+# Secrets and environment
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# VCS and local tooling
+.git
+.github
+.vscode
+.idea
+
+# Dependencies and generated output
+**/node_modules
+**/.next
+**/dist
+**/coverage
+**/.turbo
+**/.cache
+
+# Logs and local data
+**/*.log
+**/tmp
+**/temp
+.DS_Store
