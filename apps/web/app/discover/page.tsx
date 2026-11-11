@@ -15,6 +15,7 @@ type Show = {
 type CreatorResult = { id: string; handle: string; bio?: string | null; verifiedAt?: string | null; user: { displayName: string }; _count: { followers: number; shows: number } };
 type CommunityResult = { id: string; name: string; slug: string; description?: string | null; category?: string | null; artworkUrl?: string | null; _count: { members: number; posts: number } };
 type MomentResult = { id: string; caption: string; startSeconds: number; endSeconds: number; creator: { handle: string; user: { displayName: string } }; episode: { id: string; title: string; artworkUrl?: string | null } };
+type LiveRoomResult = { id: string; title: string; description?: string; isAudioOnly: boolean; status: string; host?: { displayName?: string; creator?: { handle?: string } }; _count?: { stage: number } };
 type Episode = {
   id: string; title: string; description?: string | null; artworkUrl?: string | null;
   durationSeconds?: number | null; isExplicit: boolean; isLiveReplay?: boolean;
@@ -30,6 +31,7 @@ export default function DiscoverPage() {
   const [creators, setCreators] = useState<CreatorResult[]>([]);
   const [communities, setCommunities] = useState<CommunityResult[]>([]);
   const [moments, setMoments] = useState<MomentResult[]>([]);
+  const [liveRooms, setLiveRooms] = useState<LiveRoomResult[]>([]);
   const [recommended, setRecommended] = useState<Array<Episode & { reason: string }>>([]);
   const [recommendationsPersonalized, setRecommendationsPersonalized] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
@@ -48,15 +50,16 @@ export default function DiscoverPage() {
     if (selectedCategory) params.set('category', selectedCategory);
     const suffix = params.toString() ? '?' + params.toString() : '';
     try {
-      const [showResponse, episodeResponse, creatorResponse, communityResponse, momentResponse] = await Promise.all([
+      const [showResponse, episodeResponse, creatorResponse, communityResponse, momentResponse, liveResponse] = await Promise.all([
         fetch(API + '/discovery/shows' + suffix),
         fetch(API + '/discovery/episodes' + suffix),
         fetch(API + '/discovery/creators' + (search.trim() ? '?q=' + encodeURIComponent(search.trim()) : '')),
         fetch(API + '/communities' + (search.trim() ? '?q=' + encodeURIComponent(search.trim()) : '')),
         fetch(API + '/discovery/moments?limit=6'),
+        apiFetch(API + '/live/rooms', { cache: 'no-store' }),
       ]);
-      const [showData, episodeData, creatorData, communityData, momentData] = await Promise.all([
-        showResponse.json(), episodeResponse.json(), creatorResponse.json(), communityResponse.json(), momentResponse.json(),
+      const [showData, episodeData, creatorData, communityData, momentData, liveData] = await Promise.all([
+        showResponse.json(), episodeResponse.json(), creatorResponse.json(), communityResponse.json(), momentResponse.json(), liveResponse.ok ? liveResponse.json() : Promise.resolve([]),
       ]);
       if (!showResponse.ok) throw new Error(showData.message || 'Unable to discover shows');
       if (!episodeResponse.ok) throw new Error(episodeData.message || 'Unable to discover episodes');
@@ -66,6 +69,7 @@ export default function DiscoverPage() {
       setCreators(creatorData.items || []);
       setCommunities(communityData || []);
       setMoments(momentData.items || []);
+      setLiveRooms(Array.isArray(liveData) ? liveData : []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Discovery is temporarily unavailable');
     } finally {
@@ -189,6 +193,16 @@ export default function DiscoverPage() {
               <small>{community._count.members} members · {community._count.posts} posts</small>
             </Link>)}
           </div> : <div className="emptyState"><p>No communities match this search.</p></div>}
+          <div className="eyebrow sectionEyebrow">LIVE RIGHT NOW</div>
+          {liveRooms.length ? <div className="creatorShowGrid">
+            {liveRooms.slice(0,6).map(room => <article className="creatorShowCard" key={room.id}>
+              <span style={{ color: 'var(--purple)' }}>● LIVE · {room.isAudioOnly ? 'AUDIO' : 'VIDEO'}</span>
+              <h3>{room.title}</h3>
+              <p>{room.description || 'Join the conversation and meet the people behind the voices.'}</p>
+              <small>Hosted by {room.host?.displayName || room.host?.creator?.handle || 'VOXA creator'} · {room._count?.stage ?? 0} on stage</small>
+              <Link className="button small" href={'/live/' + room.id} style={{ display: 'inline-flex', marginTop: 12 }}>Join live room ↗</Link>
+            </article>)}
+          </div> : <div className="emptyState"><p>No public live rooms are open right now.</p><Link className="textLink" href="/live">Explore VOXA LIVE ↗</Link></div>}
           <div className="eyebrow sectionEyebrow">VOXA MOMENTS</div>
           {moments.length ? <div className="creatorShowGrid">
             {moments.map(moment => <Link className="creatorShowCard" href={'/moments'} key={moment.id}>
