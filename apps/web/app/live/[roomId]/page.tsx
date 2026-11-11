@@ -44,6 +44,12 @@ export default function LiveRoomPage() {
   const [reactions, setReactions] = useState<{ id: number; emoji: string; userId: string }[]>([]);
   const [reporting, setReporting] = useState(false);
   const [reported, setReported] = useState(false);
+  const [interactions, setInteractions] = useState<any>({ polls: [], questions: [], isModerator: false });
+  const [pollQuestion, setPollQuestion] = useState('');
+  const [pollOptions, setPollOptions] = useState('');
+  const [questionDraft, setQuestionDraft] = useState('');
+  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
+  const [interactionBusy, setInteractionBusy] = useState('');
 
   const api = useCallback(async (path: string, method = 'GET', body?: unknown) => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -64,6 +70,14 @@ export default function LiveRoomPage() {
       const data = await api('/live/rooms/' + roomId + '/chat');
       setChatMessages(Array.isArray(data.messages) ? data.messages : []);
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load live chat'); }
+  }, [api, roomId]);
+
+
+  const refreshInteractions = useCallback(async () => {
+    try {
+      const data = await api('/live/rooms/' + roomId + '/interactions');
+      setInteractions(data);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load live audience interactions'); }
   }, [api, roomId]);
 
   const connect = useCallback(async () => {
@@ -91,6 +105,7 @@ export default function LiveRoomPage() {
       room.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
           const packet = JSON.parse(new TextDecoder().decode(payload));
+          if (packet?.type === 'VOXA_INTERACTION_UPDATED') { void refreshInteractions(); }
           if (packet?.type === 'VOXA_REACTION' && ['👏', '❤️', '🔥', '😂', '🎉', '🙌'].includes(packet.emoji)) {
             setReactions(current => [...current.slice(-19), { id: Date.now() + Math.random(), emoji: packet.emoji, userId: participant?.identity || 'listener' }]);
           }
@@ -121,7 +136,7 @@ export default function LiveRoomPage() {
       roomRef.current = null;
       await failedRoom?.disconnect().catch(() => undefined);
     }
-  }, [api, roomId]);
+  }, [api, roomId, refreshInteractions]);
 
   useEffect(() => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -131,9 +146,10 @@ export default function LiveRoomPage() {
     void connect();
     void refreshStage();
     void refreshChat();
-    const poll = window.setInterval(() => { void refreshStage(); void refreshChat(); }, 5000);
+    void refreshInteractions();
+    const poll = window.setInterval(() => { void refreshStage(); void refreshChat(); void refreshInteractions(); }, 5000);
     return () => { window.clearInterval(poll); void roomRef.current?.disconnect(); roomRef.current = null; };
-  }, [connect, refreshStage, refreshChat]);
+  }, [connect, refreshStage, refreshChat, refreshInteractions]);
 
 
   useEffect(() => {
@@ -172,6 +188,67 @@ export default function LiveRoomPage() {
       await room.localParticipant.publishData(payload, { reliable: true, topic: 'voxa-reactions' });
       setReactions(current => [...current.slice(-19), { id: Date.now() + Math.random(), emoji, userId: 'You' }]);
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to send reaction'); }
+  }
+
+
+  async function publishInteractionUpdate() {
+    const room = roomRef.current;
+    if (!room) return;
+    try {
+      await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'VOXA_INTERACTION_UPDATED' })), { reliable: true, topic: 'voxa-interactions' });
+    } catch { /* Persisted interaction data remains available through refresh. */ }
+  }
+
+  async function createPoll(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const options = pollOptions.split('\n').map(value => value.trim()).filter(Boolean);
+    setInteractionBusy('poll-create'); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/polls', 'POST', { question: pollQuestion, options });
+      setPollQuestion(''); setPollOptions('');
+      await refreshInteractions(); await publishInteractionUpdate();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to create poll'); }
+    finally { setInteractionBusy(''); }
+  }
+
+  async function votePoll(pollId: string, optionId: string) {
+    setInteractionBusy('vote-' + pollId); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/polls/' + pollId + '/vote', 'POST', { optionId });
+      await refreshInteractions(); await publishInteractionUpdate();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to record vote'); }
+    finally { setInteractionBusy(''); }
+  }
+
+  async function closePoll(pollId: string) {
+    setInteractionBusy('close-poll-' + pollId); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/polls/' + pollId + '/close', 'POST');
+      await refreshInteractions(); await publishInteractionUpdate();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to close poll'); }
+    finally { setInteractionBusy(''); }
+  }
+
+  async function submitQuestion(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!questionDraft.trim()) return;
+    setInteractionBusy('question-submit'); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/questions', 'POST', { question: questionDraft });
+      setQuestionDraft(''); await refreshInteractions();
+      setError(''); 
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to submit question'); }
+    finally { setInteractionBusy(''); }
+  }
+
+  async function moderateQuestion(questionId: string, update: { status?: string; pinned?: boolean; answer?: string }) {
+    setInteractionBusy('question-' + questionId); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/questions/' + questionId + '/moderate', 'POST', update);
+      await refreshInteractions(); await publishInteractionUpdate();
+      if (update.answer !== undefined) setQuestionAnswers(current => ({ ...current, [questionId]: '' }));
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to update audience question'); }
+    finally { setInteractionBusy(''); }
   }
 
   async function reportRoom() {
@@ -357,6 +434,50 @@ export default function LiveRoomPage() {
           <div className="metricCard"><small>Peak audience</small><strong>{analytics.audience.peakConcurrentViewers}</strong></div>
         </div>
         <p className="helperText">{analytics.measurementNote}</p>
+      </section>}
+      
+      {accessToken && <section className="moderationPanel" style={{ marginTop: 24 }}>
+        <div className="sectionTitle"><div><span className="eyebrow">AUDIENCE PARTICIPATION</span><h2>Live polls</h2></div><button type="button" className="ghostButton" onClick={() => void refreshInteractions()}>↻ Refresh</button></div>
+        {(isHost || isModerator) && stage?.status === 'LIVE' && <form onSubmit={createPoll} style={{ display: 'grid', gap: 10, margin: '12px 0 18px' }}>
+          <input value={pollQuestion} onChange={event => setPollQuestion(event.target.value)} minLength={5} maxLength={240} required placeholder="Ask the audience a question…" aria-label="Poll question" style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+          <textarea value={pollOptions} onChange={event => setPollOptions(event.target.value)} required rows={3} placeholder={'One option per line\nAt least two options, up to six'} aria-label="Poll options" style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+          <button className="button small" disabled={!!interactionBusy || !pollQuestion.trim() || pollOptions.split('\n').filter(value => value.trim()).length < 2}>{interactionBusy === 'poll-create' ? 'Creating…' : 'Create live poll'}</button>
+        </form>}
+        {interactions.polls?.length ? interactions.polls.map((poll: any) => {
+          const total = poll.options.reduce((sum: number, option: any) => sum + option.voteCount, 0);
+          return <div key={poll.id} style={{ padding: 14, borderRadius: 12, background: 'var(--surface)', marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}><b>{poll.question}</b><span className="countBadge">{poll.status}</span></div>
+            <p className="helperText">{total} vote{total === 1 ? '' : 's'} · {poll.myVote ? 'Your vote is recorded' : 'Choose one option'}</p>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {poll.options.map((option: any) => <button type="button" key={option.id} className={poll.myVote === option.id ? 'approveButton' : 'controlButton'} disabled={poll.status !== 'OPEN' || !!interactionBusy} onClick={() => void votePoll(poll.id, option.id)} style={{ display: 'flex', justifyContent: 'space-between', textAlign: 'left' }}><span>{option.text}</span><b>{option.voteCount}{total ? ' · ' + Math.round(option.voteCount / total * 100) + '%' : ''}</b></button>)}
+            </div>
+            {(isHost || isModerator) && poll.status === 'OPEN' && <button type="button" className="rejectButton" style={{ marginTop: 10 }} disabled={!!interactionBusy} onClick={() => void closePoll(poll.id)}>Close poll</button>}
+          </div>;
+        }) : <p className="helperText">No polls have been created in this room yet.</p>}
+      </section>}
+      {accessToken && <section className="moderationPanel" style={{ marginTop: 24 }}>
+        <div className="sectionTitle"><div><span className="eyebrow">ASK THE HOST</span><h2>Audience Q&A <span className="countBadge">{interactions.questions?.filter((item: any) => ['APPROVED', 'ANSWERED'].includes(item.status)).length || 0}</span></h2></div><button type="button" className="ghostButton" onClick={() => void refreshInteractions()}>↻ Refresh</button></div>
+        {stage?.status === 'LIVE' && <form onSubmit={submitQuestion} style={{ display: 'flex', gap: 10, margin: '12px 0 18px' }}>
+          <input value={questionDraft} onChange={event => setQuestionDraft(event.target.value)} minLength={5} maxLength={500} required placeholder="Submit a question for the host…" aria-label="Your question" style={{ flex: 1, minWidth: 0, padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+          <button className="button small" disabled={!!interactionBusy || !questionDraft.trim()}>{interactionBusy === 'question-submit' ? 'Sending…' : 'Submit'}</button>
+        </form>}
+        <div style={{ display: 'grid', gap: 12 }}>
+          {interactions.questions?.length ? interactions.questions.map((item: any) => <div key={item.id} style={{ padding: 14, borderRadius: 12, background: 'var(--surface)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}><b>{item.author?.displayName || 'VOXA member'}</b><span className="countBadge">{item.status}{item.isPinned ? ' · PINNED' : ''}</span></div>
+            <p style={{ margin: '8px 0', whiteSpace: 'pre-wrap' }}>{item.question}</p>
+            {item.answer && <div className="helperText"><b>Host answer</b><p>{item.answer}</p></div>}
+            {(isHost || isModerator) && <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              {item.status === 'PENDING' && <><button type="button" className="approveButton" disabled={!!interactionBusy} onClick={() => void moderateQuestion(item.id, { status: 'APPROVED' })}>Approve</button><button type="button" className="rejectButton" disabled={!!interactionBusy} onClick={() => void moderateQuestion(item.id, { status: 'REJECTED' })}>Reject</button></>}
+              {['APPROVED', 'ANSWERED'].includes(item.status) && <button type="button" className="controlButton" disabled={!!interactionBusy} onClick={() => void moderateQuestion(item.id, { pinned: !item.isPinned })}>{item.isPinned ? 'Unpin' : 'Pin question'}</button>}
+              {!['REJECTED', 'CLOSED'].includes(item.status) && <button type="button" className="rejectButton" disabled={!!interactionBusy} onClick={() => void moderateQuestion(item.id, { status: 'CLOSED' })}>Close</button>}
+            </div>}
+            {(isHost || isModerator) && ['APPROVED', 'ANSWERED'].includes(item.status) && <form onSubmit={event => { event.preventDefault(); void moderateQuestion(item.id, { answer: questionAnswers[item.id] || '' }); }} style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <input value={questionAnswers[item.id] || ''} onChange={event => setQuestionAnswers(current => ({ ...current, [item.id]: event.target.value }))} maxLength={1000} placeholder="Write an answer…" aria-label="Answer this question" style={{ flex: 1, minWidth: 0, padding: 10, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+              <button className="button small" disabled={!!interactionBusy || !(questionAnswers[item.id] || '').trim()}>Answer</button>
+            </form>}
+          </div>) : <p className="helperText">No questions yet. Ask the host something to get started.</p>}
+        </div>
+        {interactions.questions?.some((item: any) => item.status === 'PENDING' && (isHost || isModerator)) && <p className="helperText">Pending questions are visible only to the host and assigned moderators until approved.</p>}
       </section>}
       {accessToken && <section className="moderationPanel" style={{ marginTop: 24 }}>
         <div className="sectionTitle"><div><span className="eyebrow">LIVE COMMUNITY</span><h2>Room chat</h2></div><button className="ghostButton" onClick={() => void refreshChat()}>↻ Refresh</button></div>
