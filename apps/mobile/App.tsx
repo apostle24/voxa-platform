@@ -5,7 +5,6 @@ import {
 } from 'react-native';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import * as DocumentPicker from 'expo-document-picker';
@@ -107,7 +106,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!user || !Device.isDevice) return;
+    if (!user || Platform.OS === 'web') return;
     let active = true;
     (async () => {
       try {
@@ -126,7 +125,7 @@ export default function App() {
         if (!active) return;
         await api('/notifications/devices', {
           method: 'POST',
-          body: JSON.stringify({ expoPushToken: token, platform: Platform.OS, deviceName: Device.deviceName || undefined }),
+          body: JSON.stringify({ expoPushToken: token, platform: Platform.OS, deviceName: undefined }),
         });
         if (active) setPushToken(token);
       } catch {
