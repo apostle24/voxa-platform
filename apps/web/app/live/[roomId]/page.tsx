@@ -54,7 +54,7 @@ export default function LiveRoomPage() {
   const [chatBusy, setChatBusy] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
   const [recordingConsent, setRecordingConsent] = useState(false);
-  const [replayDraft, setReplayDraft] = useState<{ episodeId: string; processingStatus: string } | null>(null);
+  const [replayDraft, setReplayDraft] = useState<{ episodeId: string; processingStatus: string; episodeStatus?: string } | null>(null);
   const [reactions, setReactions] = useState<{ id: number; emoji: string; userId: string }[]>([]);
   const [captionsEnabled, setCaptionsEnabled] = useState(true);
   const [liveCaptions, setLiveCaptions] = useState<{ id: string; text: string; speaker: string; final: boolean }[]>([]);
@@ -104,8 +104,14 @@ export default function LiveRoomPage() {
         void roomRef.current?.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
         void roomRef.current?.localParticipant.setCameraEnabled(false).catch(() => undefined);
       }
-      if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics'));
-      else setAnalytics(null);
+      if (data.isHost) {
+        const insights = await api('/live/rooms/' + roomId + '/analytics');
+        setAnalytics(insights);
+        setReplayDraft(insights.replayDraft || null);
+      } else {
+        setAnalytics(null);
+        setReplayDraft(null);
+      }
     }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
   }, [api, roomId]);
@@ -733,7 +739,7 @@ export default function LiveRoomPage() {
         </>}
         {analytics?.room?.recordingStatus === 'RECORDING' && <button className="button danger" disabled={!!busy} onClick={() => void stopRecording()}>{busy === 'recording-stop' ? 'Stopping…' : 'Stop recording'}</button>}
         {['STARTING', 'STOPPING'].includes(analytics?.room?.recordingStatus) && <p className="helperText">Recording service is processing your request. Refresh the room insights in a moment.</p>}
-        {analytics?.room?.recordingStatus === 'COMPLETED' && <><p className="helperText">Recording completed. Create a private draft episode to send it through VOXA's malware scan and media processing.</p><button className="button" disabled={!!busy} onClick={() => void createReplayDraft()}>{busy === 'replay-draft' ? 'Creating replay draft…' : 'Create replay draft'}</button>{replayDraft && <div className="helperText"><p>Replay draft created. Media processing: {replayDraft.processingStatus}. Open the draft in Creator Studio to preview it, add details, and publish it when it is ready.</p><Link className="button" href={'/creator/studio#episode-' + replayDraft.episodeId}>Review this replay draft ↗</Link></div>}</>}
+        {analytics?.room?.recordingStatus === 'COMPLETED' && <><p className="helperText">Recording completed. Create a private draft episode to send it through VOXA's malware scan and media processing.</p>{!replayDraft && <button className="button" disabled={!!busy} onClick={() => void createReplayDraft()}>{busy === 'replay-draft' ? 'Creating replay draft…' : 'Create replay draft'}</button>}{replayDraft && <div className="helperText"><p>Replay draft {replayDraft.episodeStatus === 'PUBLISHED' ? 'published' : 'created'}. Media processing: {replayDraft.processingStatus}. Open the draft in Creator Studio to review it or view the published replay.</p><Link className="button" href={replayDraft.episodeStatus === 'PUBLISHED' ? '/episodes/' + replayDraft.episodeId : '/creator/studio#episode-' + replayDraft.episodeId}>{replayDraft.episodeStatus === 'PUBLISHED' ? 'Open published replay ↗' : 'Review this replay draft ↗'}</Link></div>}</>}
         {analytics?.room?.recordingStatus === 'FAILED' && <p className="helperText">The recording failed. Check LiveKit Egress and storage configuration before trying again.</p>}
       </section>}
       {isHost && analytics && <section className="moderationPanel" style={{ marginTop: 24 }}>
