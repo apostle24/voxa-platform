@@ -1014,12 +1014,36 @@ export class LiveService {
     return { id: invitationId, status: 'CANCELLED' };
   }
 
+  private async expireGuestSpeakerTurn(roomId: string) {
+    const active = await this.prisma.liveSpeakerTurn.findFirst({
+      where: { roomId, status: 'ACTIVE' }, select: { speakerId: true },
+    });
+    if (!active) return;
+    const member = await this.prisma.liveStageMember.findUnique({
+      where: { roomId_userId: { roomId, userId: active.speakerId } }, select: { role: true, leftAt: true },
+    });
+    if (!member || member.leftAt || member.role !== 'GUEST') return;
+    const now = new Date();
+    const validBooking = await this.prisma.liveGuestInvitation.findFirst({
+      where: { roomId, inviteeId: active.speakerId, status: 'ACCEPTED', slotStartsAt: { lte: now }, slotEndsAt: { gt: now } },
+      select: { id: true },
+    });
+    if (validBooking) return;
+    const stageMembers = await this.prisma.liveStageMember.findMany({ where: { roomId, leftAt: null }, select: { userId: true } });
+    await this.applySpeakerPublishPermissions(roomId, stageMembers.map(item => item.userId), null, active.speakerId);
+    await this.prisma.liveSpeakerTurn.updateMany({
+      where: { roomId, speakerId: active.speakerId, status: 'ACTIVE' },
+      data: { status: 'COMPLETED', endedAt: now },
+    });
+  }
+
   async getStageState(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, scheduledAt: true } });
     if (!room) throw new NotFoundException('Live room not found');
     const isHost = room.hostId === userId;
     const isCoHost = !isHost && await this.isRoomCoHost(roomId, userId);
     const isModerator = !isHost && !isCoHost && await this.canModerateRoom(roomId, userId, room.hostId);
+    if (room.status === LiveRoomStatus.LIVE) await this.expireGuestSpeakerTurn(roomId);
     const [requests, speakers, ownRequest, moderators, coHosts, hostTransfers, guestInvitations] = await Promise.all([
       isHost || isCoHost || isModerator ? this.prisma.stageRequest.findMany({
         where: { roomId, status: 'PENDING' },
