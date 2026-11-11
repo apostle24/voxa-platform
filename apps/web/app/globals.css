@@ -27,3 +27,20 @@
 .voxaQueue{position:absolute;right:max(20px,calc((100vw - 1180px)/2));bottom:100%;width:min(360px,calc(100vw - 30px));max-height:360px;overflow:auto;padding:16px;background:#141521;border:1px solid #39334f;border-radius:12px 12px 0 0;box-shadow:0 -15px 45px #0009}.voxaQueueHeading{display:flex;justify-content:space-between;align-items:center;font-size:12px;margin-bottom:12px}.voxaQueueHeading button{background:none;border:0;color:#b9a7f5;font-size:10px;cursor:pointer}.voxaQueue>p{color:var(--muted);font-size:11px}.voxaQueueItem{display:grid;width:100%;gap:4px;text-align:left;padding:10px 4px;border:0;border-top:1px solid var(--line);background:transparent;color:white;cursor:pointer}.voxaQueueItem span{font-size:11px}.voxaQueueItem small{font-size:9px;color:var(--muted)}
 .episodePlayerActions{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}body:has(.voxaPlayer) .appShell{padding-bottom:110px}
 @media(max-width:650px){.voxaPlayer{grid-template-columns:1fr;gap:8px;padding:10px 14px;min-height:112px}.voxaPlayerTrack img,.voxaPlayerArtwork{width:40px;height:40px}.voxaPlayerButtons{margin:0 0 4px}.voxaPlayerButtons button{font-size:11px}.voxaPlayerTimeline{gap:7px}body:has(.voxaPlayer) .appShell{padding-bottom:130px}}
+
+
+/* Creator audience workspace */
+.audienceHeader{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin:28px 0}
+.audiencePanel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px;margin:18px 0 24px}
+.audiencePanel h2{font:600 21px 'Space Grotesk';margin:7px 0 16px}
+.audienceForm{display:flex;gap:10px;margin:14px 0 18px}
+.audienceForm input,.audiencePanel select{min-width:0;flex:1;background:#11121b;border:1px solid var(--line);border-radius:7px;padding:11px 12px;color:white;font:12px 'DM Sans'}
+.audienceList{display:grid;gap:8px}
+.audienceRow{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:13px 14px;background:#151620;border:1px solid var(--line);border-radius:8px}
+.audienceRow strong{display:block;font-size:12px}
+.audienceRow small,.audienceMuted{display:block;color:var(--muted);font-size:10px;margin-top:5px}
+.audienceField{display:grid;gap:8px;color:var(--muted);font-size:11px;margin:12px 0}
+.audienceNotice{color:#8ee6b7;font-size:12px;margin:12px 0}
+.audienceHeader h1{font:600 clamp(32px,5vw,48px)/1.08 'Space Grotesk';letter-spacing:-1.8px;margin:8px 0}
+.audienceHeader p{color:var(--muted);font-size:12px;line-height:1.6}
+@media(max-width:600px){.audienceHeader{display:grid}.audienceForm{flex-wrap:wrap}.audienceRow{align-items:flex-start;flex-wrap:wrap}}
