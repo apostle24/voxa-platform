@@ -141,6 +141,9 @@ export class LiveService {
   }
 
   async startRoomRecording(hostId: string, roomId: string, consentConfirmed: boolean) {
+    if (this.config.get<string>('LIVEKIT_RECORDING_ENABLED') !== 'true') {
+      throw new ServiceUnavailableException('Live room recording is disabled by configuration');
+    }
     if (consentConfirmed !== true) throw new BadRequestException('Confirm that everyone speaking in the room has agreed to recording');
     const room = await this.prisma.liveRoom.findUnique({
       where: { id: roomId },
@@ -153,7 +156,10 @@ export class LiveService {
     const consentAt = new Date();
     const claimed = await this.prisma.liveRoom.updateMany({
       where: { id: roomId, recordingStatus: room.recordingStatus },
-      data: { recordingStatus: 'STARTING', recordingConsentAt: consentAt, recordingFailure: null },
+      data: {
+        recordingStatus: 'STARTING', recordingConsentAt: consentAt, recordingFailure: null,
+        recordingEgressId: null, recordingObjectKey: null, recordingStartedAt: null, recordingEndedAt: null,
+      },
     });
     if (claimed.count !== 1) throw new ConflictException('Recording state changed; refresh and try again');
     const filepath = `live-recordings/${roomId}/${Date.now()}.mp4`;
