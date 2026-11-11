@@ -116,8 +116,8 @@ export class MediaService {
 
     const asset = await this.prisma.mediaAsset.upsert({
       where: { objectKey },
-      create: { episodeId, objectKey, contentType: head.ContentType, sizeBytes: BigInt(head.ContentLength), status: 'UPLOADED' },
-      update: { contentType: head.ContentType, sizeBytes: BigInt(head.ContentLength), status: 'UPLOADED', failureReason: null, processedAt: null },
+      create: { episodeId, objectKey, contentType: head.ContentType, sizeBytes: BigInt(head.ContentLength), status: 'QUEUED' },
+      update: { contentType: head.ContentType, sizeBytes: BigInt(head.ContentLength), status: 'QUEUED', failureReason: null, processedAt: null },
     });
     await this.prisma.episode.update({ where: { id: episodeId }, data: { mediaKey: objectKey } });
     return { uploaded: true, episodeId, mediaAssetId: asset.id, processingStatus: asset.status, mediaKey: objectKey, sizeBytes: head.ContentLength, contentType: head.ContentType };
@@ -143,20 +143,19 @@ export class MediaService {
       });
       if (!membership) throw new ForbiddenException('An active creator membership is required to access this episode');
     }
+    const asset = await this.prisma.mediaAsset.findFirst({
+      where: { episodeId, objectKey: episode.mediaKey, status: 'READY', playbackKey: { not: null } },
+      select: { playbackKey: true, contentType: true, sizeBytes: true, durationSeconds: true },
+    });
+    if (!asset?.playbackKey) throw new ServiceUnavailableException('This episode is still being processed');
     const expiresIn = Math.max(60, Math.min(21600, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 3600))));
-    const [url, asset] = await Promise.all([
-      getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: episode.mediaKey }), { expiresIn }),
-      this.prisma.mediaAsset.findUnique({
-        where: { objectKey: episode.mediaKey },
-        select: { contentType: true, sizeBytes: true, durationSeconds: true },
-      }),
-    ]);
+    const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: asset.playbackKey }), { expiresIn });
     return {
       url,
       expiresIn,
-      contentType: asset?.contentType || 'application/octet-stream',
-      sizeBytes: asset?.sizeBytes?.toString() || null,
-      durationSeconds: asset?.durationSeconds ?? null,
+      contentType: asset.contentType || 'application/octet-stream',
+      sizeBytes: asset.sizeBytes.toString(),
+      durationSeconds: asset.durationSeconds ?? null,
     };
   }
 }
