@@ -70,6 +70,12 @@ export class ShowsController {
   }
 
 
+  @Post('shows/:showId/episodes/:episodeId/unpublish')
+  @UseGuards(JwtAuthGuard)
+  unpublishEpisode(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.shows.unpublishEpisode(req.user.id, showId, episodeId);
+  }
+
   @Get('discovery/moments')
   discoverMoments(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
     return this.shows.discoverMoments(cursor, limit ? Number(limit) : undefined);
