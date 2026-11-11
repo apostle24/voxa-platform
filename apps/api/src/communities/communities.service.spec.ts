@@ -94,6 +94,19 @@ describe('CommunitiesService discussion replies', () => {
     ]);
   });
 
+  it('filters posts and replies from accounts blocked in either direction', async () => {
+    prisma.communityMember.findUnique.mockResolvedValue({ communityId: 'community-1' });
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'member-1', blockedUserId: 'blocked-1' }]);
+    prisma.communityPost.findMany.mockResolvedValue([]);
+    await service.listPosts('member-1', 'community-1');
+    expect(prisma.communityPost.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { communityId: 'community-1', deletedAt: null, authorId: { notIn: ['blocked-1'] } },
+      select: expect.objectContaining({
+        comments: expect.objectContaining({ where: { authorId: { notIn: ['blocked-1'] } } }),
+      }),
+    }));
+  });
+
   it('creates replies only on posts in the selected community', async () => {
     prisma.communityMember.findUnique.mockResolvedValue({ id: 'membership-1' });
     prisma.communityPost.findFirst.mockResolvedValue({ id: 'post-1', authorId: 'member-1' });
