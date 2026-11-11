@@ -117,7 +117,7 @@ export class CommunitiesService {
   }
 
   async listPosts(userId: string, communityId: string) {
-    const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { id: true } });
+    const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { communityId: true } });
     if (!membership) throw new ForbiddenException('Join this community to view its discussions');
     return this.prisma.communityPost.findMany({
       where: { communityId }, orderBy: { createdAt: 'desc' }, take: 100,
@@ -131,7 +131,7 @@ export class CommunitiesService {
   }
 
   async createPostComment(userId: string, communityId: string, postId: string, content: string) {
-    const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { id: true } });
+    const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { communityId: true } });
     if (!membership) throw new ForbiddenException('Join this community before replying');
     const post = await this.prisma.communityPost.findFirst({ where: { id: postId, communityId }, select: { id: true } });
     if (!post) throw new NotFoundException('Community post not found');
