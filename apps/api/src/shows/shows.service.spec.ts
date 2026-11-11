@@ -412,6 +412,7 @@ describe('ShowsService semantic podcast search', () => {
   });
 
   afterEach(() => {
+    jest.restoreAllMocks();
     if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = originalKey;
   });
