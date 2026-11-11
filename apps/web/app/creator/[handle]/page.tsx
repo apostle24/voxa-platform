@@ -16,6 +16,9 @@ export default function CreatorPage() {
   const [plans,setPlans]=useState<MembershipPlan[]>([]);
   const [purchasing,setPurchasing]=useState<string|null>(null);
   const [following,setFollowing]=useState(false);
+  const [isOwnProfile,setIsOwnProfile]=useState(false);
+  const [bioDraft,setBioDraft]=useState('');
+  const [savingBio,setSavingBio]=useState(false);
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   async function load() {
@@ -32,10 +35,13 @@ export default function CreatorPage() {
         if (statusResponse.ok) {
           const status = await statusResponse.json();
           setFollowing(Boolean(status.following));
+          setIsOwnProfile(Boolean(status.isOwnProfile));
         }
       } else {
         setFollowing(false);
+        setIsOwnProfile(false);
       }
+      setBioDraft(data.bio || '');
       const plansResponse = await apiFetch(API + '/creators/' + encodeURIComponent(handle) + '/membership-plans');
       const plansData = await plansResponse.json();
       if (plansResponse.ok) setPlans(plansData.plans || []);
@@ -44,6 +50,21 @@ export default function CreatorPage() {
     } finally {
       setLoading(false);
     }
+  }
+
+
+  async function saveBio(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = sessionStorage.getItem('voxa_access_token') || '';
+    if (!token) { setError('Sign in to edit your creator profile.'); return; }
+    setSavingBio(true); setError('');
+    try {
+      const response = await apiFetch(API + '/creators/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ bio: bioDraft }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to update your profile');
+      setProfile(current => current ? { ...current, bio: data.bio } : current);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to update your profile'); }
+    finally { setSavingBio(false); }
   }
 
   async function purchaseMembership(planId: string) {
@@ -67,5 +88,5 @@ export default function CreatorPage() {
     } catch(e){setError(e instanceof Error?e.message:'Unable to follow');} finally{setBusy(false);}
   }
   useEffect(()=>{void load();},[handle]);
-  return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/creator/earnings">Creator earnings</Link><Link href="/live">Explore LIVE →</Link></div></nav><section className="communityPage">{loading&&<p style={{padding:'3rem 0',color:'var(--muted)'}}>Loading creator profile…</p>}{error&&<p className="errorText">{error}</p>}{profile&&<><div className="creatorHero"><div className="creatorAvatar">{profile.user.displayName.slice(0,1).toUpperCase()}</div><div><div className="eyebrow">VOXA CREATOR {profile.verifiedAt?'· VERIFIED':''}</div><h1>{profile.user.displayName}</h1><p>@{profile.handle}</p></div><button className="button" disabled={busy} onClick={()=>void toggleFollow()}>{busy?'Please wait…':following?'Following ✓':'Follow creator +'}</button></div><p className="creatorBio">{profile.bio||'This creator has not added a bio yet.'}</p><div className="creatorStats"><span><b>{profile.followerCount}</b> followers</span><span><b>{profile.showCount}</b> shows</span></div>{plans.length>0&&<><div className="eyebrow sectionEyebrow">SUPPORT THIS CREATOR</div><div className="membershipGrid">{plans.map(plan=><article className="membershipCard" key={plan.id}><span>VOXA MEMBERSHIP</span><h3>{plan.name}</h3><p>{plan.description||'Get access to this creator’s members-only episodes.'}</p><strong>{new Intl.NumberFormat(undefined,{style:'currency',currency:plan.currency}).format(plan.priceMinor/100)} <small>/ month</small></strong><button className="button small" disabled={purchasing!==null} onClick={()=>void purchaseMembership(plan.id)}>{purchasing===plan.id?'Opening checkout…':'Become a member'}</button></article>)}</div></>}{profile.user.liveRooms.length>0&&<><div className="eyebrow sectionEyebrow">LIVE NOW</div><div className="creatorShowGrid">{profile.user.liveRooms.map(room=><Link className="creatorShowCard liveCard" href={'/live/'+room.id} key={room.id}><span className="livePill"><i/> LIVE</span><h3>{room.title}</h3><p>{room.description}</p><b>Join room ↗</b></Link>)}</div></>}<div className="eyebrow sectionEyebrow">PUBLISHED SHOWS</div>{profile.shows.length?<div className="creatorShowGrid">{profile.shows.map(show=><article className="creatorShowCard" key={show.id}>{show.artworkUrl&&<img src={show.artworkUrl} alt="" />}<span>{show.category||'PODCAST'}</span><h3>{show.title}</h3><p>{show.description}</p><small>{show._count.episodes} episodes</small><Link href={'/shows/'+show.id}>Explore show ↗</Link></article>)}</div>:<div className="emptyState"><p>No published shows yet.</p></div>}</>}</section></main>;
+  return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/creator/earnings">Creator earnings</Link><Link href="/live">Explore LIVE →</Link></div></nav><section className="communityPage">{loading&&<p style={{padding:'3rem 0',color:'var(--muted)'}}>Loading creator profile…</p>}{error&&<p className="errorText">{error}</p>}{profile&&<><div className="creatorHero"><div className="creatorAvatar">{profile.user.displayName.slice(0,1).toUpperCase()}</div><div><div className="eyebrow">VOXA CREATOR {profile.verifiedAt?'· VERIFIED':''}</div><h1>{profile.user.displayName}</h1><p>@{profile.handle}</p></div>{isOwnProfile ? <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><Link className="button small" href="/creator/studio">Open Studio</Link><Link className="ghostButton" href="/creator/analytics">Analytics</Link></div> : <button className="button" disabled={busy} onClick={()=>void toggleFollow()}>{busy?'Please wait…':following?'Following ✓':'Follow creator +'}</button>}</div>{isOwnProfile ? <form onSubmit={saveBio} style={{maxWidth:680,margin:'18px 0'}}><label htmlFor="creator-bio">Your public bio</label><textarea id="creator-bio" value={bioDraft} onChange={event=>setBioDraft(event.target.value)} maxLength={500} rows={4} placeholder="Tell listeners what you create…" style={{width:'100%',marginTop:8}}/><div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,marginTop:8}}><small>{bioDraft.length}/500 characters</small><button className="button small" disabled={savingBio}>{savingBio?'Saving…':'Save profile'}</button></div></form> : <p className="creatorBio">{profile.bio||'This creator has not added a bio yet.'}</p>}<div className="creatorStats"><span><b>{profile.followerCount}</b> followers</span><span><b>{profile.showCount}</b> shows</span></div>{plans.length>0&&<><div className="eyebrow sectionEyebrow">SUPPORT THIS CREATOR</div><div className="membershipGrid">{plans.map(plan=><article className="membershipCard" key={plan.id}><span>VOXA MEMBERSHIP</span><h3>{plan.name}</h3><p>{plan.description||'Get access to this creator’s members-only episodes.'}</p><strong>{new Intl.NumberFormat(undefined,{style:'currency',currency:plan.currency}).format(plan.priceMinor/100)} <small>/ month</small></strong><button className="button small" disabled={purchasing!==null} onClick={()=>void purchaseMembership(plan.id)}>{purchasing===plan.id?'Opening checkout…':'Become a member'}</button></article>)}</div></>}{profile.user.liveRooms.length>0&&<><div className="eyebrow sectionEyebrow">LIVE NOW</div><div className="creatorShowGrid">{profile.user.liveRooms.map(room=><Link className="creatorShowCard liveCard" href={'/live/'+room.id} key={room.id}><span className="livePill"><i/> LIVE</span><h3>{room.title}</h3><p>{room.description}</p><b>Join room ↗</b></Link>)}</div></>}<div className="eyebrow sectionEyebrow">PUBLISHED SHOWS</div>{profile.shows.length?<div className="creatorShowGrid">{profile.shows.map(show=><article className="creatorShowCard" key={show.id}>{show.artworkUrl&&<img src={show.artworkUrl} alt="" />}<span>{show.category||'PODCAST'}</span><h3>{show.title}</h3><p>{show.description}</p><small>{show._count.episodes} episodes</small><Link href={'/shows/'+show.id}>Explore show ↗</Link></article>)}</div>:<div className="emptyState"><p>No published shows yet.</p></div>}</>}</section></main>;
 }

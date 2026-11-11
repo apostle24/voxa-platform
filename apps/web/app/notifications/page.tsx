@@ -12,7 +12,9 @@ export default function NotificationsPage() {
   const [unread, setUnread] = useState(0);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   async function load() {
+    setError('');
     const token = sessionStorage.getItem('voxa_access_token');
     if (!token) { setError('Sign in to view your notifications.'); return; }
     try {
@@ -32,6 +34,10 @@ export default function NotificationsPage() {
     if (response.ok) { setItems(current => current.map(item => ({ ...item, readAt: item.readAt || new Date().toISOString() }))); setUnread(0); }
     setBusy(false);
   }
-  useEffect(() => { void load(); }, []);
-  return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← Explore LIVE</Link></nav><section className="communityPage"><div className="communityHeader"><div><div className="eyebrow">YOUR COMMUNITY</div><h1>Notifications</h1><p>{unread} unread updates</p></div><button className="ghostButton" disabled={!unread || busy} onClick={()=>void markAll()}>Mark all read</button></div>{error && <p className="errorText">{error}</p>}{items.length ? <div className="noticeList">{items.map(item=><article className={item.readAt?'noticeItem':'noticeItem unread'} key={item.id}><div className="noticeDot" /><div className="noticeContent"><b>{item.title}</b>{item.body && <p>{item.body}</p>}<small>{new Date(item.createdAt).toLocaleString()}</small>{item.resourceType==='live_room' && item.resourceId && <Link href={'/live/'+item.resourceId}>Open live room ↗</Link>}</div>{!item.readAt && <button className="ghostButton" onClick={()=>void markRead(item.id)}>Mark read</button>}</article>)}</div> : !error && <div className="emptyState"><h3>You're all caught up.</h3><p>New followers and live creator updates will appear here.</p></div>}</section></main>;
+  useEffect(() => {
+    void load();
+    const interval = window.setInterval(() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }, 30000);
+    return () => window.clearInterval(interval);
+  }, []);
+  return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← Explore LIVE</Link></nav><section className="communityPage"><div className="communityHeader"><div><div className="eyebrow">YOUR COMMUNITY</div><h1>Notifications</h1><p>{unread} unread updates</p></div><div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button className="ghostButton" disabled={refreshing} onClick={()=>{setRefreshing(true);void load().finally(()=>setRefreshing(false));}}>{refreshing?'Refreshing…':'Refresh'}</button><button className="ghostButton" disabled={!unread || busy} onClick={()=>void markAll()}>Mark all read</button></div></div>{error && <p className="errorText">{error}</p>}{items.length ? <div className="noticeList">{items.map(item=><article className={item.readAt?'noticeItem':'noticeItem unread'} key={item.id}><div className="noticeDot" /><div className="noticeContent"><b>{item.title}</b>{item.body && <p>{item.body}</p>}<small>{new Date(item.createdAt).toLocaleString()}</small>{item.resourceType==='live_room' && item.resourceId && <Link href={'/live/'+item.resourceId}>Open live room ↗</Link>}</div>{!item.readAt && <button className="ghostButton" onClick={()=>void markRead(item.id)}>Mark read</button>}</article>)}</div> : !error && <div className="emptyState"><h3>You're all caught up.</h3><p>New followers and live creator updates will appear here.</p></div>}</section></main>;
 }

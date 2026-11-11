@@ -225,7 +225,7 @@ export default function EpisodePage() {
     <main className="appShell">
       <nav className="nav">
         <Link className="brand" href="/">VOXA<span>.</span></Link>
-        <div className="navLinks"><Link href="/live">Explore LIVE →</Link><Link href="/login">Sign in</Link></div>
+        <div className="navLinks"><Link href="/replays">Live replays</Link><Link href="/live">Explore LIVE →</Link><Link href="/login">Sign in</Link></div>
       </nav>
       <section className="communityPage" style={{ maxWidth: 900, margin: '0 auto' }}>
         {loading && <p style={{ padding: '3rem 0' }}>Preparing your episode…</p>}
