@@ -15,6 +15,7 @@ type Moment = {
   publishedAt: string | null;
   playbackUrl?: string;
   rendered?: boolean;
+  renderAspectRatio?: string;
   creator: { handle: string; user: { displayName: string } };
   episode: { id: string; title: string; artworkUrl: string | null; durationSeconds: number | null };
 };
@@ -105,7 +106,7 @@ export default function MomentsPage() {
             fetch(API + '/moments/' + encodeURIComponent(item.id) + '/render'),
           ]);
           const [playback, render] = await Promise.all([playbackResponse.json(), renderResponse.json()]);
-          if (renderResponse.ok && render.ready && render.url) return { ...item, playbackUrl: render.url, rendered: true };
+          if (renderResponse.ok && render.ready && render.url) return { ...item, playbackUrl: render.url, rendered: true, renderAspectRatio: render.aspectRatio };
           if (!playbackResponse.ok) return item;
           return { ...item, playbackUrl: playback.url, rendered: false };
         }));
@@ -135,9 +136,10 @@ export default function MomentsPage() {
         {!loading && !error && !moments.length && <div className="emptyState" style={{ marginTop: 24 }}><h3>No Moments published yet</h3><p>Creator clips will appear here as they are published.</p><Link className="button small" href="/discover">Explore podcasts</Link></div>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(100%,300px),1fr))', gap: 22, marginTop: 24 }}>
           {moments.map(moment => <article key={moment.id} className="creatorShowCard" style={{ padding: 14 }}>
-            {moment.playbackUrl ? <video controls playsInline preload="metadata" src={moment.playbackUrl} onLoadedMetadata={event => { event.currentTarget.currentTime = moment.startSeconds; }} onTimeUpdate={event => { if (event.currentTarget.currentTime >= moment.endSeconds) event.currentTarget.pause(); }} style={{ width: '100%', aspectRatio: '9 / 16', maxHeight: 520, objectFit: 'cover', borderRadius: 10, background: '#09090b' }} /> : <div style={{ aspectRatio: '9 / 16', maxHeight: 520, display: 'grid', placeItems: 'center', background: 'var(--surface)', borderRadius: 10 }}>Video unavailable</div>}
+            {moment.playbackUrl ? <video controls playsInline preload="metadata" src={moment.playbackUrl} onLoadedMetadata={event => { event.currentTarget.currentTime = moment.startSeconds; }} onTimeUpdate={event => { if (event.currentTarget.currentTime >= moment.endSeconds) event.currentTarget.pause(); }} style={{ width: '100%', aspectRatio: moment.renderAspectRatio === '16:9' ? '16 / 9' : '9 / 16', maxHeight: 520, objectFit: 'cover', borderRadius: 10, background: '#09090b' }} /> : <div style={{ aspectRatio: '9 / 16', maxHeight: 520, display: 'grid', placeItems: 'center', background: 'var(--surface)', borderRadius: 10 }}>Video unavailable</div>}
             <p style={{ fontSize: 14, lineHeight: 1.6 }}>{moment.caption}</p>
-            <small style={{ color: 'var(--muted)' }}>{moment.rendered ? 'Rendered clip export' : 'Original episode preview · rendered export may still be processing'}</small>
+            <small style={{ color: 'var(--muted)' }}>{moment.rendered ? 'Rendered ' + (moment.renderAspectRatio || '9:16') + ' clip export' : 'Original episode preview · rendered export may still be processing'}</small>
+            {moment.rendered && moment.playbackUrl && <p style={{ margin: '8px 0 0' }}><a className="textLink" href={moment.playbackUrl} download>Download rendered MP4 ↗</a></p>}
             <small>By {moment.creator.user.displayName} · @{moment.creator.handle}</small>
             <p style={{ marginBottom: 0 }}><Link className="textLink" href={'/episodes/' + moment.episodeId + '?t=' + Math.floor(moment.startSeconds)}>Open full episode at this moment ↗</Link></p>
             <MomentCommunity momentId={moment.id} token={token} />
