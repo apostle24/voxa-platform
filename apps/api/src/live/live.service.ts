@@ -520,8 +520,8 @@ export class LiveService {
   async getAudienceInteractions(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, visibility: true } });
     if (!room) throw new NotFoundException('Live room not found');
-    if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room is not publicly accessible');
     const isModerator = room.hostId === userId || await this.canModerateRoom(roomId, userId, room.hostId);
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && !isModerator) throw new ForbiddenException('This room is not publicly accessible');
     const [polls, questions] = await Promise.all([
       this.prisma.livePoll.findMany({
         where: { roomId }, orderBy: { createdAt: 'desc' }, take: 10,
