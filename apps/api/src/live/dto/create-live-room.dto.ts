@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, Length, MaxLength, IsDateString } from 'class-validator';
 
 export class CreateLiveRoomDto {
   @IsString()
@@ -13,6 +13,10 @@ export class CreateLiveRoomDto {
   @IsOptional()
   @IsBoolean()
   isAudioOnly?: boolean;
+
+  @IsOptional()
+  @IsDateString()
+  scheduledAt?: string;
 
   @IsOptional()
   @IsIn(['PUBLIC', 'UNLISTED', 'MEMBERS_ONLY', 'PRIVATE'])
