@@ -215,6 +215,15 @@ export class ShowsService {
     });
   }
 
+  async getCreatorEpisodeTranscript(userId: string, showId: string, episodeId: string) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
+    if (!episode) throw new NotFoundException('Episode not found');
+    return this.prisma.episodeTranscript.findUnique({
+      where: { episodeId }, select: { episodeId: true, content: true, language: true, updatedAt: true },
+    });
+  }
+
   async saveEpisodeTranscript(userId: string, showId: string, episodeId: string, content: string, language = 'en') {
     await this.requireOwnedShow(userId, showId);
     const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
