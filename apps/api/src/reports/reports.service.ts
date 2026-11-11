@@ -103,10 +103,20 @@ export class ReportsService {
     const reportedUsers = reportedUserIds.length
       ? await this.prisma.user.findMany({ where: { id: { in: reportedUserIds } }, select: { id: true, displayName: true, suspendedUntil: true } })
       : [];
+    const reportedPostIds = [...new Set(reports.filter(report => report.targetType === 'COMMUNITY_POST').map(report => report.targetId))];
+    const reportedPosts = reportedPostIds.length
+      ? await this.prisma.communityPost.findMany({
+          where: { id: { in: reportedPostIds } },
+          select: { id: true, content: true, author: { select: { displayName: true } } },
+        })
+      : [];
     const userNames = new Map(reportedUsers.map(user => [user.id, user.displayName]));
+    const postLabels = new Map(reportedPosts.map(post => [post.id, (post.content || '').slice(0, 240) + (post.content?.length > 240 ? '…' : '') + ' — ' + (post.author?.displayName || 'Community member')]));
     return reports.map(report => ({
       ...report,
-      targetLabel: report.targetType === 'USER' ? (userNames.get(report.targetId) || 'Account no longer available') : null,
+      targetLabel: report.targetType === 'USER'
+        ? (userNames.get(report.targetId) || 'Account no longer available')
+        : report.targetType === 'COMMUNITY_POST' ? (postLabels.get(report.targetId) || 'Community post no longer available') : null,
       targetSuspendedUntil: report.targetType === 'USER' ? (reportedUsers.find(user => user.id === report.targetId)?.suspendedUntil || null) : null,
     }));
   }
