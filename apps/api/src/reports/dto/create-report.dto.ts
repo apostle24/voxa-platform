@@ -1,8 +1,8 @@
 import { IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateReportDto {
-  @IsIn(['EPISODE', 'MOMENT', 'LIVE_ROOM', 'USER'])
-  targetType!: 'EPISODE' | 'MOMENT' | 'LIVE_ROOM' | 'USER';
+  @IsIn(['EPISODE', 'MOMENT', 'LIVE_ROOM', 'USER', 'COMMUNITY_POST'])
+  targetType!: 'EPISODE' | 'MOMENT' | 'LIVE_ROOM' | 'USER' | 'COMMUNITY_POST';
 
   @IsString()
   @MinLength(1)
