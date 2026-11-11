@@ -122,6 +122,12 @@ export class ShowsController {
     return this.shows.deleteMoment(req.user.id, momentId);
   }
 
+
+  @Get('discovery/creators')
+  discoverCreators(@Query('q') q?: string) {
+    return this.shows.discoverCreators(q);
+  }
+
   @Get('discovery/shows')
   discoverShows(@Query('q') q?: string, @Query('category') category?: string, @Query('language') language?: string,
     @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
