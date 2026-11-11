@@ -136,7 +136,7 @@ export class ReportsService {
       await tx.contentReport.update({ where: { id: reportId }, data: {
         status: hide ? 'ACTIONED' : 'REVIEWING', reviewerId: userId, moderatorNote: input.reason.trim(), reviewedAt: hide ? new Date() : null,
       }});
-      return { reportId, targetType: report.targetType, targetId: report.targetId, action: input.action, status: 'ACTIONED' };
+      return { reportId, targetType: report.targetType, targetId: report.targetId, action: input.action, status: hide ? 'ACTIONED' : 'REVIEWING' };
     });
     return result;
   }
