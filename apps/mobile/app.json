@@ -21,7 +21,9 @@
     "plugins": [
       "expo-secure-store",
       "expo-av",
-      "@livekit/react-native-expo-plugin"
+      "expo-dev-client",
+      "@livekit/react-native-expo-plugin",
+      "@config-plugins/react-native-webrtc"
     ]
   }
 }
