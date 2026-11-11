@@ -10,7 +10,7 @@ import os
 
 from dotenv import load_dotenv
 from livekit import rtc
-from livekit.agents import Agent, AgentServer, AgentSession, AutoSubscribe, JobContext, StopResponse, cli, room_io, utils
+from livekit.agents import Agent, AgentServer, AgentSession, AutoSubscribe, JobContext, StopResponse, cli, room_io
 from livekit.plugins import openai
 
 from config import AgentConfig
@@ -99,7 +99,7 @@ class RoomTranscriber:
                 return
             self.sessions[identity] = session
             logger.info("Live captions enabled for participant %s in room %s", identity, self.ctx.room.name)
-        except Exception:
+        except BaseException:
             await session.aclose()
             raise
         finally:
@@ -127,7 +127,7 @@ class RoomTranscriber:
         self.ctx.room.off("participant_disconnected", self._on_participant_disconnected)
         for task in list(self.starting.values()):
             task.cancel()
-        await utils.aio.cancel_and_wait(*list(self.tasks))
+        await asyncio.gather(*list(self.tasks), return_exceptions=True)
         sessions, self.sessions = list(self.sessions.values()), {}
         await asyncio.gather(*(self._close_session(session) for session in sessions), return_exceptions=True)
 
