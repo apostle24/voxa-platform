@@ -22,6 +22,8 @@ if [ "${VOXA_STAGING_DB_BOOTSTRAP:-false}" = "true" ]; then
   # The staging database is new and contains no user data. Do not use
   # --accept-data-loss: unexpected destructive changes should stop startup.
   pnpm --filter @voxa/api exec prisma db push
+  # Recreate custom partial unique indexes that Prisma schema DSL cannot express.
+  pnpm --filter @voxa/api exec prisma db execute --file prisma/staging-bootstrap.sql
 
   # The final Prisma schema now represents the complete current schema.
   # Record the repository's incremental migrations as represented by it.
