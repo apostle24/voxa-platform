@@ -28,6 +28,5 @@ RUN pnpm install --frozen-lockfile \
 COPY apps/api/scripts/media-worker-entrypoint.sh /usr/local/bin/voxa-media-worker-entrypoint
 RUN chmod 0755 /usr/local/bin/voxa-media-worker-entrypoint
 
-EXPOSE 0
 STOPSIGNAL SIGTERM
 ENTRYPOINT ["/usr/local/bin/voxa-media-worker-entrypoint"]
