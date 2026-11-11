@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, HttpStatus, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthRateLimitGuard } from './auth-rate-limit.guard';
 import { JwtAuthGuard, AuthenticatedRequest } from './jwt-auth.guard';
@@ -61,6 +61,18 @@ export class AuthController {
     await this.auth.logout(this.readRefreshCookie(request));
     response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
     return { success: true };
+  }
+
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  listSessions(@Req() request: AuthenticatedRequest) {
+    return this.auth.listSessions(request.user.id);
+  }
+
+  @Delete('sessions/:sessionId')
+  @UseGuards(JwtAuthGuard)
+  revokeSession(@Req() request: AuthenticatedRequest, @Param('sessionId') sessionId: string) {
+    return this.auth.revokeSession(request.user.id, sessionId);
   }
 
   @Post('logout-all')
