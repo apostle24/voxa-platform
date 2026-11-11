@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
+import { CreateLiveChatMessageDto } from './dto/create-live-chat-message.dto';
 import { LiveService } from './live.service';
 
 @Controller('live')
@@ -22,6 +23,24 @@ export class LiveController {
   @UseGuards(JwtAuthGuard)
   endRoom(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
     return this.live.endRoom(req.user.id, roomId);
+  }
+
+  @Get('rooms/:roomId/chat')
+  @UseGuards(JwtAuthGuard)
+  getChatMessages(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.getChatMessages(req.user.id, roomId);
+  }
+
+  @Post('rooms/:roomId/chat')
+  @UseGuards(JwtAuthGuard)
+  postChatMessage(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body() input: CreateLiveChatMessageDto) {
+    return this.live.postChatMessage(req.user.id, roomId, input.content);
+  }
+
+  @Post('rooms/:roomId/chat/:messageId/delete')
+  @UseGuards(JwtAuthGuard)
+  deleteChatMessage(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('messageId') messageId: string) {
+    return this.live.deleteChatMessage(req.user.id, roomId, messageId);
   }
 
   @Get('rooms/:roomId/stage')
