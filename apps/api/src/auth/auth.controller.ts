@@ -8,6 +8,7 @@ import { AccountSecurityService } from './account-security.service';
 import { EmailDto } from './dto/email.dto';
 import { EmailTokenDto } from './dto/email-token.dto';
 import { MfaVerifyDto } from './dto/mfa-verify.dto';
+import { MfaCodeDto } from './dto/mfa-code.dto';
 import { PasswordResetDto } from './dto/password-reset.dto';
 import { MfaService } from './mfa.service';
 
@@ -58,14 +59,14 @@ export class AuthController {
   @Post('mfa/enable')
   @UseGuards(JwtAuthGuard, AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
-  enableMfa(@Req() request: AuthenticatedRequest, @Body() input: EmailTokenDto) {
+  enableMfa(@Req() request: AuthenticatedRequest, @Body() input: MfaCodeDto) {
     return this.mfa.enable(request.user.id, input.token);
   }
 
   @Post('mfa/disable')
   @UseGuards(JwtAuthGuard, AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
-  disableMfa(@Req() request: AuthenticatedRequest, @Body() input: EmailTokenDto) {
+  disableMfa(@Req() request: AuthenticatedRequest, @Body() input: MfaCodeDto) {
     return this.mfa.disable(request.user.id, input.token);
   }
 
