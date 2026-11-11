@@ -151,10 +151,14 @@ export class ShowsController {
   }
 
   @Get('episodes/:episodeId/transcript')
-  getEpisodeTranscript(@Param('episodeId') episodeId: string, @Req() req: AuthenticatedRequest) {
-    const header = req.headers?.authorization;
-    const userId = header?.startsWith('Bearer ') ? req.user?.id : undefined;
-    return this.shows.getEpisodeTranscript(episodeId, userId);
+  getEpisodeTranscript(@Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeTranscript(episodeId);
+  }
+
+  @Get('episodes/:episodeId/member-transcript')
+  @UseGuards(JwtAuthGuard)
+  getMemberEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeTranscript(episodeId, req.user.id);
   }
 
   @Put('shows/:showId/episodes/:episodeId/transcript')
