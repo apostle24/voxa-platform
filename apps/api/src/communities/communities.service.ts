@@ -120,11 +120,16 @@ export class CommunitiesService {
   async listPosts(userId: string, communityId: string) {
     const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { communityId: true } });
     if (!membership) throw new ForbiddenException('Join this community to view its discussions');
+    const blocks = await this.prisma.userBlock.findMany({
+      where: { OR: [{ blockerId: userId }, { blockedUserId: userId }] },
+      select: { blockerId: true, blockedUserId: true },
+    });
+    const hiddenAuthors = [...new Set(blocks.map(block => block.blockerId === userId ? block.blockedUserId : block.blockerId))];
     return this.prisma.communityPost.findMany({
-      where: { communityId }, orderBy: { createdAt: 'desc' }, take: 100,
+      where: { communityId, ...(hiddenAuthors.length ? { authorId: { notIn: hiddenAuthors } } : {}) }, orderBy: { createdAt: 'desc' }, take: 100,
       select: { id: true, content: true, createdAt: true,
         author: { select: { id: true, displayName: true } },
-        comments: { orderBy: { createdAt: 'asc' }, take: 50, select: {
+        comments: { where: hiddenAuthors.length ? { authorId: { notIn: hiddenAuthors } } : {}, orderBy: { createdAt: 'asc' }, take: 50, select: {
           id: true, content: true, createdAt: true, author: { select: { id: true, displayName: true } },
         } },
       },
@@ -136,6 +141,11 @@ export class CommunitiesService {
     if (!membership) throw new ForbiddenException('Join this community before replying');
     const post = await this.prisma.communityPost.findFirst({ where: { id: postId, communityId }, select: { id: true, authorId: true } });
     if (!post) throw new NotFoundException('Community post not found');
+    const blocked = await this.prisma.userBlock.findFirst({ where: { OR: [
+      { blockerId: userId, blockedUserId: post.authorId },
+      { blockerId: post.authorId, blockedUserId: userId },
+    ] }, select: { id: true } });
+    if (blocked) throw new ForbiddenException('You cannot reply to a discussion with an account you have blocked or that has blocked you');
     const value = content.trim();
     if (!value) throw new ConflictException('Reply cannot be empty');
     const comment = await this.prisma.communityPostComment.create({
