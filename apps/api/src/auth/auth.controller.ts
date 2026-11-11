@@ -29,21 +29,21 @@ export class AuthController {
   @Post('login')
   @UseGuards(AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
-  async login(@Body() input: LoginDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async login(@Body() input: LoginDto, @Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
     return this.withRefreshCookie(await this.auth.login(input), response);
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  async refresh(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async refresh(@Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
     return this.withRefreshCookie(await this.auth.refresh(this.readRefreshCookie(request)), response);
   }
 
   @Post('logout')
   @HttpCode(HttpStatus.OK)
-  async logout(@Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async logout(@Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
     await this.auth.logout(this.readRefreshCookie(request));
     response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
@@ -53,19 +53,19 @@ export class AuthController {
   @Post('logout-all')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async logoutAll(@Req() request: AuthenticatedRequest & AuthHttpRequest, @Res({ passthrough: true }) response: Response) {
+  async logoutAll(@Req() request: AuthenticatedRequest & AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     await this.auth.logoutAll(request.user.id);
     response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
     return { success: true };
   }
 
-  private withRefreshCookie(result: { refreshToken: string; [key: string]: unknown }, response: Response) {
+  private withRefreshCookie(result: { refreshToken: string; [key: string]: unknown }, response: AuthHttpResponse) {
     response.cookie(REFRESH_COOKIE, result.refreshToken, { ...this.cookieOptions(), maxAge: COOKIE_MAX_AGE });
     const { refreshToken: _refreshToken, ...publicResult } = result;
     return publicResult;
   }
 
-  private readRefreshCookie(request: Request): string {
+  private readRefreshCookie(request: AuthHttpRequest): string {
     const value = (request.headers.cookie ?? '').split(';').map((part) => part.trim())
       .find((part) => part.startsWith(REFRESH_COOKIE + '='))
       ?.slice(REFRESH_COOKIE.length + 1);
@@ -73,7 +73,7 @@ export class AuthController {
     try { return decodeURIComponent(value); } catch { return ''; }
   }
 
-  private assertTrustedOrigin(request: Request) {
+  private assertTrustedOrigin(request: AuthHttpRequest) {
     const origin = request.headers.origin;
     if (!origin) return;
     const allowed = (process.env.CORS_ORIGINS ?? '').split(',').map((item) => item.trim()).filter(Boolean);
