@@ -66,6 +66,16 @@ describe('LiveService access boundaries', () => {
     })).rejects.toThrow(ForbiddenException);
   });
 
+  it('prevents a guest speaker from receiving a handoff outside the accepted booking window', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue(null);
+    prisma.liveStageMember.findUnique.mockResolvedValue({ userId: 'guest-1', role: 'GUEST', leftAt: null });
+    prisma.liveGuestInvitation.findFirst.mockResolvedValue(null);
+    await expect(service.handoffSpeaker('host-1', 'room-1', 'guest-1'))
+      .rejects.toThrow('accepted booking slot');
+    expect(prisma.liveSpeakerTurn.create).not.toHaveBeenCalled();
+  });
+
   it('prevents overlapping accepted guest speaker bookings', async () => {
     const startsAt = new Date(Date.now() + 60 * 60 * 1000);
     const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000);
