@@ -21,7 +21,7 @@ export class LiveController {
 
   @Post('webhooks/livekit')
   receiveLiveKitWebhook(@Req() req: any, @Headers('authorization') authorization?: string) {
-    const rawBody = req.rawBody?.toString('utf8') || '';
+    const rawBody = req.rawBody?.toString('utf8') || (Buffer.isBuffer(req.body) ? req.body.toString('utf8') : '');
     return this.live.receiveLiveKitWebhook(rawBody, authorization);
   }
 
