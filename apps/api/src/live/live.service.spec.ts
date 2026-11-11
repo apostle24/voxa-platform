@@ -15,7 +15,7 @@ describe('LiveService access boundaries', () => {
       liveRoom: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
-      liveChatMessage: { count: jest.fn() },
+      liveChatMessage: { count: jest.fn(), findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       stageRequest: { upsert: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), groupBy: jest.fn() },
       liveKitWebhookEvent: { createMany: jest.fn() },
       $transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
@@ -28,6 +28,23 @@ describe('LiveService access boundaries', () => {
       } as Record<string, string>)[key]),
     };
     service = new LiveService(prisma as unknown as PrismaService, config as unknown as ConfigService);
+  });
+
+  it('hides live chat messages from accounts blocked in either direction', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', visibility: 'PUBLIC' });
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'viewer-1', blockedUserId: 'blocked-1' }]);
+    prisma.liveChatMessage.findMany.mockResolvedValue([]);
+    await service.getChatMessages('viewer-1', 'room-1');
+    expect(prisma.liveChatMessage.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { roomId: 'room-1', userId: { notIn: ['blocked-1'] } },
+    }));
+  });
+
+  it('prevents a user from chatting in a room hosted by a blocked account', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC' });
+    prisma.userBlock.findFirst.mockResolvedValue({ id: 'block-1' });
+    await expect(service.postChatMessage('viewer-1', 'room-1', 'Hello')).rejects.toThrow('blocked');
+    expect(prisma.liveChatMessage.create).not.toHaveBeenCalled();
   });
 
   it('verifies and idempotently reconciles a participant-left webhook', async () => {
