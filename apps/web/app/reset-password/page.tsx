@@ -7,7 +7,7 @@ const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1')
 export default function ResetPasswordPage() {
   const [token, setToken] = useState(''); const [password, setPassword] = useState('');
   const [notice, setNotice] = useState(''); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
-  useEffect(() => { setToken(new URLSearchParams(window.location.search).get('token') || ''); }, []);
+  useEffect(() => { setToken(new URLSearchParams(window.location.hash.slice(1)).get('token') || ''); }, []);
   async function submit(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
     try { const response = await fetch(API + '/auth/password/reset', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token, password }) }); const data = await response.json(); if (!response.ok) throw new Error(data.message || 'Reset link is invalid or expired'); setNotice('Your password has been changed. Sign in with your new password.'); }
