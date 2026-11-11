@@ -6,6 +6,8 @@ import { useEffect, useState } from 'react';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
+type AccountSession = { id: string; createdAt: string; lastUsedAt?: string | null; expiresAt: string };
+
 type AccountProfile = {
   id: string;
   email: string;
@@ -21,6 +23,9 @@ export default function ProfileSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [signingOut, setSigningOut] = useState(false);
+  const [sessions, setSessions] = useState<AccountSession[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(true);
+  const [revokingSessionId, setRevokingSessionId] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -44,7 +49,38 @@ export default function ProfileSettingsPage() {
     }
   }
 
+  async function loadSessions() {
+    const token = sessionStorage.getItem('voxa_access_token') || '';
+    if (!token) { setLoadingSessions(false); return; }
+    setLoadingSessions(true);
+    try {
+      const response = await apiFetch(API + '/auth/sessions', { headers: { Authorization: 'Bearer ' + token } });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to load active sessions');
+      setSessions(Array.isArray(data) ? data : []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to load active sessions');
+    } finally { setLoadingSessions(false); }
+  }
+
+  async function revokeSession(sessionId: string) {
+    const token = sessionStorage.getItem('voxa_access_token') || '';
+    setRevokingSessionId(sessionId); setError(''); setMessage('');
+    try {
+      const response = await apiFetch(API + '/auth/sessions/' + encodeURIComponent(sessionId), {
+        method: 'DELETE', headers: { Authorization: 'Bearer ' + token },
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Unable to revoke session');
+      setSessions(current => current.filter(session => session.id !== sessionId));
+      setMessage('The selected session has been signed out.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to revoke session');
+    } finally { setRevokingSessionId(''); }
+  }
+
   useEffect(() => { void loadProfile(); }, []);
+  useEffect(() => { void loadSessions(); }, []);
 
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -119,6 +155,21 @@ export default function ProfileSettingsPage() {
             </div>
           </form>
           {message && <p role="status" style={{ color: 'var(--success, #23865b)', marginTop: 12 }}>{message}</p>}
+          <section className="membershipCard" style={{ marginTop: 22 }}>
+            <h2 style={{ marginTop: 0 }}>Active sessions</h2>
+            <p style={{ color: 'var(--muted)' }}>Review active sign-ins and revoke sessions you no longer recognize. VOXA currently records session times, not device names or locations.</p>
+            {loadingSessions ? <p style={{ color: 'var(--muted)' }}>Loading sessions…</p> : sessions.length === 0 ? <p style={{ color: 'var(--muted)' }}>No active refresh sessions found.</p> : <div style={{ display: 'grid', gap: 10 }}>
+              {sessions.map(session => <div key={session.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                <div>
+                  <b style={{ fontSize: 13 }}>Sign-in session</b>
+                  <small style={{ display: 'block', color: 'var(--muted)', marginTop: 4 }}>Started {new Date(session.createdAt).toLocaleString()}</small>
+                  <small style={{ display: 'block', color: 'var(--muted)' }}>Last used {session.lastUsedAt ? new Date(session.lastUsedAt).toLocaleString() : 'Not recorded'} · Expires {new Date(session.expiresAt).toLocaleDateString()}</small>
+                </div>
+                <button className="ghostButton" disabled={revokingSessionId === session.id} onClick={() => void revokeSession(session.id)}>{revokingSessionId === session.id ? 'Signing out…' : 'Revoke session'}</button>
+              </div>)}
+            </div>}
+            <button className="ghostButton" style={{ marginTop: 12 }} disabled={loadingSessions} onClick={() => void loadSessions()}>Refresh sessions</button>
+          </section>
           <section className="membershipCard" style={{ marginTop: 22 }}>
             <h2 style={{ marginTop: 0 }}>Security</h2>
             <p style={{ color: 'var(--muted)' }}>Sign out this account from all active devices and browsers. You will need to sign in again.</p>
