@@ -1,9 +1,10 @@
-import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, HttpCode, HttpStatus, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthRateLimitGuard } from './auth-rate-limit.guard';
 import { JwtAuthGuard, AuthenticatedRequest } from './jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateAccountProfileDto } from './dto/update-account-profile.dto';
 
 type AuthHttpRequest = { headers: { cookie?: string; origin?: string } };
 type AuthHttpResponse = {
@@ -18,6 +19,18 @@ const COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  getMyProfile(@Req() request: AuthenticatedRequest) {
+    return this.auth.getMyProfile(request.user.id);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateMyProfile(@Req() request: AuthenticatedRequest, @Body() input: UpdateAccountProfileDto) {
+    return this.auth.updateMyProfile(request.user.id, input.displayName);
+  }
 
   @Post('register')
   @UseGuards(AuthRateLimitGuard)
