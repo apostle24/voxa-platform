@@ -5,6 +5,8 @@ import {
 } from 'react-native';
 import { requestNotificationPermissionsAsync, setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as SecureStore from 'expo-secure-store';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { AudioSession, LiveKitRoom, registerGlobals } from '@livekit/react-native';
 import { api, clearSession, getSavedUser, saveSession, signIn, signOut, User, ApiRecord, verifyMfa, registerAccount } from './src/api';
 import { colors } from './src/theme';
@@ -206,16 +208,84 @@ function EpisodeCard({ item, onPlay }: { item: ApiRecord; onPlay: () => void }) 
 
 function Communities() {
   const { items, loading, error, refresh } = useLoad<ApiRecord>('/communities');
-  const [busyId, setBusyId] = useState('');
-  async function join(id: string) {
-    setBusyId(id);
-    try { await api('/communities/' + encodeURIComponent(id) + '/join', { method: 'POST' }); Alert.alert('Joined', 'You are now a member of this community.'); refresh(); }
-    catch (e) { Alert.alert('Could not join', e instanceof Error ? e.message : 'Try again'); }
-    finally { setBusyId(''); }
+  const [selected, setSelected] = useState<ApiRecord | null>(null);
+  const [joined, setJoined] = useState(false);
+  const [postText, setPostText] = useState('');
+  const [replyText, setReplyText] = useState('');
+  const [replyingTo, setReplyingTo] = useState('');
+  const [busy, setBusy] = useState(false);
+  const posts = useLoad<any>(selected ? '/communities/' + encodeURIComponent(selected.id) + '/posts' : '/communities/unselected/posts');
+  useEffect(() => {
+    let active = true;
+    if (selected) api<any>('/communities/' + encodeURIComponent(selected.id) + '/membership')
+      .then(value => { if (active) setJoined(Boolean(value.joined)); })
+      .catch(() => { if (active) setJoined(false); });
+    else setJoined(false);
+    return () => { active = false; };
+  }, [selected?.id]);
+  async function toggleMembership() {
+    if (!selected || busy) return;
+    setBusy(true);
+    try {
+      await api('/communities/' + encodeURIComponent(selected.id) + '/join', { method: joined ? 'DELETE' : 'POST' });
+      setJoined(!joined);
+      if (joined) Alert.alert('Left community', 'You have left this community.');
+      else Alert.alert('Welcome', 'You joined the community.');
+      posts.refresh(); refresh();
+    } catch (e) { Alert.alert('Membership update failed', e instanceof Error ? e.message : 'Try again'); }
+    finally { setBusy(false); }
   }
+  async function createPost() {
+    if (!selected || !postText.trim() || busy) return;
+    setBusy(true);
+    try {
+      await api('/communities/' + encodeURIComponent(selected.id) + '/posts', { method: 'POST', body: JSON.stringify({ content: postText.trim() }) });
+      setPostText(''); posts.refresh();
+    } catch (e) { Alert.alert('Post not created', e instanceof Error ? e.message : 'Join the community first'); }
+    finally { setBusy(false); }
+  }
+  async function createReply(postId: string) {
+    if (!selected || !replyText.trim() || busy) return;
+    setBusy(true);
+    try {
+      await api('/communities/' + encodeURIComponent(selected.id) + '/posts/' + encodeURIComponent(postId) + '/comments', { method: 'POST', body: JSON.stringify({ content: replyText.trim() }) });
+      setReplyText(''); setReplyingTo(''); posts.refresh();
+    } catch (e) { Alert.alert('Reply not added', e instanceof Error ? e.message : 'Try again'); }
+    finally { setBusy(false); }
+  }
+  if (selected) return <ScrollView contentContainerStyle={styles.scroll}>
+    <Pressable onPress={() => setSelected(null)}><Text style={styles.backLink}>‹ All communities</Text></Pressable>
+    <Text style={styles.eyebrow}>COMMUNITY DISCUSSIONS</Text><Text style={styles.pageTitle}>{selected.name || selected.title}</Text>
+    <Text style={styles.muted}>{selected.description || selected.category || 'A place to connect and share.'}</Text>
+    <Button title={busy ? 'Please wait…' : joined ? 'Leave community' : 'Join community'} secondary onPress={toggleMembership} disabled={busy} />
+    {joined && <View style={styles.formCard}>
+      <SectionTitle>Start a discussion</SectionTitle>
+      <Field value={postText} onChangeText={setPostText} placeholder="Share something with the community…" multiline maxLength={5000} />
+      <Button title={busy ? 'Posting…' : 'Publish post'} onPress={createPost} disabled={busy || !postText.trim()} />
+    </View>}
+    <SectionTitle>Recent discussions</SectionTitle>
+    {posts.loading ? <ActivityIndicator color={colors.accent} /> : posts.error ? <Empty text={posts.error} /> : posts.items.map((post: any) => <View key={post.id} style={styles.discussionCard}>
+      <Text style={styles.cardTitle}>{post.author?.displayName || 'Community member'}</Text>
+      <Text style={styles.cardDesc}>{post.content}</Text>
+      <Text style={styles.smallMuted}>{post.comments?.length || 0} replies</Text>
+      {(post.comments || []).map((comment: any) => <View key={comment.id} style={styles.replyCard}>
+        <Text style={styles.cardTitle}>{comment.author?.displayName || 'Member'}</Text><Text style={styles.muted}>{comment.content}</Text>
+      </View>)}
+      {joined && <Pressable onPress={() => setReplyingTo(replyingTo === post.id ? '' : post.id)}><Text style={styles.backLink}>{replyingTo === post.id ? 'Cancel reply' : 'Reply to discussion'}</Text></Pressable>}
+      {replyingTo === post.id && <>
+        <Field value={replyText} onChangeText={setReplyText} placeholder="Write a reply…" multiline maxLength={5000} />
+        <Button title={busy ? 'Sending…' : 'Send reply'} onPress={() => createReply(post.id)} disabled={busy || !replyText.trim()} />
+      </>}
+    </View>)}
+    {!posts.loading && !posts.items.length && <Empty text={joined ? 'Start the first discussion.' : 'Join this community to read and join discussions.'} />}
+  </ScrollView>;
   return <ScrollView contentContainerStyle={styles.scroll}>
     <Text style={styles.eyebrow}>MEET YOUR PEOPLE</Text><Text style={styles.pageTitle}>Communities</Text>
-    {loading ? <ActivityIndicator color={colors.accent} /> : error ? <Empty text={error} /> : items.map(item => <ContentCard key={item.id} item={item} subtitle={(item.category || 'Community') + ' · ' + (item._count?.members ?? item.memberCount ?? 0) + ' members'} action={<Button title={busyId === item.id ? '…' : 'Join'} onPress={() => join(item.id)} disabled={!!busyId} />} />)}
+    {loading ? <ActivityIndicator color={colors.accent} /> : error ? <Empty text={error} /> : items.map(item => <Pressable key={item.id} onPress={() => setSelected(item)} style={styles.card}>
+      <View style={styles.cardArt}><Text style={styles.cardArtText}>{(item.name || 'C').slice(0,1).toUpperCase()}</Text></View>
+      <View style={{ flex: 1 }}><Text style={styles.cardTitle}>{item.name}</Text><Text style={styles.smallMuted}>{item.category || 'Community'} · {item._count?.members ?? 0} members</Text><Text numberOfLines={2} style={styles.cardDesc}>{item.description || ''}</Text></View>
+      <Text style={styles.backLink}>Open ›</Text>
+    </Pressable>)}
     {!loading && !items.length && <Empty text="Communities will appear here." />}
   </ScrollView>;
 }
@@ -295,20 +365,106 @@ function Creator() {
   const { items, loading, error, refresh } = useLoad<ApiRecord>('/creators/me/shows');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [creating, setCreating] = useState(false);
+  const [selectedShow, setSelectedShow] = useState<ApiRecord | null>(null);
+  const [episodeTitle, setEpisodeTitle] = useState('');
+  const [episodeDescription, setEpisodeDescription] = useState('');
+  const [duration, setDuration] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [uploadState, setUploadState] = useState('');
   async function createShow() {
-    if (title.trim().length < 2) return;
-    setCreating(true);
-    try { await api('/shows', { method: 'POST', body: JSON.stringify({ title: title.trim(), description: description.trim() }) }); setTitle(''); setDescription(''); refresh(); Alert.alert('Show created', 'Your new show draft is ready in Creator Studio.'); }
+    if (title.trim().length < 2 || busy) return;
+    setBusy(true);
+    try { await api('/shows', { method: 'POST', body: JSON.stringify({ title: title.trim(), description: description.trim() }) }); setTitle(''); setDescription(''); refresh(); Alert.alert('Show created', 'Your show draft is ready.'); }
     catch (e) { Alert.alert('Unable to create show', e instanceof Error ? e.message : 'Try again'); }
-    finally { setCreating(false); }
+    finally { setBusy(false); }
+  }
+  async function publishShow(show: ApiRecord) {
+    setBusy(true);
+    try { await api('/shows/' + encodeURIComponent(show.id) + '/publish', { method: 'POST' }); refresh(); }
+    catch (e) { Alert.alert('Unable to publish show', e instanceof Error ? e.message : 'Try again'); }
+    finally { setBusy(false); }
+  }
+  async function createEpisode() {
+    if (!selectedShow || episodeTitle.trim().length < 2 || busy) return;
+    setBusy(true);
+    try {
+      await api('/shows/' + encodeURIComponent(selectedShow.id) + '/episodes', { method: 'POST', body: JSON.stringify({ title: episodeTitle.trim(), description: episodeDescription.trim(), durationSeconds: duration ? Number(duration) : undefined }) });
+      setEpisodeTitle(''); setEpisodeDescription(''); setDuration(''); refresh();
+      Alert.alert('Episode draft created', 'Select the episode below to attach its audio or video file.');
+    } catch (e) { Alert.alert('Unable to create episode', e instanceof Error ? e.message : 'Try again'); }
+    finally { setBusy(false); }
+  }
+  async function uploadEpisode(show: ApiRecord, episode: ApiRecord) {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({ type: ['audio/*','video/mp4','video/webm','video/quicktime'], copyToCacheDirectory: true, multiple: false });
+      if (picked.canceled || !picked.assets?.[0]) return;
+      const file = picked.assets[0];
+      if (!file.size || !file.mimeType) throw new Error('The selected file has no readable size or media type.');
+      setBusy(true); setUploadState('Requesting secure upload…');
+      const signed = await api<any>('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id) + '/upload-url', {
+        method: 'POST', body: JSON.stringify({ contentType: file.mimeType, sizeBytes: file.size }),
+      });
+      setUploadState('Uploading media…');
+      const uploaded = await FileSystem.uploadAsync(signed.uploadUrl, file.uri, {
+        httpMethod: 'PUT', uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        mimeType: file.mimeType, headers: signed.headers || { 'Content-Type': file.mimeType },
+      });
+      if (uploaded.status < 200 || uploaded.status >= 300) throw new Error('Storage rejected the media upload (' + uploaded.status + ').');
+      setUploadState('Queuing media processing…');
+      await api('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id) + '/complete-upload', {
+        method: 'POST', body: JSON.stringify({ objectKey: signed.objectKey }),
+      });
+      setUploadState(''); refresh(); Alert.alert('Upload complete', 'VOXA is processing your media. Refresh Creator Studio to see its status.');
+    } catch (e) { setUploadState(''); Alert.alert('Upload failed', e instanceof Error ? e.message : 'Try again'); }
+    finally { setBusy(false); }
+  }
+  async function publishEpisode(show: ApiRecord, episode: ApiRecord) {
+    setBusy(true);
+    try { await api('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id) + '/publish', { method: 'POST' }); refresh(); }
+    catch (e) { Alert.alert('Unable to publish episode', e instanceof Error ? e.message : 'Media must finish processing first.'); }
+    finally { setBusy(false); }
+  }
+  async function unpublishEpisode(show: ApiRecord, episode: ApiRecord) {
+    setBusy(true);
+    try { await api('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id) + '/unpublish', { method: 'POST' }); refresh(); }
+    catch (e) { Alert.alert('Unable to unpublish episode', e instanceof Error ? e.message : 'Try again'); }
+    finally { setBusy(false); }
   }
   return <ScrollView contentContainerStyle={styles.scroll}>
     <Text style={styles.eyebrow}>YOUR CREATOR WORKSPACE</Text><Text style={styles.pageTitle}>Creator Studio</Text>
-    <View style={styles.formCard}><SectionTitle>Create a show</SectionTitle><Field value={title} onChangeText={setTitle} placeholder="Show title" maxLength={120} /><Field value={description} onChangeText={setDescription} placeholder="What is your show about?" multiline /><Button title={creating ? 'Creating…' : 'Create show draft'} onPress={createShow} disabled={creating || title.trim().length < 2} /></View>
+    <View style={styles.formCard}><SectionTitle>Create a show</SectionTitle>
+      <Field value={title} onChangeText={setTitle} placeholder="Show title" maxLength={120} />
+      <Field value={description} onChangeText={setDescription} placeholder="What is your show about?" multiline />
+      <Button title={busy ? 'Please wait…' : 'Create show draft'} onPress={createShow} disabled={busy || title.trim().length < 2} />
+    </View>
     <SectionTitle>Your shows</SectionTitle>
-    {loading ? <ActivityIndicator color={colors.accent} /> : error ? <Empty text={error} /> : items.map(item => <ContentCard key={item.id} item={item} subtitle={item.status || 'Show'} />)}
-    {!loading && !items.length && <Empty text="Your published and draft shows will appear here." />}
+    {loading ? <ActivityIndicator color={colors.accent} /> : error ? <Empty text={error} /> : items.map(show => <View key={show.id} style={styles.creatorShow}>
+      <Pressable onPress={() => setSelectedShow(selectedShow?.id === show.id ? null : show)}>
+        <Text style={styles.cardTitle}>{show.title}</Text><Text style={styles.smallMuted}>{show.status} · {show.episodes?.length || 0} episodes</Text>
+      </Pressable>
+      {show.status !== 'PUBLISHED' && <Button title="Publish show" secondary onPress={() => publishShow(show)} disabled={busy} />}
+      <Button title={selectedShow?.id === show.id ? 'Close episodes' : 'Manage episodes'} secondary onPress={() => setSelectedShow(selectedShow?.id === show.id ? null : show)} />
+      {selectedShow?.id === show.id && <>
+        <View style={styles.formCard}>
+          <SectionTitle>New episode</SectionTitle>
+          <Field value={episodeTitle} onChangeText={setEpisodeTitle} placeholder="Episode title" maxLength={160} />
+          <Field value={episodeDescription} onChangeText={setEpisodeDescription} placeholder="Episode description" multiline maxLength={8000} />
+          <Field value={duration} onChangeText={setDuration} placeholder="Duration in seconds (required to publish)" keyboardType="number-pad" />
+          <Button title={busy ? 'Please wait…' : 'Create episode draft'} onPress={createEpisode} disabled={busy || episodeTitle.trim().length < 2} />
+        </View>
+        {(show.episodes || []).map((episode: ApiRecord) => <View key={episode.id} style={styles.episodeManage}>
+          <Text style={styles.cardTitle}>{episode.title}</Text><Text style={styles.smallMuted}>{episode.status} · Media: {episode.mediaAssets?.[0]?.status || (episode.mediaKey ? 'Uploaded' : 'Not uploaded')}</Text>
+          {episode.status !== 'PUBLISHED' && <>
+            <Button title="Upload audio / video" secondary onPress={() => uploadEpisode(show, episode)} disabled={busy} />
+            {episode.mediaAssets?.[0]?.status === 'FAILED' && <Button title="Retry media processing" secondary onPress={async () => { await api('/shows/' + show.id + '/episodes/' + episode.id + '/retry-processing', { method: 'POST' }); refresh(); }} disabled={busy} />}
+            <Button title="Publish episode" onPress={() => publishEpisode(show, episode)} disabled={busy || show.status !== 'PUBLISHED'} />
+          </>}
+          {episode.status === 'PUBLISHED' && <Button title="Unpublish episode" secondary onPress={() => Alert.alert('Unpublish episode?', 'It will be removed from public discovery and returned to drafts.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Unpublish', style: 'destructive', onPress: () => unpublishEpisode(show, episode) }])} disabled={busy} />}
+        </View>)}
+      </>}
+    </View>)}
+    {!!uploadState && <Text style={styles.notice}>{uploadState}</Text>}
+    {!loading && !items.length && <Empty text="Create your first show to begin publishing." />}
   </ScrollView>;
 }
 
@@ -346,7 +502,7 @@ const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 11, lineHeight: 17, marginTop: 14 }, notice: { color: colors.accent2, fontSize: 12, lineHeight: 18, marginBottom: 10 }, switchAuth: { color: colors.accent2, textAlign: 'center', fontWeight: '700', marginTop: 16 }, error: { color: colors.danger, fontSize: 12, marginBottom: 10 },
   liveCard: { backgroundColor: colors.panel, borderRadius: 16, borderColor: colors.border, borderWidth: 1, padding: 16, marginBottom: 12 },
   livePill: { color: colors.live, fontSize: 10, fontWeight: '900', letterSpacing: 1.2, marginBottom: 10 }, liveRoom: { flex: 1, padding: 18 },
-  chatBubble: { backgroundColor: colors.panel2, borderRadius: 10, padding: 9, marginBottom: 7 }, roomPanel: { backgroundColor: colors.panel, borderRadius: 16, padding: 20, marginVertical: 18, minHeight: 120 },
+  backLink: { color: colors.accent2, fontWeight: '800', marginVertical: 8 }, discussionCard: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 }, replyCard: { backgroundColor: colors.panel2, borderRadius: 10, padding: 10, marginTop: 8 }, creatorShow: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 }, episodeManage: { borderTopWidth: 1, borderColor: colors.border, paddingTop: 12, marginTop: 12 }, chatBubble: { backgroundColor: colors.panel2, borderRadius: 10, padding: 9, marginBottom: 7 }, roomPanel: { backgroundColor: colors.panel, borderRadius: 16, padding: 20, marginVertical: 18, minHeight: 120 },
   formCard: { backgroundColor: colors.panel, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14 },
   profileCard: { alignItems: 'center', backgroundColor: colors.panel, borderRadius: 18, borderWidth: 1, borderColor: colors.border, padding: 24, marginBottom: 20 },
   avatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: colors.panel2, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
