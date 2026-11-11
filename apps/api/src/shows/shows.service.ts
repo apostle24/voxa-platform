@@ -1049,7 +1049,8 @@ export class ShowsService {
       show: { select: { id: true, title: true, category: true, creatorId: true,
         creator: { select: { handle: true, user: { select: { displayName: true } } } } } },
     };
-    const candidates = await this.prisma.episode.findMany({
+    const candidates = preferredCategories.length || creatorIds.length
+      ? await this.prisma.episode.findMany({
       where: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED },
         ...(excludedIds.size ? { id: { notIn: [...excludedIds] } } : {}),
         ...(preferredCategories.length || creatorIds.length ? { OR: [
@@ -1058,7 +1059,7 @@ export class ShowsService {
         ] } : {}),
       },
       take: limit * 3, orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }], select,
-    });
+    }) : [];
     const recommendations = candidates.map(episode => {
       const followed = followedCreatorIds.includes(episode.show.creatorId);
       const categoryMatch = Boolean(episode.show.category && preferredCategories.includes(episode.show.category));
