@@ -686,11 +686,20 @@ export class LiveService {
     if (poll.status !== 'OPEN') throw new ConflictException('This poll is closed');
     const option = await this.prisma.livePollOption.findFirst({ where: { id: optionId, pollId }, select: { id: true } });
     if (!option) throw new BadRequestException('Choose an option from this poll');
-    await this.prisma.livePollVote.upsert({
+    const existingVote = await this.prisma.livePollVote.findUnique({
       where: { pollId_userId: { pollId, userId } },
-      create: { pollId, optionId, userId },
-      update: { optionId, createdAt: new Date() },
+      select: { id: true },
     });
+    if (existingVote) throw new ConflictException('You have already voted in this poll');
+    try {
+      await this.prisma.livePollVote.create({ data: { pollId, optionId, userId } });
+    } catch (error) {
+      // The unique index is the final guard against two simultaneous vote requests.
+      if ((error as { code?: string })?.code === 'P2002') {
+        throw new ConflictException('You have already voted in this poll');
+      }
+      throw error;
+    }
     return { pollId, optionId, recorded: true };
   }
 
