@@ -658,9 +658,32 @@ export class LiveService {
   }
 
   async getRoomAnalytics(hostId: string, roomId: string) {
-    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true, startedAt: true, endedAt: true, peakAudienceCount: true, recordingStatus: true, recordingStartedAt: true, recordingEndedAt: true } });
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true, startedAt: true, endedAt: true, peakAudienceCount: true, recordingStatus: true, recordingObjectKey: true, recordingStartedAt: true, recordingEndedAt: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can view room analytics');
+    // Resolve a replay draft from the durable recording object key so the host
+    // can recover its Creator Studio link after refreshing or reconnecting.
+    let replayObjectKey = room.recordingObjectKey;
+    if (replayObjectKey?.startsWith('s3://')) {
+      const location = replayObjectKey.slice(5);
+      const slash = location.indexOf('/');
+      const bucket = this.config.get<string>('S3_BUCKET', '');
+      replayObjectKey = slash > 0 && location.slice(0, slash) === bucket ? location.slice(slash + 1) : null;
+    }
+    const replayAsset = replayObjectKey
+      ? await this.prisma.mediaAsset.findUnique({
+          where: { objectKey: replayObjectKey },
+          select: { id: true, episodeId: true, status: true, episode: { select: { status: true, isLiveReplay: true } } },
+        })
+      : null;
+    const replayDraft = replayAsset?.episode?.isLiveReplay
+      ? {
+          episodeId: replayAsset.episodeId,
+          mediaAssetId: replayAsset.id,
+          processingStatus: replayAsset.status,
+          episodeStatus: replayAsset.episode.status,
+        }
+      : null;
     const activeSince = new Date(Date.now() - 45_000);
     const [stageMembers, requestCounts, chatMessageCount, deletedMessageCount, activeViewerUsers] = await Promise.all([
       this.prisma.liveStageMember.findMany({ where: { roomId }, orderBy: { joinedAt: 'asc' }, select: { userId: true, role: true, joinedAt: true, leftAt: true } }),
@@ -681,6 +704,7 @@ export class LiveService {
     const concurrentViewers = activeViewerUsers.filter(viewer => !stageUserIds.has(viewer.userId)).length;
     return {
       room: { id: room.id, title: room.title, status: room.status, startedAt: room.startedAt, endedAt: room.endedAt, durationSeconds, recordingStatus: room.recordingStatus, recordingStartedAt: room.recordingStartedAt, recordingEndedAt: room.recordingEndedAt },
+      replayDraft,
       stage: { totalSpeakerSessions: speakers.length, activeSpeakers: speakers.filter(speaker => speaker.currentlyOnStage).length, speakers },
       requests: { pending: requests.pending ?? 0, approved: requests.approved ?? 0, rejected: requests.rejected ?? 0 },
       audience: { concurrentViewers, peakConcurrentViewers: room.peakAudienceCount },
