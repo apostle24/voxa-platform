@@ -212,3 +212,11 @@ Media processing is still not production complete: the current workflow uses ori
 - Membership-gated playback remains server-checked; listeners must be authenticated and have an active membership period.
 - Signed playback URLs now default to a one-hour lifetime (configurable up to six hours) to avoid short expirations during long-form audio/video playback. Upload URL lifetime remains separately short.
 - The latest changes are awaiting the next full CI run; do not treat the membership Studio UI and playback URL adjustment as build-verified until that run completes.
+
+
+## 11 November 2026 — media upload hardening increment
+
+- CI run [42977390289](https://github.com/apostle24/voxa-platform/actions/runs/42977390289) passed the new media upload ownership, configured size-limit, and signed URL unit tests.
+- Upload completion now performs a bounded 32-byte object-storage range read and checks basic signatures for the supported audio/video formats before persisting an asset.
+- New tests cover MIME-label spoofing rejection and valid MP3 signature acceptance.
+- This is not full codec/container validation, malware scanning, transcoding, moderation, or a production media worker. UPLOADED must not be represented as READY; production publishing should be gated on a completed isolated processing pipeline.
