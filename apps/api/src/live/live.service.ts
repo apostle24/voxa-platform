@@ -629,6 +629,115 @@ export class LiveService {
     });
   }
 
+
+  async getSessionPlan(userId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    const isHost = room.hostId === userId;
+    const isModerator = !isHost && await this.canModerateRoom(roomId, userId, room.hostId);
+    const [agenda, activeTurn, speakers] = await Promise.all([
+      this.prisma.liveAgendaItem.findMany({ where: { roomId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true, title: true, description: true, durationSeconds: true, position: true, status: true, startedAt: true, completedAt: true } }),
+      this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, orderBy: { startedAt: 'desc' }, select: { id: true, speakerId: true, agendaItemId: true, startedAt: true, speaker: { select: { displayName: true } } } }),
+      this.prisma.liveStageMember.findMany({ where: { roomId, leftAt: null }, orderBy: { joinedAt: 'asc' }, select: { userId: true, role: true } }),
+    ]);
+    return { isHost, isModerator, roomStatus: room.status, agenda, activeTurn, speakers };
+  }
+
+  async createAgendaItem(userId: string, roomId: string, input: { title: string; description?: string; durationSeconds: number }) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (!(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host or an assigned moderator can manage the session agenda');
+    const title = input.title?.trim();
+    if (!title || title.length < 2 || title.length > 120) throw new BadRequestException('Agenda title must be between 2 and 120 characters');
+    if (!Number.isInteger(input.durationSeconds) || input.durationSeconds < 1 || input.durationSeconds > 14400) throw new BadRequestException('Agenda duration must be between 1 second and 4 hours');
+    const last = await this.prisma.liveAgendaItem.findFirst({ where: { roomId }, orderBy: { position: 'desc' }, select: { position: true } });
+    return this.prisma.liveAgendaItem.create({
+      data: { roomId, title, description: input.description?.trim() || null, durationSeconds: input.durationSeconds, position: (last?.position ?? -1) + 1 },
+      select: { id: true, title: true, description: true, durationSeconds: true, position: true, status: true, startedAt: true, completedAt: true },
+    });
+  }
+
+  async updateAgendaItem(userId: string, roomId: string, itemId: string, input: { title?: string; description?: string; durationSeconds?: number }) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (!(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host or an assigned moderator can manage the session agenda');
+    const item = await this.prisma.liveAgendaItem.findFirst({ where: { id: itemId, roomId }, select: { id: true, status: true } });
+    if (!item) throw new NotFoundException('Agenda item not found');
+    if (item.status !== 'PENDING') throw new ConflictException('Only pending agenda items can be edited');
+    if (input.title !== undefined && (input.title.trim().length < 2 || input.title.trim().length > 120)) throw new BadRequestException('Agenda title must be between 2 and 120 characters');
+    if (input.durationSeconds !== undefined && (!Number.isInteger(input.durationSeconds) || input.durationSeconds < 1 || input.durationSeconds > 14400)) throw new BadRequestException('Agenda duration must be between 1 second and 4 hours');
+    return this.prisma.liveAgendaItem.update({
+      where: { id: itemId },
+      data: { ...(input.title !== undefined ? { title: input.title.trim() } : {}), ...(input.description !== undefined ? { description: input.description.trim() || null } : {}), ...(input.durationSeconds !== undefined ? { durationSeconds: input.durationSeconds } : {}) },
+      select: { id: true, title: true, description: true, durationSeconds: true, position: true, status: true },
+    });
+  }
+
+  async deleteAgendaItem(userId: string, roomId: string, itemId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (!(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host or an assigned moderator can manage the session agenda');
+    const item = await this.prisma.liveAgendaItem.findFirst({ where: { id: itemId, roomId }, select: { id: true, status: true } });
+    if (!item) throw new NotFoundException('Agenda item not found');
+    if (item.status !== 'PENDING') throw new ConflictException('Only pending agenda items can be deleted');
+    await this.prisma.liveAgendaItem.delete({ where: { id: itemId } });
+    return { deleted: true, itemId };
+  }
+
+  async startAgendaItem(userId: string, roomId: string, itemId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (!(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host or an assigned moderator can control the session agenda');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('The session agenda can only be started while the room is live');
+    const item = await this.prisma.liveAgendaItem.findFirst({ where: { id: itemId, roomId }, select: { id: true, status: true } });
+    if (!item) throw new NotFoundException('Agenda item not found');
+    if (item.status !== 'PENDING') throw new ConflictException('Only pending agenda items can be started');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.liveAgendaItem.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', completedAt: new Date() } });
+      return tx.liveAgendaItem.update({ where: { id: itemId }, data: { status: 'ACTIVE', startedAt: new Date(), completedAt: null }, select: { id: true, title: true, durationSeconds: true, position: true, status: true, startedAt: true } });
+    });
+  }
+
+  async completeAgendaItem(userId: string, roomId: string, itemId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (!(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host or an assigned moderator can control the session agenda');
+    const result = await this.prisma.liveAgendaItem.updateMany({ where: { id: itemId, roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', completedAt: new Date() } });
+    if (!result.count) throw new NotFoundException('Active agenda item not found');
+    return { itemId, status: 'COMPLETED' };
+  }
+
+  async handoffSpeaker(hostId: string, roomId: string, speakerId: string, agendaItemId?: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the host can hand the speaking turn to another speaker');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Speaker handoff is available only while the room is live');
+    const speaker = await this.prisma.liveStageMember.findUnique({ where: { roomId_userId: { roomId, userId: speakerId } }, select: { userId: true, leftAt: true } });
+    if (!speaker || speaker.leftAt) throw new ConflictException('The selected participant must already be an active stage speaker');
+    if (agendaItemId) {
+      const agendaItem = await this.prisma.liveAgendaItem.findFirst({ where: { id: agendaItemId, roomId, status: 'ACTIVE' }, select: { id: true } });
+      if (!agendaItem) throw new ConflictException('Select the active agenda segment for this speaker turn');
+    }
+    const active = await this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, select: { speakerId: true } });
+    if (active?.speakerId === speakerId) throw new ConflictException('This speaker already has the active turn');
+    return this.prisma.$transaction(async (tx) => {
+      await tx.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt: new Date() } });
+      return tx.liveSpeakerTurn.create({
+        data: { roomId, speakerId, agendaItemId: agendaItemId || null },
+        select: { id: true, roomId: true, speakerId: true, agendaItemId: true, status: true, startedAt: true, speaker: { select: { displayName: true } } },
+      });
+    });
+  }
+
+  async endSpeakerTurn(hostId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the host can end the active speaker turn');
+    const result = await this.prisma.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt: new Date() } });
+    if (!result.count) throw new NotFoundException('There is no active speaker turn');
+    return { roomId, status: 'COMPLETED' };
+  }
+
   async getStageState(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, scheduledAt: true } });
     if (!room) throw new NotFoundException('Live room not found');
