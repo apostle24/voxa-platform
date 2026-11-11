@@ -137,7 +137,7 @@ describe('MfaService', () => {
 
   it('rejects challenge reuse when another request already consumed it', async () => {
     const setup = await service.beginSetup('user-1', 'user@example.com');
-    const credential = { ...prisma.mfaCredential.upsert.mock.results[0].value, enabledAt: new Date(), backupCodes: [] };
+    const credential = { id: 'credential-1', encryptedSecret: prisma.mfaCredential.upsert.mock.calls[0][0].create.encryptedSecret, enabledAt: new Date(), backupCodes: [] };
     const challenge = await service.createLoginChallenge('user-1');
     prisma.mfaLoginChallenge.findUnique.mockResolvedValue({
       id: 'challenge-1', consumedAt: null, expiresAt: new Date(Date.now() + 60_000),
