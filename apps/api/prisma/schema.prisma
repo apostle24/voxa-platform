@@ -793,6 +793,7 @@ model CommunityPost {
 
   @@index([communityId, createdAt])
   @@index([authorId, createdAt])
+  @@index([deletedAt])
 }
 
 
