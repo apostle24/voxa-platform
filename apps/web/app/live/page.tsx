@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../lib/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
@@ -17,7 +18,7 @@ export default function LivePage() {
 
   async function loadRooms() {
     try {
-      const response = await fetch(API + '/live/rooms', { cache: 'no-store' });
+      const response = await apiFetch(API + '/live/rooms', { cache: 'no-store' });
       if (!response.ok) throw new Error('Could not load live rooms');
       setRooms(await response.json());
     } catch (error) { setNotice(error instanceof Error ? error.message : 'API unavailable. Check your API URL.'); }
@@ -35,7 +36,7 @@ export default function LivePage() {
     if (!token) { window.location.href = '/login'; return; }
     setLoading(true); setNotice('');
     try {
-      const response = await fetch(API + '/live/rooms', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ title, isAudioOnly: audioOnly, visibility: 'PUBLIC' }) });
+      const response = await apiFetch(API + '/live/rooms', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ title, isAudioOnly: audioOnly, visibility: 'PUBLIC' }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Could not create room');
       window.location.href = '/live/' + data.id;
