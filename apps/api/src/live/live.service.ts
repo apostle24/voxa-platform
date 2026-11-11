@@ -437,7 +437,7 @@ export class LiveService {
   }
 
   async getStageState(userId: string, roomId: string) {
-    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, scheduledAt: true } });
     if (!room) throw new NotFoundException('Live room not found');
     const isHost = room.hostId === userId;
     const [requests, speakers, ownRequest] = await Promise.all([
@@ -456,7 +456,7 @@ export class LiveService {
         select: { status: true, requestedAt: true },
       }) : Promise.resolve(null),
     ]);
-    return { isHost, hostId: room.hostId, requests, speakers, ownRequest, status: room.status };
+    return { isHost, hostId: room.hostId, requests, speakers, ownRequest, status: room.status, scheduledAt: room.scheduledAt };
   }
 
   async joinToken(userId: string, roomId: string) {
