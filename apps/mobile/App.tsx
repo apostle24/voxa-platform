@@ -814,21 +814,21 @@ function ModerationPanel() {
       <Text style={styles.smallMuted}>Reported by {item.reporter?.displayName || 'VOXA user'} · {item.status}</Text>
       <Text style={styles.cardDesc}>{item.details || item.targetLabel || item.targetId}</Text>
       <Field value={notes[item.id] || ''} onChangeText={value => setNotes(current => ({ ...current, [item.id]: value }))} placeholder="Required moderator note" multiline maxLength={1000} />
-      <Button title={busyId === item.id ? 'Saving…' : 'Mark reviewing'} secondary onPress={() => void review(item.id, 'REVIEWING')} disabled={!!busyId} />
-      {item.targetType === 'EPISODE' && <Button title="Hide episode" onPress={() => void action(item.id, 'HIDE_EPISODE')} disabled={!!busyId} />}
-      {item.targetType === 'MOMENT' && <Button title="Hide Moment" onPress={() => void action(item.id, 'HIDE_MOMENT')} disabled={!!busyId} />}
+      {item.status === 'NEW' && <Button title={busyId === item.id ? 'Saving…' : 'Mark reviewing'} secondary onPress={() => void review(item.id, 'REVIEWING')} disabled={!!busyId} />}
+      {item.status !== 'ACTIONED' && item.status !== 'DISMISSED' && item.targetType === 'EPISODE' && <Button title="Hide episode" onPress={() => void action(item.id, 'HIDE_EPISODE')} disabled={!!busyId} />}
+      {item.status !== 'ACTIONED' && item.status !== 'DISMISSED' && item.targetType === 'MOMENT' && <Button title="Hide Moment" onPress={() => void action(item.id, 'HIDE_MOMENT')} disabled={!!busyId} />}
       {item.targetType === 'COMMUNITY_POST' && item.status !== 'ACTIONED' && <Button title="Hide community post" onPress={() => void action(item.id, 'HIDE_COMMUNITY_POST')} disabled={!!busyId} />}
       {item.status === 'ACTIONED' && item.targetType === 'COMMUNITY_POST' && <Button title="Restore community post" secondary onPress={() => void action(item.id, 'RESTORE_COMMUNITY_POST')} disabled={!!busyId} />}
       {item.status === 'ACTIONED' && item.targetType === 'EPISODE' && <Button title="Restore episode" secondary onPress={() => void action(item.id, 'RESTORE_EPISODE')} disabled={!!busyId} />}
       {item.status === 'ACTIONED' && item.targetType === 'MOMENT' && <Button title="Restore Moment" secondary onPress={() => void action(item.id, 'RESTORE_MOMENT')} disabled={!!busyId} />}
       {item.status === 'ACTIONED' && item.targetType === 'USER' && !!item.targetSuspendedUntil && <Button title="Reinstate account" secondary onPress={() => void action(item.id, 'REINSTATE_USER')} disabled={!!busyId} />}
-      {item.targetType === 'USER' && <>
+      {item.status !== 'ACTIONED' && item.status !== 'DISMISSED' && item.targetType === 'USER' && <>
         <Button title="Warn account" onPress={() => void action(item.id, 'WARN_USER')} disabled={!!busyId} />
         <View style={{ flexDirection: 'row', gap: 6 }}>
           {[1, 7, 30].map(days => <View key={days} style={{ flex: 1 }}><Button title={days + ' day suspension'} onPress={() => void action(item.id, 'SUSPEND_USER', days)} disabled={!!busyId} /></View>)}
         </View>
       </>}
-      <Button title="Dismiss report" secondary onPress={() => void review(item.id, 'DISMISSED')} disabled={!!busyId} />
+      {item.status !== 'ACTIONED' && item.status !== 'DISMISSED' && <Button title="Dismiss report" secondary onPress={() => void review(item.id, 'DISMISSED')} disabled={!!busyId} />}
     </View>) : <Empty text="No reports need review." />}
   </View>;
 }
