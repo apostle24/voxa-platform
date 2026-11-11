@@ -27,7 +27,7 @@ export class AuthController {
   @UseGuards(AuthRateLimitGuard)
   async register(@Body() input: RegisterDto, @Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
-    return this.withRefreshCookie(await this.auth.register(input), response);
+    const result = await this.auth.register(input);\n    await this.accountSecurity.requestEmailVerification(input.email);\n    return this.withRefreshCookie(result, response);
   }
 
   @Post('login')
