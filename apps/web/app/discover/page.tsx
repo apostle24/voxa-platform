@@ -173,7 +173,7 @@ export default function DiscoverPage() {
           </>}
           <div className="eyebrow sectionEyebrow">CREATORS TO DISCOVER</div>
           {creators.length ? <div className="creatorShowGrid">
-            {creators.map(creator => <Link className="creatorShowCard" href={'/creators/' + creator.handle} key={creator.id}>
+            {creators.map(creator => <Link className="creatorShowCard" href={'/creator/' + creator.handle} key={creator.id}>
               <div style={{ height: 92, borderRadius: 8, background: 'linear-gradient(135deg,#252044,#7655bd)', display: 'grid', placeItems: 'center', fontSize: 32, fontWeight: 800 }}>{creator.user.displayName.slice(0,1).toUpperCase()}</div>
               <h3>{creator.user.displayName}{creator.verifiedAt ? ' ✓' : ''}</h3>
               <p>{creator.bio || 'Discover this VOXA creator and their shows.'}</p>
