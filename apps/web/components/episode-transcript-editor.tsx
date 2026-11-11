@@ -15,7 +15,7 @@ export default function EpisodeTranscriptEditor({ showId, episodeId }: { showId:
   useEffect(() => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
     if (!token) return;
-    apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/member-transcript', { headers: { Authorization: 'Bearer ' + token } })
+    apiFetch(API + '/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/transcript', { headers: { Authorization: 'Bearer ' + token } })
       .then(async response => { if (!response.ok) return; const data = await response.json(); setContent(data.content || ''); setLanguage(data.language || 'en'); })
       .catch(() => undefined);
   }, [episodeId]);
