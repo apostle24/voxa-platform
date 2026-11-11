@@ -8,3 +8,5 @@ CREATE TABLE "LiveRoomModerator" (
 );
 CREATE UNIQUE INDEX "LiveRoomModerator_roomId_userId_key" ON "LiveRoomModerator"("roomId", "userId");
 CREATE INDEX "LiveRoomModerator_userId_assignedAt_idx" ON "LiveRoomModerator"("userId", "assignedAt");
+
+ALTER TABLE "LiveRoomModerator" ADD CONSTRAINT "LiveRoomModerator_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
