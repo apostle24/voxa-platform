@@ -50,6 +50,38 @@ describe('AuthService', () => {
     expect(prisma.user.update).not.toHaveBeenCalled();
   });
 
+  it('changes the password after verifying the current password and revokes all refresh sessions atomically', async () => {
+    const oldHash = await bcrypt.hash('Current-password-123', 4);
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-4', passwordHash: oldHash });
+    const tx = {
+      user: { update: jest.fn().mockResolvedValue({}) },
+      authSession: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    };
+    prisma.$transaction.mockImplementation((callback: any) => callback(tx));
+
+    await expect(service.changePassword('user-4', 'Current-password-123', 'Brand-new-password-456'))
+      .resolves.toEqual({ success: true, sessionsRevoked: true });
+    const savedHash = tx.user.update.mock.calls[0][0].data.passwordHash;
+    await expect(bcrypt.compare('Brand-new-password-456', savedHash)).resolves.toBe(true);
+    expect(tx.authSession.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-4', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it('rejects an incorrect current password without changing the account', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-4', passwordHash: await bcrypt.hash('Current-password-123', 4) });
+    await expect(service.changePassword('user-4', 'wrong-current-password', 'Brand-new-password-456'))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a new password that is too short', async () => {
+    await expect(service.changePassword('user-4', 'Current-password-123', 'short'))
+      .rejects.toThrow('New password must be between 12 and 128 characters');
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
+
   it('normalizes email, hashes the password, persists a refresh session, and returns a short-lived access token', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
     prisma.user.create.mockImplementation(async ({ data }: any) => ({
