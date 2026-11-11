@@ -898,7 +898,7 @@ export class LiveService {
     const isHost = room.hostId === userId;
     const isCoHost = !isHost && await this.isRoomCoHost(roomId, userId);
     const isModerator = !isHost && !isCoHost && await this.canModerateRoom(roomId, userId, room.hostId);
-    const [requests, speakers, ownRequest, moderators, coHosts] = await Promise.all([
+    const [requests, speakers, ownRequest, moderators, coHosts, hostTransfers] = await Promise.all([
       isHost || isCoHost || isModerator ? this.prisma.stageRequest.findMany({
         where: { roomId, status: 'PENDING' },
         orderBy: { requestedAt: 'asc' },
@@ -915,8 +915,9 @@ export class LiveService {
       }) : Promise.resolve(null),
       this.prisma.liveRoomModerator.findMany({ where: { roomId }, orderBy: { assignedAt: 'asc' }, select: { userId: true, assignedAt: true } }),
       this.prisma.liveRoomCoHost.findMany({ where: { roomId }, orderBy: { assignedAt: 'asc' }, select: { userId: true, assignedAt: true, user: { select: { displayName: true } } } }),
+      isHost || isCoHost ? this.prisma.liveRoomHostTransfer.findMany({ where: { roomId }, orderBy: { transferredAt: 'desc' }, take: 10, select: { previousHostId: true, newHostId: true, transferredAt: true, previousHost: { select: { displayName: true } }, newHost: { select: { displayName: true } } } }) : Promise.resolve([]),
     ]);
-    return { isHost, isCoHost, isModerator, hostId: room.hostId, requests: isHost || isCoHost || isModerator ? requests : [], speakers, moderators, coHosts, ownRequest, status: room.status, scheduledAt: room.scheduledAt };
+    return { isHost, isCoHost, isModerator, hostId: room.hostId, requests: isHost || isCoHost || isModerator ? requests : [], speakers, moderators, coHosts, hostTransfers, ownRequest, status: room.status, scheduledAt: room.scheduledAt };
   }
 
   async joinToken(userId: string, roomId: string) {
