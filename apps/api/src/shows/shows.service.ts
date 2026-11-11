@@ -132,6 +132,11 @@ export class ShowsService {
     if (!episode) throw new NotFoundException('Episode not found');
     if (!episode.mediaKey) throw new ConflictException('A media asset must be attached before publishing');
     if (!episode.durationSeconds) throw new ConflictException('Episode duration is required before publishing');
+    const readyAsset = await this.prisma.mediaAsset.findFirst({
+      where: { episodeId, objectKey: episode.mediaKey, status: 'READY', playbackKey: { not: null } },
+      select: { id: true },
+    });
+    if (!readyAsset) throw new ConflictException('Media processing must finish successfully before publishing');
     return this.prisma.episode.update({
       where: { id: episodeId },
       data: { status: PublicationStatus.PUBLISHED, publishedAt: episode.publishedAt ?? new Date() },
