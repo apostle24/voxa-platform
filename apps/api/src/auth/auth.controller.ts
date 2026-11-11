@@ -86,6 +86,17 @@ export class AuthController {
 
   // Native clients keep the rotating refresh credential in OS-backed secure storage.
   // Browser clients must continue using the HttpOnly cookie endpoints above.
+  @Post('mobile/register')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.CREATED)
+  async mobileRegister(@Body() input: RegisterDto) {
+    const result = await this.auth.register(input);
+    try { await this.accountSecurity.requestEmailVerification(input.email); } catch {
+      // Account creation succeeds even if email delivery is temporarily unavailable.
+    }
+    return result;
+  }
+
   @Post('mobile/login')
   @UseGuards(AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
