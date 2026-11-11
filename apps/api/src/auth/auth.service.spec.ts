@@ -200,4 +200,17 @@ describe('AuthService', () => {
     await expect(service.revokeSession('user-4', 'session-1')).resolves.toEqual({ success: true, sessionId: 'session-1' });
   });
 
+
+  it('blocks a suspended account before issuing a login session', async () => {
+    const passwordHash = await bcrypt.hash('Correct-password-123', 4);
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'suspended-user', email: 'suspended@example.com', displayName: 'Suspended User',
+      passwordHash, role: 'LISTENER', emailVerifiedAt: new Date(),
+      suspendedUntil: new Date(Date.now() + 60_000), suspensionReason: 'Policy violation',
+    });
+    await expect(service.login({ email: 'suspended@example.com', password: 'Correct-password-123' }))
+      .rejects.toThrow('temporarily suspended');
+    expect(prisma.authSession.create).not.toHaveBeenCalled();
+    expect(jwt.signAsync).not.toHaveBeenCalled();
+  });
 });
