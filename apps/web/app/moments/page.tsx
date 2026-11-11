@@ -24,7 +24,6 @@ function MomentCommunity({ momentId, token }: { momentId: string; token: string 
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [token, setToken] = useState('');
 
   async function load() {
     try {
@@ -89,6 +88,7 @@ export default function MomentsPage() {
   const [moments, setMoments] = useState<Moment[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [token, setToken] = useState('');
 
   useEffect(() => {
     let active = true;
