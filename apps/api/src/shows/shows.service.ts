@@ -196,6 +196,70 @@ export class ShowsService {
     return episode;
   }
 
+  async getEpisodeChapters(episodeId: string, userId?: string) {
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
+      select: { id: true, durationSeconds: true, membershipRequired: true, show: { select: { creator: { select: { id: true, userId: true } } } } },
+    });
+    if (!episode) throw new NotFoundException('Published episode not found');
+    if (episode.membershipRequired && episode.show.creator.userId !== userId) {
+      if (!userId) throw new ForbiddenException('Sign in and join this creator membership to access chapters');
+      const subscription = await this.prisma.membershipSubscription.findFirst({
+        where: { subscriberId: userId, creatorId: episode.show.creator.id, status: 'ACTIVE', currentPeriodEnd: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (!subscription) throw new ForbiddenException('An active creator membership is required to access these chapters');
+    }
+    return this.prisma.episodeChapter.findMany({
+      where: { episodeId }, orderBy: [{ position: 'asc' }, { startSeconds: 'asc' }],
+      select: { id: true, title: true, startSeconds: true, position: true },
+    });
+  }
+
+  async getCreatorEpisodeChapters(userId: string, showId: string, episodeId: string) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
+    if (!episode) throw new NotFoundException('Episode not found');
+    return this.prisma.episodeChapter.findMany({
+      where: { episodeId }, orderBy: [{ position: 'asc' }, { startSeconds: 'asc' }],
+      select: { id: true, title: true, startSeconds: true, position: true },
+    });
+  }
+
+  async saveEpisodeChapters(userId: string, showId: string, episodeId: string, chapters: Array<{ title: string; startSeconds: number }>) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, showId }, select: { id: true, durationSeconds: true },
+    });
+    if (!episode) throw new NotFoundException('Episode not found');
+    if (!Array.isArray(chapters) || chapters.length > 100) throw new ConflictException('An episode can have up to 100 chapters');
+    const normalized = chapters.map((chapter, position) => ({
+      title: typeof chapter?.title === 'string' ? chapter.title.trim() : '',
+      startSeconds: Number(chapter?.startSeconds),
+      position,
+    }));
+    for (const chapter of normalized) {
+      if (!chapter.title || chapter.title.length > 100) throw new ConflictException('Each chapter needs a title of 1–100 characters');
+      if (!Number.isInteger(chapter.startSeconds) || chapter.startSeconds < 0 ||
+          (episode.durationSeconds != null && chapter.startSeconds >= episode.durationSeconds)) {
+        throw new ConflictException('Chapter timestamps must be whole seconds within the episode duration');
+      }
+    }
+    normalized.sort((a, b) => a.startSeconds - b.startSeconds);
+    if (normalized.some((chapter, index) => index > 0 && chapter.startSeconds === normalized[index - 1].startSeconds)) {
+      throw new ConflictException('Chapter timestamps must be unique');
+    }
+    const ordered = normalized.map((chapter, position) => ({ ...chapter, position }));
+    await this.prisma.$transaction([
+      this.prisma.episodeChapter.deleteMany({ where: { episodeId } }),
+      ...(ordered.length ? [this.prisma.episodeChapter.createMany({ data: ordered.map(chapter => ({ ...chapter, episodeId })) })] : []),
+    ]);
+    return this.prisma.episodeChapter.findMany({
+      where: { episodeId }, orderBy: [{ position: 'asc' }],
+      select: { id: true, title: true, startSeconds: true, position: true },
+    });
+  }
+
   async getEpisodeTranscript(episodeId: string, userId?: string) {
     const episode = await this.prisma.episode.findFirst({
       where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
