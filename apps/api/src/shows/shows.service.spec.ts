@@ -197,3 +197,61 @@ describe('ShowsService episode transcripts', () => {
     expect(prisma.episodeTranscript.upsert).not.toHaveBeenCalled();
   });
 });
+
+
+describe('ShowsService episode chapters', () => {
+  let service: ShowsService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = {
+      show: { findFirst: jest.fn() },
+      episode: { findFirst: jest.fn() },
+      episodeChapter: { deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
+      $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations)),
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  it('saves chapters in chronological order with stable positions', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', durationSeconds: 900 });
+    prisma.episodeChapter.deleteMany.mockResolvedValue({ count: 0 });
+    prisma.episodeChapter.createMany.mockResolvedValue({ count: 2 });
+    prisma.episodeChapter.findMany.mockResolvedValue([
+      { id: 'chapter-1', title: 'Opening', startSeconds: 0, position: 0 },
+      { id: 'chapter-2', title: 'Main topic', startSeconds: 120, position: 1 },
+    ]);
+
+    const result = await service.saveEpisodeChapters('owner-1', 'show-1', 'episode-1', [
+      { title: 'Main topic', startSeconds: 120 },
+      { title: 'Opening', startSeconds: 0 },
+    ]);
+
+    expect(prisma.episodeChapter.createMany).toHaveBeenCalledWith({ data: [
+      { title: 'Opening', startSeconds: 0, position: 0, episodeId: 'episode-1' },
+      { title: 'Main topic', startSeconds: 120, position: 1, episodeId: 'episode-1' },
+    ] });
+    expect(result).toHaveLength(2);
+  });
+
+  it('rejects duplicate timestamps and timestamps outside the episode', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', durationSeconds: 100 });
+    await expect(service.saveEpisodeChapters('owner-1', 'show-1', 'episode-1', [
+      { title: 'One', startSeconds: 10 }, { title: 'Two', startSeconds: 10 },
+    ])).rejects.toThrow('Chapter timestamps must be unique');
+    await expect(service.saveEpisodeChapters('owner-1', 'show-1', 'episode-1', [
+      { title: 'Beyond end', startSeconds: 100 },
+    ])).rejects.toThrow('within the episode duration');
+    expect(prisma.episodeChapter.createMany).not.toHaveBeenCalled();
+  });
+
+  it('does not allow a different creator to edit chapter guides', async () => {
+    prisma.show.findFirst.mockResolvedValue(null);
+    await expect(service.saveEpisodeChapters('intruder', 'show-1', 'episode-1', [
+      { title: 'Opening', startSeconds: 0 },
+    ])).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.episodeChapter.createMany).not.toHaveBeenCalled();
+  });
+});
