@@ -800,13 +800,19 @@ export class ShowsService {
       query: term, searched: candidates.length,
       items: ranked.map(({ episode, score }) => {
         const raw = episode.transcript?.segments;
-        const segments = Array.isArray(raw) ? raw as Array<{ text?: string }> : [];
-        const excerpt = segments.find(segment => typeof segment.text === 'string')?.text || episode.intelligence?.summary || episode.description || '';
+        const segments = Array.isArray(raw) ? raw as Array<{ text?: string; startSeconds?: number; speaker?: string }> : [];
+        const queryTerms = term.toLocaleLowerCase().split(/[^a-z0-9]+/).filter(word => word.length > 3);
+        const bestSegment = segments.map(segment => ({
+          segment,
+          relevance: queryTerms.reduce((total, word) => total + (String(segment.text || '').toLocaleLowerCase().includes(word) ? 1 : 0), 0),
+        })).sort((a, b) => b.relevance - a.relevance)[0]?.segment;
+        const excerpt = bestSegment?.text || episode.intelligence?.summary || episode.description || '';
         return {
           id: episode.id, title: episode.title, description: episode.description, artworkUrl: episode.artworkUrl,
           durationSeconds: episode.durationSeconds, isExplicit: episode.isExplicit, isLiveReplay: episode.isLiveReplay,
           membershipRequired: false, publishedAt: episode.publishedAt, show: episode.show,
           semanticScore: Number(score.toFixed(4)), semanticExcerpt: excerpt.slice(0, 360),
+          semanticExcerptStartSeconds: bestSegment?.startSeconds ?? null, semanticExcerptSpeaker: bestSegment?.speaker || null,
         };
       }),
     };
