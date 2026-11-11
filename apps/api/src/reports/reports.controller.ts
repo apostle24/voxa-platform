@@ -34,7 +34,7 @@ export class ReportsController {
       reason: input.moderatorNote, suspensionDays: input.suspensionDays,
     });
     return this.reports.applyContentAction(req.user.id, reportId, {
-      action: input.action as 'HIDE_EPISODE' | 'RESTORE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_MOMENT',
+      action: input.action as 'HIDE_EPISODE' | 'RESTORE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_MOMENT' | 'HIDE_COMMUNITY_POST' | 'RESTORE_COMMUNITY_POST',
       reason: input.moderatorNote,
     });
   }
