@@ -87,6 +87,7 @@ export default function App() {
   async function playEpisode(item: ApiRecord) {
     try {
       setPlayerMessage('Preparing audio…');
+      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: true, shouldDuckAndroid: true });
       const episode = await api<any>('/episodes/' + encodeURIComponent(item.id));
       const member = Boolean(episode.membershipRequired);
       const playback = await api<any>('/episodes/' + encodeURIComponent(item.id) + (member ? '/member-playback-url' : '/playback-url'));
@@ -213,7 +214,7 @@ function Communities() {
   }
   return <ScrollView contentContainerStyle={styles.scroll}>
     <Text style={styles.eyebrow}>MEET YOUR PEOPLE</Text><Text style={styles.pageTitle}>Communities</Text>
-    {loading ? <ActivityIndicator color={colors.accent} /> : error ? <Empty text={error} /> : items.map(item => <ContentCard key={item.id} item={item} subtitle={(item.category || 'Community') + ' · ' + (item.memberCount ?? 0) + ' members'} action={<Button title={busyId === item.id ? '…' : 'Join'} onPress={() => join(item.id)} disabled={!!busyId} />} />)}
+    {loading ? <ActivityIndicator color={colors.accent} /> : error ? <Empty text={error} /> : items.map(item => <ContentCard key={item.id} item={item} subtitle={(item.category || 'Community') + ' · ' + (item._count?.members ?? item.memberCount ?? 0) + ' members'} action={<Button title={busyId === item.id ? '…' : 'Join'} onPress={() => join(item.id)} disabled={!!busyId} />} />)}
     {!loading && !items.length && <Empty text="Communities will appear here." />}
   </ScrollView>;
 }
@@ -238,8 +239,8 @@ function Live() {
   if (room) return <View style={styles.liveRoom}>
     <Text style={styles.livePill}>● CONNECTING TO LIVE</Text><Text style={styles.pageTitle}>{room.title}</Text>
     <Text style={styles.muted}>Your VOXA live room connection is active when the native room reports connected.</Text>
-    <LiveKitRoom serverUrl={room.serverUrl} token={room.token} connect={true} audio={true} video={false} onDisconnected={() => setRoom(null)} style={{ flex: 1, minHeight: 220 }}>
-      <View style={styles.roomPanel}><Text style={styles.cardTitle}>You are in the room</Text><Text style={styles.smallMuted}>Microphone permissions may be requested by your device.</Text></View>
+    <LiveKitRoom serverUrl={room.serverUrl} token={room.token} connect={true} audio={true} video={false} onDisconnected={() => setRoom(null)}>
+      <View style={[styles.roomPanel, { flex: 1 }]}><Text style={styles.cardTitle}>You are in the room</Text><Text style={styles.smallMuted}>Microphone permissions may be requested by your device.</Text></View>
     </LiveKitRoom>
     <Button title="Leave room" secondary onPress={() => setRoom(null)} />
   </View>;
