@@ -32,7 +32,7 @@ function totp(secret: Buffer, counter: number): string {
   return String(binary % 1_000_000).padStart(6, '0');
 }
 function matchingTotpCounter(secret: Buffer, code: string, now = Date.now()): number | null {
-  if (!/^\\d{6}$/.test(code)) return null;
+  if (!/^\d{6}$/.test(code)) return null;
   const counter = Math.floor(now / 30_000);
   for (let drift = -1; drift <= 1; drift++) {
     const candidate = counter + drift;
