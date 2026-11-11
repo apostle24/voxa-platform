@@ -57,6 +57,31 @@ export class LiveController {
     return this.live.endRoom(req.user.id, roomId);
   }
 
+
+  @Get('rooms/:roomId/cohosts')
+  @UseGuards(JwtAuthGuard)
+  listRoomCoHosts(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.listRoomCoHosts(req.user.id, roomId);
+  }
+
+  @Post('rooms/:roomId/cohosts')
+  @UseGuards(JwtAuthGuard)
+  addRoomCoHost(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body('userId') userId: string) {
+    return this.live.addRoomCoHost(req.user.id, roomId, userId);
+  }
+
+  @Post('rooms/:roomId/cohosts/:coHostId/remove')
+  @UseGuards(JwtAuthGuard)
+  removeRoomCoHost(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('coHostId') coHostId: string) {
+    return this.live.removeRoomCoHost(req.user.id, roomId, coHostId);
+  }
+
+  @Post('rooms/:roomId/transfer-host')
+  @UseGuards(JwtAuthGuard)
+  transferRoomHost(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body('userId') userId: string) {
+    return this.live.transferRoomHost(req.user.id, roomId, userId);
+  }
+
   @Get('rooms/:roomId/moderators')
   @UseGuards(JwtAuthGuard)
   listRoomModerators(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
