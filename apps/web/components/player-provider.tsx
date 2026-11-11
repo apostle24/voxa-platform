@@ -55,13 +55,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (audio) {
       audio.src = track.url;
       audio.load();
-      const start = () => {
+      const setResumePosition = () => {
         if (track.resumeAt && track.resumeAt > 0) audio.currentTime = track.resumeAt;
-        void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
-        audio.removeEventListener('loadedmetadata', start);
+        audio.removeEventListener('loadedmetadata', setResumePosition);
       };
-      audio.addEventListener('loadedmetadata', start);
-      if (audio.readyState >= 1) start();
+      if (track.resumeAt && track.resumeAt > 0) audio.addEventListener('loadedmetadata', setResumePosition);
+      // Call play in the original click gesture; playback begins when media data arrives.
+      void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     }
   }, []);
 
@@ -137,7 +137,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
 
   return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, togglePlayback, playNext, seek }}>
     {children}
-    <audio ref={audioRef} preload="metadata" />
+    <audio ref={audioRef} preload="metadata" aria-hidden="true" style={{ display: 'none' }} />
     {currentTrack && <aside className="voxaPlayer" aria-label="VOXA audio player">
       <div className="voxaPlayerTrack">
         {currentTrack.artworkUrl ? <img src={currentTrack.artworkUrl} alt="" /> : <div className="voxaPlayerArtwork">V.</div>}
