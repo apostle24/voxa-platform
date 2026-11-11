@@ -39,6 +39,7 @@ The native mobile application is now scaffolded under `apps/mobile` with authent
 
 - Live room discovery and room creation.
 - LiveKit browser SDK connection, microphone/camera controls, and host/audience token permissions.
+- Optional LiveKit Agent speech-to-text captions with per-speaker attribution; requires the standalone `apps/live-agent` worker and `LIVEKIT_CAPTIONS_AGENT_ENABLED=true` in the API environment. See [VOXA LIVE captions agent](apps/live-agent/README.md).
 - Audience stage requests, host approval/rejection, speaker removal and room ending.
 - Room-scoped ephemeral chat and reactions over LiveKit data channels.
 
