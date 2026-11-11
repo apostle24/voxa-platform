@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
@@ -24,11 +25,11 @@ export default function CreatorEarningsPage() {
       const token = sessionStorage.getItem('voxa_access_token');
       if (!token) { setError('Sign in to view creator earnings.'); setLoading(false); return; }
       try {
-        const response = await fetch(API + '/creators/me/earnings', { headers: { Authorization: 'Bearer ' + token } });
+        const response = await apiFetch(API + '/creators/me/earnings', { headers: { Authorization: 'Bearer ' + token } });
         const result = await response.json();
         if (!response.ok) throw new Error(result.message || 'Unable to load earnings');
         setData(result);
-        const payoutResponse = await fetch(API + '/creators/me/payout-requests', { headers: { Authorization: 'Bearer ' + token } });
+        const payoutResponse = await apiFetch(API + '/creators/me/payout-requests', { headers: { Authorization: 'Bearer ' + token } });
         if (payoutResponse.ok) setPayouts(await payoutResponse.json());
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Unable to load earnings');
