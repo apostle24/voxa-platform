@@ -126,7 +126,7 @@ export class CommunitiesService {
     });
     const hiddenAuthors = [...new Set(blocks.map(block => block.blockerId === userId ? block.blockedUserId : block.blockerId))];
     return this.prisma.communityPost.findMany({
-      where: { communityId, ...(hiddenAuthors.length ? { authorId: { notIn: hiddenAuthors } } : {}) }, orderBy: { createdAt: 'desc' }, take: 100,
+      where: { communityId, deletedAt: null, ...(hiddenAuthors.length ? { authorId: { notIn: hiddenAuthors } } : {}) }, orderBy: { createdAt: 'desc' }, take: 100,
       select: { id: true, content: true, createdAt: true,
         author: { select: { id: true, displayName: true } },
         comments: { where: hiddenAuthors.length ? { authorId: { notIn: hiddenAuthors } } : {}, orderBy: { createdAt: 'asc' }, take: 50, select: {
