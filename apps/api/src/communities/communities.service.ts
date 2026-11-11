@@ -58,6 +58,14 @@ export class CommunitiesService {
     return { ...community, membership: community.members[0] ?? null, members: undefined };
   }
 
+  async membership(userId: string, communityId: string) {
+    const membership = await this.prisma.communityMember.findUnique({
+      where: { communityId_userId: { communityId, userId } },
+      select: { role: true, joinedAt: true },
+    });
+    return { joined: Boolean(membership), role: membership?.role ?? null, joinedAt: membership?.joinedAt ?? null };
+  }
+
   async join(userId: string, communityId: string) {
     const community = await this.prisma.community.findUnique({ where: { id: communityId }, select: { id: true } });
     if (!community) throw new NotFoundException('Community not found');
