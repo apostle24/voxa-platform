@@ -174,6 +174,9 @@ export default function EpisodePage() {
         const item = data as Episode;
         if (!active) return;
         setEpisode(item);
+        const requestedTime = Number(new URLSearchParams(window.location.search).get('t'));
+        const hasRequestedTime = Number.isFinite(requestedTime) && requestedTime >= 0;
+        if (hasRequestedTime) setResumeAt(requestedTime);
         try {
           const chapterResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-chapters' : '/chapters'),
             { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
@@ -220,7 +223,7 @@ export default function EpisodePage() {
           if (progressResponse.ok) {
             const progress = await progressResponse.json();
             const saved = (progress as Array<{ episodeId: string; positionSeconds: number; completed: boolean }>).find(row => row.episodeId === episodeId);
-            if (active && saved && !saved.completed) setResumeAt(saved.positionSeconds);
+            if (active && saved && !saved.completed && !hasRequestedTime) setResumeAt(saved.positionSeconds);
           }
           const bookmarkResponse = await apiFetch(API + '/me/bookmarks', { headers: { Authorization: 'Bearer ' + accessToken } });
           if (bookmarkResponse.ok) {
