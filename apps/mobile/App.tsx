@@ -127,7 +127,7 @@ export default function App() {
         {!!authNotice && <Text style={styles.notice}>{authNotice}</Text>}{!!authError && <Text style={styles.error}>{authError}</Text>}
         <Button title={busy ? 'Please wait…' : mfa ? 'Verify and sign in' : registerMode ? 'Create account' : 'Sign in'} onPress={authenticate} disabled={busy || (!mfa && (!email || !password || (registerMode && !displayName.trim()))) || (!!mfa && !mfaCode)} />
         {!mfa && <Pressable onPress={() => { setRegisterMode(v => !v); setAuthError(''); setAuthNotice(''); }}><Text style={styles.switchAuth}>{registerMode ? 'Already registered? Sign in' : 'New to VOXA? Create an account'}</Text></Pressable>}
-        <Text style={styles.hint}>New accounts can be created on VOXA web. Verify your email before signing in.</Text>
+        <Text style={styles.hint}>{registerMode ? 'Use at least 10 characters with uppercase, lowercase, and a number. Verify your email before signing in.' : 'Your session is protected on this device. Forgot your password? Reset it on VOXA web.'}</Text>
       </View>
     </KeyboardAvoidingView>
   </SafeAreaView>;
@@ -240,7 +240,7 @@ function Live() {
     <Text style={styles.livePill}>● CONNECTING TO LIVE</Text><Text style={styles.pageTitle}>{room.title}</Text>
     <Text style={styles.muted}>Your VOXA live room connection is active when the native room reports connected.</Text>
     <LiveKitRoom serverUrl={room.serverUrl} token={room.token} connect={true} audio={true} video={false} onDisconnected={() => setRoom(null)}>
-      <View style={[styles.roomPanel, { flex: 1 }]}><Text style={styles.cardTitle}>You are in the room</Text><Text style={styles.smallMuted}>Microphone permissions may be requested by your device.</Text></View>
+      <LiveRoomPanel roomId={room.id} />
     </LiveKitRoom>
     <Button title="Leave room" secondary onPress={() => setRoom(null)} />
   </View>;
@@ -253,6 +253,41 @@ function Live() {
     </View>)}
     {!loading && !items.length && <Empty text="No public live rooms right now. Check back soon." />}
   </ScrollView>;
+}
+
+function LiveRoomPanel({ roomId }: { roomId: string }) {
+  const { items, loading, error, refresh } = useLoad<any>('/live/rooms/' + encodeURIComponent(roomId) + '/chat');
+  const [message, setMessage] = useState('');
+  const [sending, setSending] = useState(false);
+  const [stageBusy, setStageBusy] = useState(false);
+  async function sendMessage() {
+    const content = message.trim();
+    if (!content || sending) return;
+    setSending(true);
+    try {
+      await api('/live/rooms/' + encodeURIComponent(roomId) + '/chat', { method: 'POST', body: JSON.stringify({ content }) });
+      setMessage(''); refresh();
+    } catch (e) { Alert.alert('Message not sent', e instanceof Error ? e.message : 'Try again'); }
+    finally { setSending(false); }
+  }
+  async function requestToSpeak() {
+    setStageBusy(true);
+    try { await api('/live/rooms/' + encodeURIComponent(roomId) + '/stage-requests', { method: 'POST' }); Alert.alert('Request sent', 'The host can now review your request to join the stage.'); }
+    catch (e) { Alert.alert('Request not sent', e instanceof Error ? e.message : 'Try again'); }
+    finally { setStageBusy(false); }
+  }
+  return <View style={[styles.roomPanel, { flex: 1 }]}>
+    <Text style={styles.cardTitle}>Live conversation</Text>
+    <Text style={styles.smallMuted}>Your microphone is connected as an audience member. Request the stage to speak.</Text>
+    <Button title={stageBusy ? 'Sending request…' : 'Request to speak'} secondary onPress={requestToSpeak} disabled={stageBusy} />
+    <SectionTitle>Room chat</SectionTitle>
+    {loading ? <ActivityIndicator color={colors.accent} /> : error ? <Text style={styles.smallMuted}>{error}</Text> : <ScrollView style={{ maxHeight: 210 }}>
+      {items.map((item: any, index: number) => <View key={item.id || index} style={styles.chatBubble}><Text style={styles.cardTitle}>{item.user?.displayName || item.author?.displayName || 'Listener'}</Text><Text style={styles.muted}>{item.content || item.message || ''}</Text></View>)}
+      {!items.length && <Empty text="Be the first to join the conversation." />}
+    </ScrollView>}
+    <Field value={message} onChangeText={setMessage} placeholder="Write a message…" maxLength={1000} />
+    <Button title={sending ? 'Sending…' : 'Send message'} onPress={sendMessage} disabled={sending || !message.trim()} />
+  </View>;
 }
 
 function Creator() {
@@ -310,7 +345,7 @@ const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 11, lineHeight: 17, marginTop: 14 }, notice: { color: colors.accent2, fontSize: 12, lineHeight: 18, marginBottom: 10 }, switchAuth: { color: colors.accent2, textAlign: 'center', fontWeight: '700', marginTop: 16 }, error: { color: colors.danger, fontSize: 12, marginBottom: 10 },
   liveCard: { backgroundColor: colors.panel, borderRadius: 16, borderColor: colors.border, borderWidth: 1, padding: 16, marginBottom: 12 },
   livePill: { color: colors.live, fontSize: 10, fontWeight: '900', letterSpacing: 1.2, marginBottom: 10 }, liveRoom: { flex: 1, padding: 18 },
-  roomPanel: { backgroundColor: colors.panel, borderRadius: 16, padding: 20, marginVertical: 18, minHeight: 120 },
+  chatBubble: { backgroundColor: colors.panel2, borderRadius: 10, padding: 9, marginBottom: 7 }, roomPanel: { backgroundColor: colors.panel, borderRadius: 16, padding: 20, marginVertical: 18, minHeight: 120 },
   formCard: { backgroundColor: colors.panel, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14 },
   profileCard: { alignItems: 'center', backgroundColor: colors.panel, borderRadius: 18, borderWidth: 1, borderColor: colors.border, padding: 24, marginBottom: 20 },
   avatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: colors.panel2, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
