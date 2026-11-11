@@ -21,6 +21,12 @@ export class MediaController {
   }
 
 
+  @Post('shows/:showId/episodes/:episodeId/retry-processing')
+  @UseGuards(JwtAuthGuard)
+  retryFailedProcessing(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.media.retryFailedProcessing(req.user.id, showId, episodeId);
+  }
+
   @Get('episodes/:episodeId/draft-preview-url')
   @UseGuards(JwtAuthGuard)
   creatorDraftPreviewUrl(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
