@@ -134,6 +134,41 @@ export class CreatorsService {
     return { following: Boolean(follow), isOwnProfile: false };
   }
 
+
+  async getMyAnalytics(userId: string) {
+    const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true, handle: true } });
+    if (!creator) throw new NotFoundException('Create a creator profile first');
+    const now = new Date();
+    const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const [followers, publishedShows, publishedEpisodes, totalProgress, recentProgress, completedProgress,
+      activeMembers, publishedMoments, momentLikes, momentComments] = await Promise.all([
+      this.prisma.follow.count({ where: { creatorId: creator.id } }),
+      this.prisma.show.count({ where: { creatorId: creator.id, status: 'PUBLISHED' } }),
+      this.prisma.episode.count({ where: { show: { creatorId: creator.id }, status: 'PUBLISHED' } }),
+      this.prisma.playbackProgress.count({ where: { episode: { show: { creatorId: creator.id } } } }),
+      this.prisma.playbackProgress.count({ where: { episode: { show: { creatorId: creator.id } }, updatedAt: { gte: since } } }),
+      this.prisma.playbackProgress.count({ where: { episode: { show: { creatorId: creator.id } }, completed: true } }),
+      this.prisma.membershipSubscription.count({ where: { creatorId: creator.id, status: 'ACTIVE', currentPeriodEnd: { gt: now } } }),
+      this.prisma.moment.count({ where: { creatorId: creator.id, status: 'PUBLISHED' } }),
+      this.prisma.momentLike.count({ where: { moment: { creatorId: creator.id } } }),
+      this.prisma.momentComment.count({ where: { moment: { creatorId: creator.id }, deletedAt: null } }),
+    ]);
+    return {
+      creator,
+      period: { since: since.toISOString(), until: now.toISOString(), days: 30 },
+      audience: { followers, activeMembers },
+      publishing: { publishedShows, publishedEpisodes, publishedMoments },
+      listening: {
+        recordedEpisodeProgressEntries: totalProgress,
+        progressEntriesUpdatedLast30Days: recentProgress,
+        completedEpisodeProgressEntries: completedProgress,
+        metricNote: 'Progress entries are per listener and episode, not raw play events or unique listeners.',
+      },
+      moments: { likes: momentLikes, comments: momentComments },
+      generatedAt: now.toISOString(),
+    };
+  }
+
   async follow(userId: string, handle: string) {
     const creator = await this.prisma.creator.findUnique({
       where: { handle: handle.toLowerCase() },
