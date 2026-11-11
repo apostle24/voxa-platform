@@ -176,6 +176,7 @@ model Episode {
   moments         Moment[]
   comments        EpisodeComment[]
   transcript      EpisodeTranscript?
+  intelligence    EpisodeIntelligence?
   chapters        EpisodeChapter[]
   likes           EpisodeLike[]
 
@@ -750,4 +751,15 @@ model EpisodeChapter {
 
   @@unique([episodeId, startSeconds])
   @@index([episodeId, position])
+}
+
+model EpisodeIntelligence {
+  id          String   @id @default(cuid())
+  episodeId   String   @unique
+  summary     String   @db.Text
+  topics      Json
+  model       String
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  episode     Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
 }
