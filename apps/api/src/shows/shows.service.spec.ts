@@ -255,3 +255,66 @@ describe('ShowsService episode chapters', () => {
     expect(prisma.episodeChapter.createMany).not.toHaveBeenCalled();
   });
 });
+
+
+describe('ShowsService personalized discovery', () => {
+  let service: ShowsService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = {
+      playbackProgress: { findMany: jest.fn().mockResolvedValue([]) },
+      episodeBookmark: { findMany: jest.fn().mockResolvedValue([]) },
+      follow: { findMany: jest.fn().mockResolvedValue([]) },
+      episode: { findMany: jest.fn() },
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  it('provides recent public episodes to a new listener with no history', async () => {
+    prisma.episode.findMany.mockResolvedValue([{
+      id: 'episode-new', title: 'A fresh start', publishedAt: new Date(),
+      show: { id: 'show-1', title: 'VOXA Daily', category: 'Culture', creatorId: 'creator-1',
+        creator: { handle: 'voxa', user: { displayName: 'VOXA' } } },
+    }]);
+
+    const result = await service.getPersonalizedRecommendations('listener-new', 8);
+
+    expect(result.personalized).toBe(false);
+    expect(result.items[0]).toMatchObject({ id: 'episode-new', reason: 'Popular on VOXA' });
+    expect(prisma.episode.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        status: 'PUBLISHED',
+        membershipRequired: false,
+        show: { status: 'PUBLISHED' },
+      }),
+    }));
+  });
+
+  it('uses listening categories and excludes episodes already heard or saved', async () => {
+    prisma.playbackProgress.findMany.mockResolvedValue([{
+      episodeId: 'already-heard',
+      episode: { show: { category: 'Technology', creatorId: 'creator-tech' } },
+    }]);
+    prisma.episodeBookmark.findMany.mockResolvedValue([{
+      episodeId: 'already-saved',
+      episode: { show: { category: 'Technology', creatorId: 'creator-tech' } },
+    }]);
+    prisma.episode.findMany.mockResolvedValue([{
+      id: 'recommended-1', title: 'Building useful tools', publishedAt: new Date(),
+      show: { id: 'show-2', title: 'Tech Voices', category: 'Technology', creatorId: 'creator-other',
+        creator: { handle: 'techvoices', user: { displayName: 'Tech Voices' } } },
+    }]);
+
+    const result = await service.getPersonalizedRecommendations('listener-1', 8);
+    const candidateQuery = prisma.episode.findMany.mock.calls[0][0];
+
+    expect(result.personalized).toBe(true);
+    expect(result.items[0]).toMatchObject({ id: 'recommended-1', reason: 'Based on topics you listen to' });
+    expect(candidateQuery.where.membershipRequired).toBe(false);
+    expect(candidateQuery.where.id.notIn).toEqual(expect.arrayContaining(['already-heard', 'already-saved']));
+    expect(candidateQuery.where.OR).toEqual(expect.arrayContaining([
+      { show: { category: { in: ['Technology'] } } },
+    ]));
+  });
+});
