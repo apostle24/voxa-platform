@@ -43,6 +43,12 @@ export class LiveController {
     return this.live.deleteChatMessage(req.user.id, roomId, messageId);
   }
 
+  @Get('rooms/:roomId/analytics')
+  @UseGuards(JwtAuthGuard)
+  getRoomAnalytics(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.getRoomAnalytics(req.user.id, roomId);
+  }
+
   @Get('rooms/:roomId/stage')
   @UseGuards(JwtAuthGuard)
   getStageState(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
