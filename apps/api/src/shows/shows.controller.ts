@@ -62,6 +62,35 @@ export class ShowsController {
     return this.shows.discoverMoments(cursor, limit ? Number(limit) : undefined);
   }
 
+  @Get('moments/:momentId/community')
+  getMomentCommunity(@Param('momentId') momentId: string) {
+    return this.shows.getMomentCommunity(momentId);
+  }
+
+  @Put('moments/:momentId/like')
+  @UseGuards(JwtAuthGuard)
+  likeMoment(@Req() req: AuthenticatedRequest, @Param('momentId') momentId: string) {
+    return this.shows.setMomentLike(req.user.id, momentId, true);
+  }
+
+  @Delete('moments/:momentId/like')
+  @UseGuards(JwtAuthGuard)
+  unlikeMoment(@Req() req: AuthenticatedRequest, @Param('momentId') momentId: string) {
+    return this.shows.setMomentLike(req.user.id, momentId, false);
+  }
+
+  @Post('moments/:momentId/comments')
+  @UseGuards(JwtAuthGuard)
+  createMomentComment(@Req() req: AuthenticatedRequest, @Param('momentId') momentId: string, @Body() input: CreateEpisodeCommentDto) {
+    return this.shows.createMomentComment(req.user.id, momentId, input.content, input.parentId);
+  }
+
+  @Delete('moments/:momentId/comments/:commentId')
+  @UseGuards(JwtAuthGuard)
+  deleteMomentComment(@Req() req: AuthenticatedRequest, @Param('momentId') momentId: string, @Param('commentId') commentId: string) {
+    return this.shows.deleteMomentComment(req.user.id, momentId, commentId);
+  }
+
   @Post('episodes/:episodeId/moments')
   @UseGuards(JwtAuthGuard)
   createMoment(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string, @Body() input: CreateMomentDto) {
