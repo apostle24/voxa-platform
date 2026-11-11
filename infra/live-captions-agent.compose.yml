@@ -10,6 +10,7 @@ services:
     env_file:
       - ../.env
     environment:
+      VOXA_LIVE_CAPTIONS_AGENT_NAME: ${VOXA_LIVE_CAPTIONS_AGENT_NAME:-voxa-live-captions}
       VOXA_LIVE_STT_MODEL: ${VOXA_LIVE_STT_MODEL:-gpt-4o-mini-transcribe}
       VOXA_LIVE_CAPTIONS_LANGUAGE: ${VOXA_LIVE_CAPTIONS_LANGUAGE:-en}
       VOXA_LIVE_CAPTIONS_MAX_PARTICIPANTS: ${VOXA_LIVE_CAPTIONS_MAX_PARTICIPANTS:-24}
