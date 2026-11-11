@@ -805,6 +805,8 @@ export class LiveService {
     if (!room) throw new NotFoundException('Live room not found');
     const isHost = room.hostId === userId;
     const isSpeaker = room.stage.some((member) => member.userId === userId);
+    const activeSpeakerTurn = isSpeaker ? await this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, select: { speakerId: true } }) : null;
+    const canPublish = isHost || (isSpeaker && activeSpeakerTurn?.speakerId === userId);
     const isModerator = !isHost && await this.canModerateRoom(roomId, userId, room.hostId);
     if (room.status === LiveRoomStatus.ENDED || room.status === LiveRoomStatus.CANCELLED) {
       throw new ConflictException('This live room has ended');
@@ -830,7 +832,7 @@ export class LiveService {
     token.addGrant({
       roomJoin: true,
       room: room.id,
-      canPublish: isHost || isSpeaker,
+      canPublish,
       canSubscribe: true,
       canPublishData: true,
     });
@@ -859,7 +861,7 @@ export class LiveService {
       }
     }
 
-    return { serverUrl: url, roomName: room.id, token: await token.toJwt(), canPublish: isHost || isSpeaker, expiresInSeconds: 600 };
+    return { serverUrl: url, roomName: room.id, token: await token.toJwt(), canPublish, expiresInSeconds: 600 };
   }
 
   async removeSpeaker(hostId: string, roomId: string, speakerId: string) {
