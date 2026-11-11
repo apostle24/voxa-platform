@@ -89,7 +89,7 @@ export default function CreatorAudiencePage() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to search followers'); }
   }
 
-  async function searchMembers(event: React.FormEvent<HTMLFormElement>) {
+  async function searchMembers(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError('');
     try { await loadMembers(selected, memberQuery); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to search members'); }
