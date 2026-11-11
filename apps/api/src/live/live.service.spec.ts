@@ -83,6 +83,32 @@ describe('LiveService access boundaries', () => {
 
 
 
+
+  it('allows a host to cancel a scheduled room', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED' });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.cancelScheduledRoom('host-1', 'room-scheduled'))
+      .resolves.toEqual({ id: 'room-scheduled', status: 'CANCELLED' });
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED' },
+      data: expect.objectContaining({ status: 'CANCELLED' }),
+    }));
+  });
+
+  it('prevents non-hosts from cancelling scheduled rooms', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED' });
+    await expect(service.cancelScheduledRoom('listener-1', 'room-scheduled'))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.liveRoom.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel a room after it has started', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-scheduled', hostId: 'host-1', status: 'LIVE' });
+    await expect(service.cancelScheduledRoom('host-1', 'room-scheduled'))
+      .rejects.toThrow('Only scheduled rooms can be cancelled');
+    expect(prisma.liveRoom.updateMany).not.toHaveBeenCalled();
+  });
+
   it('includes the scheduled start time in the public live room listing', async () => {
     const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
     prisma.liveRoom.findMany.mockResolvedValue([{
