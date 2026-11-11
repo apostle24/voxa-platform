@@ -50,6 +50,11 @@ export default function LiveRoomPage() {
   const [questionDraft, setQuestionDraft] = useState('');
   const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({});
   const [interactionBusy, setInteractionBusy] = useState('');
+  const [sessionPlan, setSessionPlan] = useState<any>({ agenda: [], speakers: [], activeTurn: null });
+  const [agendaTitle, setAgendaTitle] = useState('');
+  const [agendaDescription, setAgendaDescription] = useState('');
+  const [agendaDuration, setAgendaDuration] = useState('600');
+  const [handoffSpeakerId, setHandoffSpeakerId] = useState('');
 
   const api = useCallback(async (path: string, method = 'GET', body?: unknown) => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -80,6 +85,15 @@ export default function LiveRoomPage() {
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load live audience interactions'); }
   }, [api, roomId]);
 
+
+  const refreshSessionPlan = useCallback(async () => {
+    try {
+      const data = await api('/live/rooms/' + roomId + '/session-plan');
+      setSessionPlan(data);
+      setHandoffSpeakerId(current => current && data.speakers.some((speaker: any) => speaker.userId === current) ? current : (data.speakers[0]?.userId || ''));
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load session agenda'); }
+  }, [api, roomId]);
+
   const connect = useCallback(async () => {
     try {
       const roomState = await api('/live/rooms/' + roomId + '/stage');
@@ -106,6 +120,7 @@ export default function LiveRoomPage() {
         try {
           const packet = JSON.parse(new TextDecoder().decode(payload));
           if (packet?.type === 'VOXA_INTERACTION_UPDATED') { void refreshInteractions(); }
+          if (packet?.type === 'VOXA_SESSION_PLAN_UPDATED') { void refreshSessionPlan(); }
           if (packet?.type === 'VOXA_REACTION' && ['👏', '❤️', '🔥', '😂', '🎉', '🙌'].includes(packet.emoji)) {
             setReactions(current => [...current.slice(-19), { id: Date.now() + Math.random(), emoji: packet.emoji, userId: participant?.identity || 'listener' }]);
           }
@@ -136,7 +151,7 @@ export default function LiveRoomPage() {
       roomRef.current = null;
       await failedRoom?.disconnect().catch(() => undefined);
     }
-  }, [api, roomId, refreshInteractions]);
+  }, [api, roomId, refreshInteractions, refreshSessionPlan]);
 
   useEffect(() => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -147,9 +162,10 @@ export default function LiveRoomPage() {
     void refreshStage();
     void refreshChat();
     void refreshInteractions();
-    const poll = window.setInterval(() => { void refreshStage(); void refreshChat(); void refreshInteractions(); }, 5000);
+    void refreshSessionPlan();
+    const poll = window.setInterval(() => { void refreshStage(); void refreshChat(); void refreshInteractions(); void refreshSessionPlan(); }, 5000);
     return () => { window.clearInterval(poll); void roomRef.current?.disconnect(); roomRef.current = null; };
-  }, [connect, refreshStage, refreshChat, refreshInteractions]);
+  }, [connect, refreshStage, refreshChat, refreshInteractions, refreshSessionPlan]);
 
 
   useEffect(() => {
@@ -249,6 +265,57 @@ export default function LiveRoomPage() {
       if (update.answer !== undefined) setQuestionAnswers(current => ({ ...current, [questionId]: '' }));
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to update audience question'); }
     finally { setInteractionBusy(''); }
+  }
+
+
+  async function publishSessionPlanUpdate() {
+    const room = roomRef.current;
+    if (!room) return;
+    try {
+      await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'VOXA_SESSION_PLAN_UPDATED' })), { reliable: true, topic: 'voxa-session-plan' });
+    } catch { /* The periodic session-plan refresh remains the fallback. */ }
+  }
+
+  async function createAgendaItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy('agenda-create'); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/agenda', 'POST', { title: agendaTitle, description: agendaDescription, durationSeconds: Number(agendaDuration) });
+      setAgendaTitle(''); setAgendaDescription('');
+      await refreshSessionPlan(); await publishSessionPlanUpdate();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to add agenda item'); }
+    finally { setBusy(''); }
+  }
+
+  async function agendaAction(itemId: string, actionName: 'start' | 'complete' | 'delete') {
+    setBusy('agenda-' + actionName + '-' + itemId); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/agenda/' + itemId + '/' + actionName, 'POST');
+      await refreshSessionPlan(); await publishSessionPlanUpdate();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to update agenda'); }
+    finally { setBusy(''); }
+  }
+
+  async function handoffSpeaker() {
+    if (!handoffSpeakerId) return;
+    setBusy('speaker-handoff'); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/speaker-handoff', 'POST', {
+        speakerId: handoffSpeakerId,
+        ...(sessionPlan.agenda?.find((item: any) => item.status === 'ACTIVE') ? { agendaItemId: sessionPlan.agenda.find((item: any) => item.status === 'ACTIVE').id } : {}),
+      });
+      await refreshSessionPlan(); await publishSessionPlanUpdate();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to hand off the speaking turn'); }
+    finally { setBusy(''); }
+  }
+
+  async function endSpeakerTurn() {
+    setBusy('speaker-turn-end'); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/speaker-turn/end', 'POST');
+      await refreshSessionPlan(); await publishSessionPlanUpdate();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to end the speaker turn'); }
+    finally { setBusy(''); }
   }
 
   async function reportRoom() {
@@ -396,6 +463,39 @@ export default function LiveRoomPage() {
         </section>}
         {!isHost && <p className="helperText">{pending ? 'Your request is waiting for the host.' : approved ? 'The host approved your request. Reconnect to refresh your speaking permissions.' : 'You are listening. Request the stage whenever you are ready to speak.'}</p>}
       </>}
+        
+        <section className="moderationPanel" style={{ marginTop: 24 }}>
+          <div className="sectionTitle"><div><span className="eyebrow">SESSION PROGRAMME</span><h2>Live agenda</h2></div><button type="button" className="ghostButton" onClick={() => void refreshSessionPlan()}>↻ Refresh</button></div>
+          {sessionPlan.activeTurn && <div style={{ padding: 14, margin: '12px 0', borderRadius: 12, background: 'var(--surface)' }}><span className="eyebrow">CURRENT SPEAKER</span><h3 style={{ margin: '5px 0' }}>{sessionPlan.activeTurn.speaker?.displayName || sessionPlan.activeTurn.speakerId}</h3><p className="helperText">Speaking turn started {new Date(sessionPlan.activeTurn.startedAt).toLocaleTimeString()}</p></div>}
+          {!sessionPlan.activeTurn && <p className="helperText">No speaker currently has the floor.</p>}
+          {sessionPlan.agenda?.length ? <div className="moderationList">{sessionPlan.agenda.map((item: any, index: number) => <div className="moderationRow" key={item.id} style={{ alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}><b>{index + 1}. {item.title}</b><small>{item.durationSeconds >= 3600 ? Math.floor(item.durationSeconds / 3600) + 'h ' : ''}{Math.floor(item.durationSeconds % 3600 / 60)}m planned · {item.status}</small>{item.description && <p className="helperText" style={{ marginTop: 5 }}>{item.description}</p>}</div>
+            {(isHost || isModerator) && <div className="moderationActions" style={{ flexWrap: 'wrap' }}>
+              {item.status === 'PENDING' && <><button type="button" className="approveButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'start')}>Start</button><button type="button" className="rejectButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'delete')}>Remove</button></>}
+              {item.status === 'ACTIVE' && <button type="button" className="approveButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'complete')}>Complete</button>}
+              {item.status === 'COMPLETED' && <span className="countBadge">Done</span>}
+            </div>}
+          </div>)}</div> : <p className="helperText">The host has not added any agenda segments yet.</p>}
+          {(isHost || isModerator) && <form onSubmit={createAgendaItem} style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+            <h3 style={{ margin: 0 }}>Add agenda segment</h3>
+            <input value={agendaTitle} onChange={event => setAgendaTitle(event.target.value)} minLength={2} maxLength={120} required placeholder="Segment title" aria-label="Agenda segment title" style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+            <textarea value={agendaDescription} onChange={event => setAgendaDescription(event.target.value)} maxLength={500} rows={2} placeholder="What will this segment cover? (optional)" aria-label="Agenda segment description" style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+            <label className="helperText">Planned duration (seconds)<input type="number" min={1} max={14400} required value={agendaDuration} onChange={event => setAgendaDuration(event.target.value)} style={{ display: 'block', width: '100%', marginTop: 6, padding: 10, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} /></label>
+            <button className="button small" disabled={!!busy || !agendaTitle.trim()}>{busy === 'agenda-create' ? 'Adding…' : 'Add to agenda'}</button>
+          </form>}
+        </section>
+        {isHost && <section className="moderationPanel" style={{ marginTop: 24 }}>
+          <div className="sectionTitle"><div><span className="eyebrow">HOST FLOOR CONTROL</span><h2>Speaker handoff</h2></div><span className="countBadge">{sessionPlan.speakers?.length || 0} on stage</span></div>
+          <p className="helperText">Pass the speaking turn to a participant who has already been admitted to the stage. This does not admit listeners or change their publishing permissions.</p>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <select value={handoffSpeakerId} onChange={event => setHandoffSpeakerId(event.target.value)} aria-label="Select next speaker" style={{ flex: 1, minWidth: 180, padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }}>
+              <option value="">Choose an on-stage speaker</option>
+              {sessionPlan.speakers?.map((speaker: any) => <option key={speaker.userId} value={speaker.userId}>{speaker.userId}</option>)}
+            </select>
+            <button type="button" className="button small" disabled={!!busy || !handoffSpeakerId || handoffSpeakerId === sessionPlan.activeTurn?.speakerId} onClick={() => void handoffSpeaker()}>{busy === 'speaker-handoff' ? 'Handing off…' : 'Hand off turn'}</button>
+            {sessionPlan.activeTurn && <button type="button" className="rejectButton" disabled={!!busy} onClick={() => void endSpeakerTurn()}>{busy === 'speaker-turn-end' ? 'Ending…' : 'End turn'}</button>}
+          </div>
+        </section>}
         {isHost && <section className="moderationPanel" style={{ marginTop: 24 }}>
           <div className="sectionTitle"><div><span className="eyebrow">ROOM TEAM</span><h2>Moderators</h2></div><span className="countBadge">{stage?.moderators?.length || 0}</span></div>
           <p className="helperText">Assign trusted VOXA members to approve stage requests, remove speakers and moderate room chat. Moderators cannot end the room, manage recording, or appoint other moderators.</p>
