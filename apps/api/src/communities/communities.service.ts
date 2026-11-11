@@ -1,3 +1,4 @@
+import { createUserNotification } from '../notifications/notification-writer';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
@@ -120,9 +121,19 @@ export class CommunitiesService {
     if (!membership) throw new ForbiddenException('Join this community before posting');
     const value = content.trim();
     if (!value) throw new ConflictException('Post content cannot be empty');
-    return this.prisma.communityPost.create({
+    const post = await this.prisma.communityPost.create({
       data: { communityId, authorId: userId, content: value },
       select: { id: true, content: true, createdAt: true, author: { select: { id: true, displayName: true } } },
     });
+    const [community, members] = await Promise.all([
+      this.prisma.community.findUnique({ where: { id: communityId }, select: { name: true } }),
+      this.prisma.communityMember.findMany({ where: { communityId, userId: { not: userId } }, select: { userId: true }, take: 500 }),
+    ]);
+    await Promise.all(members.map(member => createUserNotification(this.prisma, {
+      recipientId: member.userId, actorId: userId, type: 'COMMUNITY_POST',
+      title: 'New community discussion', body: `A new post was shared in ${community?.name ?? 'your community'}.`,
+      resourceType: 'community', resourceId: communityId, category: 'community',
+    })));
+    return post;
   }
 }
