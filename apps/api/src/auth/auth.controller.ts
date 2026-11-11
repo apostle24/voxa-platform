@@ -7,7 +7,10 @@ import { RegisterDto } from './dto/register.dto';
 import { AccountSecurityService } from './account-security.service';
 import { EmailDto } from './dto/email.dto';
 import { EmailTokenDto } from './dto/email-token.dto';
+import { MfaVerifyDto } from './dto/mfa-verify.dto';
+import { MfaCodeDto } from './dto/mfa-code.dto';
 import { PasswordResetDto } from './dto/password-reset.dto';
+import { MfaService } from './mfa.service';
 
 type AuthHttpRequest = { headers: { cookie?: string; origin?: string } };
 type AuthHttpResponse = {
@@ -21,7 +24,7 @@ const COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService, private readonly accountSecurity: AccountSecurityService) {}
+  constructor(private readonly auth: AuthService, private readonly accountSecurity: AccountSecurityService, private readonly mfa: MfaService) {}
 
   @Post('register')
   @UseGuards(AuthRateLimitGuard)
@@ -41,7 +44,38 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(@Body() input: LoginDto, @Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
-    return this.withRefreshCookie(await this.auth.login(input), response);
+    const result = await this.auth.login(input);
+    if ('refreshToken' in result) return this.withRefreshCookie(result, response);
+    return result;
+  }
+
+  @Post('mfa/setup')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  beginMfaSetup(@Req() request: AuthenticatedRequest) {
+    return this.mfa.beginSetup(request.user.id, request.user.email);
+  }
+
+  @Post('mfa/enable')
+  @UseGuards(JwtAuthGuard, AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  enableMfa(@Req() request: AuthenticatedRequest, @Body() input: MfaCodeDto) {
+    return this.mfa.enable(request.user.id, input.token);
+  }
+
+  @Post('mfa/disable')
+  @UseGuards(JwtAuthGuard, AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  disableMfa(@Req() request: AuthenticatedRequest, @Body() input: MfaCodeDto) {
+    return this.mfa.disable(request.user.id, input.token);
+  }
+
+  @Post('mfa/challenge')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  async verifyMfaChallenge(@Body() input: MfaVerifyDto, @Res({ passthrough: true }) response: AuthHttpResponse) {
+    const user = await this.mfa.verifyLoginChallenge(input.token, input.code);
+    return this.withRefreshCookie(await this.auth.issueAuthenticatedSession(user), response);
   }
 
   @Post('refresh')
