@@ -21,6 +21,7 @@ export default function LiveRoomPage() {
   const roomId = params.roomId;
   const roomRef = useRef<Room | null>(null);
   const viewerSessionId = useRef('');
+  const canPublishRef = useRef(false);
   const [status, setStatus] = useState('Not connected');
   const [error, setError] = useState('');
   const [isHost, setIsHost] = useState(false);
@@ -58,13 +59,25 @@ export default function LiveRoomPage() {
   const connect = useCallback(async () => {
     try {
       const data = await api('/live/rooms/' + roomId + '/join-token', 'POST');
+      setError('');
       setStatus('Connecting to live media…');
       const old = roomRef.current;
+      roomRef.current = null;
       if (old) await old.disconnect();
       const room = new Room({ adaptiveStream: true, dynacast: true });
       roomRef.current = room;
-      room.on(RoomEvent.Connected, () => setStatus('Connected · Live'));
-      room.on(RoomEvent.Disconnected, () => setStatus('Disconnected'));
+      canPublishRef.current = Boolean(data.canPublish);
+      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? 'Connected · You are on stage' : 'Connected · Listening'));
+      room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting to live media…'));
+      room.on(RoomEvent.Reconnected, () => {
+        setError('');
+        setStatus(canPublishRef.current ? 'Connected · You are on stage' : 'Connected · Listening');
+      });
+      room.on(RoomEvent.Disconnected, () => {
+        setStatus('Disconnected');
+        setMic(false);
+        setCamera(false);
+      });
       room.on(RoomEvent.TrackSubscribed, (track) => {
         const element = track.attach();
         element.setAttribute('data-voxa-track', 'true');
@@ -74,7 +87,13 @@ export default function LiveRoomPage() {
       room.on(RoomEvent.TrackUnsubscribed, (track) => track.detach().forEach(element => element.remove()));
       await room.connect(data.serverUrl, data.token);
       setStatus(data.canPublish ? 'Connected · You are on stage' : 'Connected · Listening');
-    } catch (e) { setError(e instanceof Error ? e.message : 'Connection failed'); }
+    } catch (e) {
+      setStatus('Disconnected');
+      setError(e instanceof Error ? e.message : 'Connection failed');
+      const failedRoom = roomRef.current;
+      roomRef.current = null;
+      await failedRoom?.disconnect().catch(() => undefined);
+    }
   }, [api, roomId]);
 
   useEffect(() => {
@@ -175,6 +194,7 @@ export default function LiveRoomPage() {
           <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
           {!isHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
           {!isHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
+          {status === 'Disconnected' && <button className="button" onClick={()=>void connect()}>Reconnect to live room ↻</button>}
           {isHost && <button className="button danger" disabled={busy==='end'} onClick={()=>void endRoom()}>{busy==='end'?'Ending…':'End room'}</button>}
         </div>
         {isHost && <section className="moderationPanel">
