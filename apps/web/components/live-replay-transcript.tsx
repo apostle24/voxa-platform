@@ -30,7 +30,7 @@ export default function LiveReplayTranscript({
     currentTime < (visible[index + 1]?.startSeconds ?? item.endSeconds ?? item.startSeconds + 8)
   );
 
-  return <section aria-label="LIVE replay transcript" style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+  return <section id="replay-transcript" aria-label="LIVE replay transcript" style={{ scrollMarginTop: 90, marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
     <div className="eyebrow">VOXA LIVE REPLAY TRANSCRIPT · {language.toUpperCase()}</div>
     <h2 style={{ margin: '8px 0 6px' }}>Follow the conversation.</h2>
     <p style={{ color: 'var(--muted)', fontSize: 13, margin: '0 0 14px' }}>Search the transcript, filter by speaker, or select a timestamp to jump to that moment in the replay.</p>
