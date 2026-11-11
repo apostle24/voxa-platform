@@ -821,6 +821,65 @@ export class ShowsService {
     return { items: fallback.map(episode => ({ ...episode, reason: 'Popular on VOXA' })), personalized: false };
   }
 
+
+  private topicLabels(value: Prisma.JsonValue): string[] {
+    const values = Array.isArray(value) ? value : value && typeof value === 'object'
+      ? Object.values(value as Record<string, Prisma.JsonValue>) : [];
+    return values.flatMap(item => {
+      if (typeof item === 'string') return [item.trim()].filter(Boolean);
+      if (item && typeof item === 'object' && !Array.isArray(item)) {
+        const record = item as Record<string, Prisma.JsonValue>;
+        const label = record.topic ?? record.name ?? record.label ?? record.title;
+        return typeof label === 'string' ? [label.trim()].filter(Boolean) : [];
+      }
+      return [];
+    }).slice(0, 30);
+  }
+
+  async discoverTopics() {
+    const intelligence = await this.prisma.episodeIntelligence.findMany({
+      where: { episode: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED } } },
+      orderBy: { generatedAt: 'desc' }, take: 500, select: { topics: true },
+    });
+    const counts = new Map<string, number>();
+    for (const item of intelligence) {
+      for (const label of this.topicLabels(item.topics)) {
+        const normalized = label.replace(/\s+/g, ' ').trim();
+        if (normalized.length < 2 || normalized.length > 60) continue;
+        const existing = [...counts.keys()].find(value => value.toLocaleLowerCase() === normalized.toLocaleLowerCase());
+        const key = existing || normalized;
+        counts.set(key, (counts.get(key) || 0) + 1);
+      }
+    }
+    return { items: [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 24).map(([topic, count]) => ({ topic, count })) };
+  }
+
+  async discoverTopicEpisodes(topic: string) {
+    const selectedTopic = topic.trim();
+    if (!selectedTopic || selectedTopic.length > 60) return { items: [] };
+    const intelligence = await this.prisma.episodeIntelligence.findMany({
+      where: { episode: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED } } },
+      orderBy: { generatedAt: 'desc' }, take: 500,
+      select: {
+        topics: true,
+        episode: { select: {
+          id: true, title: true, description: true, artworkUrl: true, durationSeconds: true,
+          isExplicit: true, isLiveReplay: true, membershipRequired: true, publishedAt: true,
+          show: { select: { id: true, title: true, category: true, language: true,
+            creator: { select: { handle: true, user: { select: { displayName: true } } } } } },
+        } },
+      },
+    });
+    const needle = selectedTopic.toLocaleLowerCase();
+    const items = intelligence
+      .filter(item => this.topicLabels(item.topics).some(label => label.toLocaleLowerCase() === needle))
+      .map(item => item.episode)
+      .filter((episode, index, all) => all.findIndex(candidate => candidate.id === episode.id) === index)
+      .slice(0, 30)
+      .map(episode => ({ ...episode, matchingMoments: [] }));
+    return { topic: selectedTopic, items };
+  }
+
   async discoveryCategories() {
     const categories = await this.prisma.show.findMany({
       where: { status: PublicationStatus.PUBLISHED, category: { not: null }, episodes: { some: { status: PublicationStatus.PUBLISHED } } },

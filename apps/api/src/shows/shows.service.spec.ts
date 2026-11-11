@@ -348,3 +348,54 @@ describe('ShowsService episode unpublishing', () => {
     expect(prisma.episode.updateMany).not.toHaveBeenCalled();
   });
 });
+
+
+describe('ShowsService AI topic discovery', () => {
+  let service: ShowsService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = { episodeIntelligence: { findMany: jest.fn() } };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  it('aggregates topic labels from published public episode intelligence', async () => {
+    prisma.episodeIntelligence.findMany.mockResolvedValue([
+      { topics: ['Leadership', 'Faith'] },
+      { topics: ['leadership', 'Personal growth'] },
+    ]);
+
+    await expect(service.discoverTopics()).resolves.toEqual({
+      items: [
+        { topic: 'Leadership', count: 2 },
+        { topic: 'Faith', count: 1 },
+        { topic: 'Personal growth', count: 1 },
+      ],
+    });
+    expect(prisma.episodeIntelligence.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { episode: { status: 'PUBLISHED', membershipRequired: false, show: { status: 'PUBLISHED' } } },
+      take: 500,
+    }));
+  });
+
+  it('returns only public published episodes tagged with the selected topic', async () => {
+    prisma.episodeIntelligence.findMany.mockResolvedValue([
+      { topics: ['Faith'], episode: { id: 'episode-1', title: 'Faith in action' } },
+      { topics: ['Leadership'], episode: { id: 'episode-2', title: 'Leading well' } },
+    ]);
+
+    await expect(service.discoverTopicEpisodes('Faith')).resolves.toMatchObject({
+      topic: 'Faith',
+      items: [{ id: 'episode-1', title: 'Faith in action', matchingMoments: [] }],
+    });
+    expect(prisma.episodeIntelligence.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { episode: { status: 'PUBLISHED', membershipRequired: false, show: { status: 'PUBLISHED' } } },
+    }));
+  });
+
+  it('rejects blank and oversized topic requests without querying the database', async () => {
+    await expect(service.discoverTopicEpisodes('  ')).resolves.toEqual({ items: [] });
+    await expect(service.discoverTopicEpisodes('x'.repeat(61))).resolves.toEqual({ items: [] });
+    expect(prisma.episodeIntelligence.findMany).not.toHaveBeenCalled();
+  });
+});
