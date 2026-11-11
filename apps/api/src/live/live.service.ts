@@ -1,6 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AccessToken, RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
+import { AccessToken, EgressClient, EncodedFileOutput, RoomServiceClient, S3Upload, WebhookReceiver } from 'livekit-server-sdk';
 import { LiveRoomStatus, LiveRoomVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
@@ -115,6 +115,85 @@ export class LiveService {
 
 
 
+  private egressClient() {
+    const { url, apiKey, apiSecret } = this.liveKitConfig();
+    const host = url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+    return new EgressClient(host, apiKey, apiSecret);
+  }
+
+  private recordingStorage() {
+    const bucket = this.config.get<string>('LIVEKIT_RECORDING_S3_BUCKET') || this.config.get<string>('S3_BUCKET');
+    const accessKey = this.config.get<string>('LIVEKIT_RECORDING_S3_ACCESS_KEY') || this.config.get<string>('S3_ACCESS_KEY_ID');
+    const secret = this.config.get<string>('LIVEKIT_RECORDING_S3_SECRET_KEY') || this.config.get<string>('S3_SECRET_ACCESS_KEY');
+    const region = this.config.get<string>('LIVEKIT_RECORDING_S3_REGION') || this.config.get<string>('S3_REGION') || 'auto';
+    const endpoint = this.config.get<string>('LIVEKIT_RECORDING_S3_ENDPOINT') || this.config.get<string>('S3_ENDPOINT');
+    if (!bucket || !accessKey || !secret) {
+      throw new ServiceUnavailableException('Live room recording storage is not configured');
+    }
+    return new S3Upload({
+      accessKey,
+      secret,
+      bucket,
+      region,
+      ...(endpoint ? { endpoint } : {}),
+      forcePathStyle: this.config.get<string>('S3_FORCE_PATH_STYLE') === 'true',
+    });
+  }
+
+  async startRoomRecording(hostId: string, roomId: string, consentConfirmed: boolean) {
+    if (consentConfirmed !== true) throw new BadRequestException('Confirm that everyone speaking in the room has agreed to recording');
+    const room = await this.prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true, hostId: true, status: true, isAudioOnly: true, recordingStatus: true },
+    });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can start recording');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Recording can start only while the room is live');
+    if (!['NOT_STARTED', 'FAILED'].includes(room.recordingStatus)) throw new ConflictException('A recording has already been started for this room');
+    const consentAt = new Date();
+    const claimed = await this.prisma.liveRoom.updateMany({
+      where: { id: roomId, recordingStatus: room.recordingStatus },
+      data: { recordingStatus: 'STARTING', recordingConsentAt: consentAt, recordingFailure: null },
+    });
+    if (claimed.count !== 1) throw new ConflictException('Recording state changed; refresh and try again');
+    const filepath = `live-recordings/${roomId}/${Date.now()}.mp4`;
+    try {
+      const file = new EncodedFileOutput({
+        filepath,
+        output: { case: 's3', value: this.recordingStorage() },
+      });
+      const egress = await this.egressClient().startRoomCompositeEgress(roomId, { file }, { audioOnly: room.isAudioOnly });
+      await this.prisma.liveRoom.update({
+        where: { id: roomId },
+        data: { recordingStatus: 'RECORDING', recordingEgressId: egress.egressId, recordingObjectKey: filepath, recordingStartedAt: new Date() },
+      });
+      return { roomId, recordingStatus: 'RECORDING', recordingId: egress.egressId };
+    } catch (error) {
+      await this.prisma.liveRoom.update({
+        where: { id: roomId },
+        data: { recordingStatus: 'FAILED', recordingFailure: 'Recording service could not start the recording' },
+      });
+      throw new ServiceUnavailableException('Unable to start live recording; verify LiveKit Egress and recording storage configuration');
+    }
+  }
+
+  async stopRoomRecording(hostId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true, hostId: true, recordingStatus: true, recordingEgressId: true },
+    });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can stop recording');
+    if (room.recordingStatus !== 'RECORDING' || !room.recordingEgressId) throw new ConflictException('This room has no active recording');
+    await this.prisma.liveRoom.update({ where: { id: roomId }, data: { recordingStatus: 'STOPPING' } });
+    try {
+      await this.egressClient().stopEgress(room.recordingEgressId);
+      return { roomId, recordingStatus: 'STOPPING' };
+    } catch {
+      throw new ServiceUnavailableException('Unable to stop recording; check LiveKit Egress status before retrying');
+    }
+  }
+
   async receiveLiveKitWebhook(rawBody: string, authorization?: string) {
     if (!rawBody) throw new BadRequestException('LiveKit webhook body is required');
     const { apiKey, apiSecret } = this.liveKitConfig();
@@ -135,6 +214,18 @@ export class LiveService {
       });
       if (inserted.count === 0) return { received: true, duplicate: true };
 
+      if (event.egressInfo?.egressId && (event.event === 'egress_ended' || event.event === 'egress_failed')) {
+        const fileLocation = event.egressInfo.fileResults?.[0]?.location || null;
+        await tx.liveRoom.updateMany({
+          where: { recordingEgressId: event.egressInfo.egressId },
+          data: {
+            recordingStatus: event.event === 'egress_ended' ? 'COMPLETED' : 'FAILED',
+            recordingEndedAt: new Date(),
+            ...(fileLocation ? { recordingObjectKey: fileLocation } : {}),
+            ...(event.event === 'egress_failed' ? { recordingFailure: 'LiveKit Egress reported a recording failure' } : {}),
+          },
+        });
+      }
       if (roomId && event.event === 'room_finished') {
         const endedAt = new Date();
         await tx.liveRoom.updateMany({
