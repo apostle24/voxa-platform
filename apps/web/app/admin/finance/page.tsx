@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
@@ -38,9 +39,9 @@ export default function AdminFinancePage() {
   const load = useCallback(async (accessToken: string) => {
     const headers = { Authorization: 'Bearer ' + accessToken };
     const [overviewResponse, destinationResponse, payoutResponse] = await Promise.all([
-      fetch(API + '/admin/finance/overview', { headers }),
-      fetch(API + '/admin/finance/payout-destinations/pending', { headers }),
-      fetch(API + '/admin/finance/payout-requests', { headers }),
+      apiFetch(API + '/admin/finance/overview', { headers }),
+      apiFetch(API + '/admin/finance/payout-destinations/pending', { headers }),
+      apiFetch(API + '/admin/finance/payout-requests', { headers }),
     ]);
     const overviewData = await overviewResponse.json();
     const destinationData = await destinationResponse.json();
@@ -68,7 +69,7 @@ export default function AdminFinancePage() {
   async function runAction(key: string, url: string, body?: unknown, method = 'PATCH') {
     setBusy(key); setError(''); setNotice('');
     try {
-      const response = await fetch(API + url, {
+      const response = await apiFetch(API + url, {
         method,
         headers: { Authorization: 'Bearer ' + token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
         ...(body ? { body: JSON.stringify(body) } : {}),
