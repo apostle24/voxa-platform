@@ -1,0 +1,28 @@
+# Optional standalone worker deployment.
+# From repository root: docker compose -f infra/media-worker.compose.yml up -d --build
+# Provide DATABASE_URL and private S3 credentials in the root .env file or deployment environment.
+services:
+  voxa-media-worker:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile.media-worker
+    image: voxa-media-worker:local
+    init: true
+    restart: unless-stopped
+    env_file:
+      - ../.env
+    environment:
+      NODE_ENV: production
+      MEDIA_WORKER_INTERVAL_MS: ${MEDIA_WORKER_INTERVAL_MS:-5000}
+      MEDIA_WORKER_STALE_MS: ${MEDIA_WORKER_STALE_MS:-3600000}
+      MEDIA_WORKER_MAX_ATTEMPTS: ${MEDIA_WORKER_MAX_ATTEMPTS:-3}
+    mem_limit: 4g
+    cpus: 2.0
+    pids_limit: 256
+    stop_grace_period: 2m
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f '[m]edia-worker.cjs' >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 90s
