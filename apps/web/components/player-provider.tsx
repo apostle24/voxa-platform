@@ -152,7 +152,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (!queue.length) return;
     const [next, ...rest] = queue;
     setQueue(rest);
-    void refreshTrack(next).then(playTrack).catch(() => setIsPlaying(false));
+    void refreshTrack(next).then(playTrack).catch(error => {
+      setIsPlaying(false);
+      setPlayerError(error instanceof Error ? error.message : 'Unable to load the next episode');
+    });
   }, [queue, playTrack, refreshTrack]);
 
   const removeFromQueue = useCallback((episodeId: string) => setQueue(items => items.filter(item => item.episodeId !== episodeId)), []);
@@ -269,6 +272,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setAction('play', () => togglePlayback());
     setAction('pause', () => togglePlayback());
     setAction('nexttrack', () => playNext());
+    setAction('previoustrack', () => playPrevious());
     setAction('seekbackward', details => seek(Math.max(0, currentTime - (details.seekOffset || 15))));
     setAction('seekforward', details => seek(Math.min(duration || currentTime + 15, currentTime + (details.seekOffset || 15))));
     setAction('seekto', details => { if (typeof details.seekTime === 'number') seek(details.seekTime); });
@@ -276,11 +280,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       try { session.setPositionState({ duration, playbackRate: 1, position: Math.min(currentTime, duration) }); } catch { /* Position state is optional */ }
     }
     return () => {
-      for (const action of ['play', 'pause', 'nexttrack', 'seekbackward', 'seekforward', 'seekto'] as MediaSessionAction[]) {
+      for (const action of ['play', 'pause', 'nexttrack', 'previoustrack', 'seekbackward', 'seekforward', 'seekto'] as MediaSessionAction[]) {
         setAction(action, null);
       }
     };
-  }, [currentTrack, isPlaying, currentTime, duration, togglePlayback, playNext, seek]);
+  }, [currentTrack, isPlaying, currentTime, duration, togglePlayback, playNext, playPrevious, seek]);
 
   return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, togglePlayback, playNext, playPrevious, removeFromQueue, moveInQueue, seek, playerError, retryPlayback }}>
     {children}
