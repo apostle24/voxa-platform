@@ -324,6 +324,13 @@ model LiveRoom {
   startedAt   DateTime?
   endedAt     DateTime?
   peakAudienceCount Int @default(0)
+  recordingStatus String @default("NOT_STARTED")
+  recordingEgressId String? @unique
+  recordingObjectKey String?
+  recordingConsentAt DateTime?
+  recordingStartedAt DateTime?
+  recordingEndedAt DateTime?
+  recordingFailure String?
   createdAt   DateTime           @default(now())
   host        User               @relation("RoomHost", fields: [hostId], references: [id])
   stage       LiveStageMember[]
