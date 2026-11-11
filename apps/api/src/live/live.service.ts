@@ -663,9 +663,16 @@ export class LiveService {
     if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can view room analytics');
     // Resolve a replay draft from the durable recording object key so the host
     // can recover its Creator Studio link after refreshing or reconnecting.
-    const replayAsset = room.recordingObjectKey
+    let replayObjectKey = room.recordingObjectKey;
+    if (replayObjectKey?.startsWith('s3://')) {
+      const location = replayObjectKey.slice(5);
+      const slash = location.indexOf('/');
+      const bucket = this.config.get<string>('S3_BUCKET', '');
+      replayObjectKey = slash > 0 && location.slice(0, slash) === bucket ? location.slice(slash + 1) : null;
+    }
+    const replayAsset = replayObjectKey
       ? await this.prisma.mediaAsset.findUnique({
-          where: { objectKey: room.recordingObjectKey },
+          where: { objectKey: replayObjectKey },
           select: { id: true, episodeId: true, status: true, episode: { select: { status: true, isLiveReplay: true } } },
         })
       : null;
