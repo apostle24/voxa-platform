@@ -12,7 +12,7 @@ describe('LiveService access boundaries', () => {
     prisma = {
       liveRoom: { findUnique: jest.fn(), updateMany: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn() },
-      liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn() },
+      liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn() },
       stageRequest: { upsert: jest.fn(), groupBy: jest.fn() },
     };
@@ -76,6 +76,8 @@ describe('LiveService access boundaries', () => {
   it('records one authenticated audience session and updates peak concurrent viewers', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', status: 'LIVE', hostId: 'host-1' });
     prisma.liveStageMember.findUnique.mockResolvedValue(null);
+    prisma.liveStageMember.findMany.mockResolvedValue([]);
+    prisma.liveViewerSession.findUnique.mockResolvedValue(null);
     prisma.liveViewerSession.upsert.mockResolvedValue({});
     prisma.liveViewerSession.groupBy.mockResolvedValue([{ userId: 'viewer-1' }, { userId: 'viewer-2' }]);
     const result = await service.heartbeatViewer('viewer-1', 'room-1', 'session_1234567890123456');
@@ -84,6 +86,15 @@ describe('LiveService access boundaries', () => {
     expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith({
       where: { id: 'room-1', peakAudienceCount: { lt: 2 } }, data: { peakAudienceCount: 2 },
     });
+  });
+
+  it('rejects attempts to take over another account viewer session', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', status: 'LIVE', hostId: 'host-1' });
+    prisma.liveStageMember.findUnique.mockResolvedValue(null);
+    prisma.liveViewerSession.findUnique.mockResolvedValue({ userId: 'different-user' });
+    await expect(service.heartbeatViewer('viewer-1', 'room-1', 'session_1234567890123456'))
+      .rejects.toThrow('Viewer session belongs to another account');
+    expect(prisma.liveViewerSession.upsert).not.toHaveBeenCalled();
   });
 
   it('does not count hosts as audience viewers', async () => {
