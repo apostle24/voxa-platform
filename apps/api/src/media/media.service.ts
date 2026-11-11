@@ -234,7 +234,7 @@ export class MediaService {
       throw new ConflictException('A processed video source is required before rendering');
     }
     const render = await this.prisma.momentRender.create({
-      data: { momentId, aspectRatio: input.aspectRatio, subtitles: input.subtitles?.trim() || null },
+      data: { momentId, aspectRatio: input.aspectRatio, subtitles: { text: input.subtitles?.trim() || '' } },
       select: { id: true, status: true, aspectRatio: true, createdAt: true },
     });
     return { ...render, queued: true };
