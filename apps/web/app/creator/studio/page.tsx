@@ -246,6 +246,16 @@ export default function CreatorStudioPage() {
     finally { setBusy(false); }
   }
 
+  async function retryMediaProcessing(showId: string, episodeId: string) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/retry-processing', { method: 'POST' });
+      await loadShows();
+      setNotice('Media processing has been queued again. VOXA will refresh its status automatically.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to retry media processing'); }
+    finally { setBusy(false); }
+  }
+
   async function publishEpisode(showId: string, episodeId: string) {
     setBusy(true); setError(''); setNotice('');
     try { await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/publish', { method: 'POST' }); await loadShows(); setNotice('Episode published and available to listeners.'); }
@@ -339,7 +349,8 @@ export default function CreatorStudioPage() {
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {episode.status !== 'PUBLISHED' && <label className="ghostButton" style={{ cursor: 'pointer' }}>{uploadingId === episode.id ? 'Uploading…' : 'Upload media'}<input type="file" accept="audio/*,video/mp4,video/webm,video/quicktime" disabled={uploadingId === episode.id} onChange={event => void uploadMedia(show.id, episode.id, event)} style={{ display: 'none' }} /></label>}
                   <button className="ghostButton" disabled={busy || plans.length === 0 || episode.status === 'PUBLISHED'} onClick={() => void toggleEpisodeMembership(show.id, episode.id, episode.membershipRequired)}>{episode.membershipRequired ? 'Members only ✓' : 'Make members only'}</button>
-                  {episode.status !== 'PUBLISHED' && <button className="button small" disabled={busy || show.status !== 'PUBLISHED' || !episode.mediaKey || !episode.durationSeconds || episode.mediaAssets?.[0]?.status !== 'READY'} onClick={() => void publishEpisode(show.id, episode.id)}>{episode.mediaAssets?.[0]?.status === 'READY' ? 'Publish episode' : episode.mediaAssets?.[0]?.status === 'FAILED' ? 'Media failed · re-upload' : 'Media processing…'}</button>}
+                  {episode.status !== 'PUBLISHED' && episode.mediaAssets?.[0]?.status === 'FAILED' && <button className="button small" disabled={busy} onClick={() => void retryMediaProcessing(show.id, episode.id)}>Retry processing</button>}
+                  {episode.status !== 'PUBLISHED' && <button className="button small" disabled={busy || show.status !== 'PUBLISHED' || !episode.mediaKey || !episode.durationSeconds || episode.mediaAssets?.[0]?.status !== 'READY'} onClick={() => void publishEpisode(show.id, episode.id)}>{episode.mediaAssets?.[0]?.status === 'READY' ? 'Publish episode' : 'Media processing…'}</button>}
                   {episode.status === 'PUBLISHED' && <Link className="ghostButton" href={'/episodes/' + episode.id}>Open episode ↗</Link>}
                   {episode.status !== 'PUBLISHED' && episode.mediaAssets?.[0]?.status === 'READY' && <button className="ghostButton" onClick={() => void previewDraft(episode.id)}>Preview replay</button>}
                   {draftPreview?.episodeId === episode.id && (draftPreview.contentType.startsWith('video/') ? <video controls playsInline preload="metadata" src={draftPreview.url} style={{ width: '100%', maxHeight: 420, borderRadius: 10, background: '#000' }} /> : <audio controls preload="metadata" src={draftPreview.url} style={{ width: '100%' }} />)}
