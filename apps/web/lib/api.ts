@@ -38,3 +38,16 @@ export async function logoutVoxa(): Promise<void> {
     window.sessionStorage.removeItem('voxa_user');
   }
 }
+
+export async function logoutAllVoxa(): Promise<void> {
+  const token = typeof window !== 'undefined' ? window.sessionStorage.getItem('voxa_access_token') : null;
+  await fetch(API_BASE + '/auth/logout-all', {
+    method: 'POST',
+    credentials: 'include',
+    headers: token ? { Authorization: 'Bearer ' + token } : {},
+  });
+  if (typeof window !== 'undefined') {
+    window.sessionStorage.removeItem('voxa_access_token');
+    window.sessionStorage.removeItem('voxa_user');
+  }
+}
