@@ -127,13 +127,23 @@ export class CommunitiesService {
     });
     const [community, members] = await Promise.all([
       this.prisma.community.findUnique({ where: { id: communityId }, select: { name: true } }),
-      this.prisma.communityMember.findMany({ where: { communityId, userId: { not: userId } }, select: { userId: true }, take: 500 }),
+      this.prisma.communityMember.findMany({ where: { communityId, userId: { not: userId } }, select: { userId: true } }),
     ]);
-    await Promise.all(members.map(member => createUserNotification(this.prisma, {
-      recipientId: member.userId, actorId: userId, type: 'COMMUNITY_POST',
-      title: 'New community discussion', body: `A new post was shared in ${community?.name ?? 'your community'}.`,
-      resourceType: 'community', resourceId: communityId, category: 'community',
-    })));
+    if (members.length) {
+      const recipientIds = members.map(member => member.userId);
+      const preferences = await this.prisma.notificationPreference.findMany({
+        where: { userId: { in: recipientIds }, community: false }, select: { userId: true },
+      });
+      const optedOut = new Set(preferences.map(preference => preference.userId));
+      const data = recipientIds.filter(recipientId => !optedOut.has(recipientId)).map(recipientId => ({
+        recipientId, actorId: userId, type: 'COMMUNITY_POST',
+        title: 'New community discussion', body: `A new post was shared in ${community?.name ?? 'your community'}.`,
+        resourceType: 'community', resourceId: communityId,
+      }));
+      for (let offset = 0; offset < data.length; offset += 500) {
+        await this.prisma.notification.createMany({ data: data.slice(offset, offset + 500) });
+      }
+    }
     return post;
   }
 }
