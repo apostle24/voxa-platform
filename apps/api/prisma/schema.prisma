@@ -120,6 +120,7 @@ model Creator {
   createdAt   DateTime @default(now())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   shows       Show[]
+  moments     Moment[]
   followers   Follow[]
   membershipPlans MembershipPlan[]
   subscriptions MembershipSubscription[] @relation("CreatorSubscriptions")
@@ -162,6 +163,7 @@ model Episode {
   bookmarks       EpisodeBookmark[]
   progress        PlaybackProgress[]
   mediaAssets     MediaAsset[]
+  moments         Moment[]
   comments        EpisodeComment[]
   likes           EpisodeLike[]
 
@@ -231,6 +233,25 @@ model EpisodeLike {
 
   @@id([userId, episodeId])
   @@index([episodeId, createdAt])
+}
+
+model Moment {
+  id           String   @id @default(cuid())
+  creatorId    String
+  episodeId    String
+  caption      String
+  startSeconds Int
+  endSeconds   Int
+  status       PublicationStatus @default(DRAFT)
+  publishedAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  creator      Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  episode      Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@index([status, publishedAt])
+  @@index([creatorId, createdAt])
+  @@index([episodeId, status])
 }
 
 model EpisodeBookmark {
