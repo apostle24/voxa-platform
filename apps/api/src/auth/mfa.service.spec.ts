@@ -162,7 +162,7 @@ describe('MfaService', () => {
     });
     await service.verifyLoginChallenge(challenge.challengeToken, backupCode);
     expect(prisma.mfaBackupCode.updateMany).toHaveBeenCalledWith({
-      where: { id: 'backup-1', consumedAt: null }, data: { consumedAt: expect.any(Date) },
+      where: { id: 'backup-1', credentialId: 'credential-1', consumedAt: null }, data: { consumedAt: expect.any(Date) },
     });
     prisma.mfaBackupCode.updateMany.mockResolvedValue({ count: 0 });
     await expect(service.verifyLoginChallenge(challenge.challengeToken, backupCode)).rejects.toBeInstanceOf(UnauthorizedException);
