@@ -13,6 +13,7 @@ import { PasswordResetDto } from './dto/password-reset.dto';
 import { MfaService } from './mfa.service';
 import { UpdateAccountProfileDto } from './dto/update-account-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { MobileRefreshDto } from './dto/mobile-refresh.dto';
 
 type AuthHttpRequest = { headers: { cookie?: string; origin?: string } };
 type AuthHttpResponse = {
@@ -81,6 +82,37 @@ export class AuthController {
     const result = await this.auth.login(input);
     if ('refreshToken' in result) return this.withRefreshCookie(result, response);
     return result;
+  }
+
+  // Native clients keep the rotating refresh credential in OS-backed secure storage.
+  // Browser clients must continue using the HttpOnly cookie endpoints above.
+  @Post('mobile/login')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  mobileLogin(@Body() input: LoginDto) {
+    return this.auth.login(input);
+  }
+
+  @Post('mobile/mfa/challenge')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  async mobileMfaChallenge(@Body() input: MfaVerifyDto) {
+    const user = await this.mfa.verifyLoginChallenge(input.token, input.code);
+    return this.auth.issueAuthenticatedSession(user);
+  }
+
+  @Post('mobile/refresh')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  mobileRefresh(@Body() input: MobileRefreshDto) {
+    return this.auth.refresh(input.refreshToken);
+  }
+
+  @Post('mobile/logout')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  mobileLogout(@Body() input: MobileRefreshDto) {
+    return this.auth.logout(input.refreshToken);
   }
 
   @Post('mfa/setup')
