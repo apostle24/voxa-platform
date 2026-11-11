@@ -56,6 +56,10 @@ async function claimOne() {
 }
 
 async function processAsset(asset) {
+  const heartbeat = setInterval(() => {
+    prisma.mediaAsset.updateMany({ where: { id: asset.id, status: 'PROCESSING' }, data: { processingStartedAt: new Date() } })
+      .catch(error => console.error(JSON.stringify({ event: 'media_heartbeat_error', assetId: asset.id, reason: String(error.message || error) })));
+  }, 30000);
   const work = await mkdtemp(join(tmpdir(), 'voxa-media-'));
   const source = join(work, 'source');
   const output = join(work, asset.contentType.startsWith('video/') ? 'playback.mp4' : 'playback.mp3');
@@ -106,6 +110,7 @@ async function processAsset(asset) {
     });
     console.error(JSON.stringify({ event: 'media_processing_error', assetId: asset.id, attempt: asset.processingAttempts, reason }));
   } finally {
+    clearInterval(heartbeat);
     await rm(work, { recursive: true, force: true });
   }
 }
