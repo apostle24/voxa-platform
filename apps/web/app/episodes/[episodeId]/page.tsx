@@ -4,6 +4,7 @@ import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useVoxaPlayer } from '../../../components/player-provider';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
@@ -26,7 +27,7 @@ function formatTime(seconds: number) {
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const { playTrack, enqueueTrack } = useVoxaPlayer();
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
   const [episode, setEpisode] = useState<Episode | null>(null);
@@ -163,23 +164,10 @@ export default function EpisodePage() {
                   }}
                   onEnded={() => void saveProgress(videoRef.current?.duration || 0, true)}
                 />
-              : <audio
-                  ref={audioRef}
-                  controls
-                  preload="metadata"
-                  src={audioUrl}
-                  style={{ width: '100%' }}
-                  onLoadedMetadata={() => {
-                    if (resumeAt > 0 && audioRef.current) audioRef.current.currentTime = resumeAt;
-                  }}
-                  onTimeUpdate={() => {
-                    if (audioRef.current) void saveProgress(audioRef.current.currentTime);
-                  }}
-                  onPause={() => {
-                    if (audioRef.current) void saveProgress(audioRef.current.currentTime, true);
-                  }}
-                  onEnded={() => void saveProgress(audioRef.current?.duration || 0, true)}
-                />}
+              : <div className="episodePlayerActions">
+                  <button className="button" onClick={() => playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>▶ Play episode</button>
+                  <button className="ghostButton" onClick={() => enqueueTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>＋ Add to queue</button>
+                </div>}
             <p style={{ color: 'var(--muted, #a1a1aa)', fontSize: 13, marginBottom: 0 }}>
               {resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
               {saving ? ' · Saving progress…' : ''}

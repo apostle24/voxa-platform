@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../../../lib/api';
+import { useVoxaPlayer, type VoxaTrack } from '../../../components/player-provider';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
@@ -39,6 +41,9 @@ export default function ShowPage() {
   const [show, setShow] = useState<Show | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [preparingEpisode, setPreparingEpisode] = useState<string | null>(null);
+  const [playbackError, setPlaybackError] = useState('');
+  const { playTrack, enqueueTrack } = useVoxaPlayer();
 
   useEffect(() => {
     let active = true;
@@ -53,6 +58,36 @@ export default function ShowPage() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [showId]);
+
+  async function prepareEpisode(episode: Episode, enqueue = false) {
+    if (!show || preparingEpisode) return;
+    setPreparingEpisode(episode.id);
+    setPlaybackError('');
+    try {
+      const token = sessionStorage.getItem('voxa_access_token') || '';
+      if (episode.membershipRequired && !token) throw new Error('Sign in and join this creator’s membership to listen to this episode.');
+      const endpoint = episode.membershipRequired ? '/member-playback-url' : '/playback-url';
+      const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episode.id) + endpoint);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to prepare this episode');
+      const track: VoxaTrack = {
+        episodeId: episode.id,
+        title: episode.title,
+        showTitle: show.title,
+        creatorName: show.creator.user.displayName,
+        artworkUrl: episode.artworkUrl || show.artworkUrl,
+        url: data.url,
+        contentType: data.contentType || 'audio/mpeg',
+        durationSeconds: episode.durationSeconds,
+      };
+      if (enqueue) enqueueTrack(track);
+      else playTrack(track);
+    } catch (reason) {
+      setPlaybackError(reason instanceof Error ? reason.message : 'Unable to prepare playback');
+    } finally {
+      setPreparingEpisode(null);
+    }
+  }
 
   return (
     <main className="appShell">
@@ -78,6 +113,7 @@ export default function ShowPage() {
             </div>
           </header>
           <div className="eyebrow sectionEyebrow">EPISODES</div>
+          {playbackError && <p className="errorText" role="alert">{playbackError}</p>}
           {show.episodes.length ? <div style={{ display: 'grid', gap: 12 }}>
             {show.episodes.map((episode, index) => <article key={episode.id} style={{ display: 'grid', gridTemplateColumns: '52px minmax(0,1fr) auto', alignItems: 'center', gap: 16, padding: 18, border: '1px solid var(--border, #30303a)', borderRadius: 16, background: 'var(--surface, #15151c)' }}>
               <div style={{ width: 52, height: 52, borderRadius: 12, background: '#28233f', color: '#c4b5fd', display: 'grid', placeItems: 'center', fontWeight: 800 }}>{String(index + 1).padStart(2, '0')}</div>
@@ -85,7 +121,11 @@ export default function ShowPage() {
                 <h3 style={{ margin: '0 0 5px' }}>{episode.title}</h3>
                 <p style={{ margin: 0, color: 'var(--muted, #a1a1aa)', fontSize: 14 }}>{episode.description || 'Listen to this episode'} · {duration(episode.durationSeconds)}{episode.isExplicit ? ' · Explicit' : ''}{episode.membershipRequired ? ' · Members' : ''}</p>
               </div>
-              <Link className="button small" href={'/episodes/' + episode.id}>Listen ↗</Link>
+              <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                <button className="button small" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode)}>{preparingEpisode === episode.id ? 'Preparing…' : '▶ Play'}</button>
+                <button className="ghostButton" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode, true)}>＋ Queue</button>
+                <Link className="textLink" href={'/episodes/' + episode.id}>Details</Link>
+              </div>
             </article>)}
           </div> : <div className="emptyState"><p>No published episodes yet.</p></div>}
         </>}
