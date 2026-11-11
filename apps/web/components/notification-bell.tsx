@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from '../lib/api';
 
-const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\\/$/, '');
+const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
 type StreamNotice = { id: string; readAt?: string | null };
 type StreamPayload = { notification?: StreamNotice | null; refresh?: boolean };
@@ -59,12 +59,12 @@ export function NotificationBell() {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          let boundary = buffer.indexOf('\\n\\n');
+          let boundary = buffer.indexOf('\n\n');
           while (boundary >= 0) {
             const frame = buffer.slice(0, boundary);
             buffer = buffer.slice(boundary + 2);
-            const eventName = frame.split('\\n').find(line => line.startsWith('event:'))?.slice(6).trim();
-            const data = frame.split('\\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\\n');
+            const eventName = frame.split('\n').find(line => line.startsWith('event:'))?.slice(6).trim();
+            const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).join('\n');
             if (eventName === 'notification.created' && data) {
               try {
                 const payload = JSON.parse(data) as StreamPayload;
@@ -77,7 +77,7 @@ export function NotificationBell() {
                 }
               } catch { /* Ignore malformed event frames and keep the stream alive. */ }
             }
-            boundary = buffer.indexOf('\\n\\n');
+            boundary = buffer.indexOf('\n\n');
           }
         }
         if (active && !controller.signal.aborted) throw new Error('Notification stream closed');
