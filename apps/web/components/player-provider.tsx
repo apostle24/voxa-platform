@@ -199,6 +199,41 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [currentTrack, playNext]);
 
+  useEffect(() => {
+    if (typeof navigator === 'undefined' || !('mediaSession' in navigator) || !currentTrack) return;
+    const session = navigator.mediaSession;
+    if ('MediaMetadata' in window) {
+      session.metadata = new MediaMetadata({
+        title: currentTrack.title,
+        artist: currentTrack.creatorName,
+        album: currentTrack.showTitle,
+        artwork: currentTrack.artworkUrl ? [
+          { src: currentTrack.artworkUrl, sizes: '96x96' },
+          { src: currentTrack.artworkUrl, sizes: '256x256' },
+          { src: currentTrack.artworkUrl, sizes: '512x512' },
+        ] : [],
+      });
+    }
+    session.playbackState = isPlaying ? 'playing' : 'paused';
+    const setAction = (action: MediaSessionAction, handler: MediaSessionActionHandler | null) => {
+      try { session.setActionHandler(action, handler); } catch { /* Unsupported action on this browser */ }
+    };
+    setAction('play', () => togglePlayback());
+    setAction('pause', () => togglePlayback());
+    setAction('nexttrack', () => playNext());
+    setAction('seekbackward', details => seek(Math.max(0, currentTime - (details.seekOffset || 15))));
+    setAction('seekforward', details => seek(Math.min(duration || currentTime + 15, currentTime + (details.seekOffset || 15))));
+    setAction('seekto', details => { if (typeof details.seekTime === 'number') seek(details.seekTime); });
+    if (duration > 0 && Number.isFinite(currentTime)) {
+      try { session.setPositionState({ duration, playbackRate: 1, position: Math.min(currentTime, duration) }); } catch { /* Position state is optional */ }
+    }
+    return () => {
+      for (const action of ['play', 'pause', 'nexttrack', 'seekbackward', 'seekforward', 'seekto'] as MediaSessionAction[]) {
+        setAction(action, null);
+      }
+    };
+  }, [currentTrack, isPlaying, currentTime, duration, togglePlayback, playNext, seek]);
+
   return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, togglePlayback, playNext, seek }}>
     {children}
     <audio ref={audioRef} preload="metadata" aria-hidden="true" style={{ display: 'none' }} />
