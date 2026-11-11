@@ -106,6 +106,8 @@ model User {
   ledgerAccounts LedgerAccount[]
   paymentAttempts PaymentAttempt[]
   authSessions AuthSession[]
+  emailVerifiedAt DateTime?
+  emailActionTokens EmailActionToken[]
 }
 
 model Creator {
@@ -479,4 +481,18 @@ model AuthSession {
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, revokedAt, expiresAt])
+}
+
+
+model EmailActionToken {
+  id        String   @id @default(cuid())
+  userId    String
+  tokenHash String   @unique
+  purpose   String
+  expiresAt DateTime
+  consumedAt DateTime?
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose, consumedAt, expiresAt])
 }
