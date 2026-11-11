@@ -41,6 +41,7 @@ export default function LoginPage() {
         <label>Email address</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="you@example.com" />
         <label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={mode==='register'?10:1} maxLength={72} placeholder={mode==='register'?'At least 10 characters':'Your password'} />
         {mode==='register' && <small>Use at least 10 characters, including uppercase, lowercase, and a number.</small>}
+        {mode === 'login' && <p><Link href="/forgot-password">Forgot password?</Link> · <Link href="/verify-email">Verify email</Link></p>}
         {error && <p className="errorText">{error}</p>}
         <button className="button full" disabled={busy}>{busy?'Please wait…':mode==='login'?'Sign in to VOXA ↗':'Create my account ↗'}</button>
       </form>
