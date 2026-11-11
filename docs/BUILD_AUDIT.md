@@ -1,3 +1,48 @@
+# Integration branch addendum — 11 November 2026
+
+> This addendum describes the newer integration candidate and supersedes older statements below wherever they conflict. The original audit was based on an earlier `main` commit; it does not describe all work now present on the integration branches.
+
+## Current integration evidence
+
+- Full-stack candidate: PR #27, branch `integration/full-stack`, commit `0140e4f142947b39aa2c1bd4996eb712a0a3e24c`.
+- PR #27 is open and draft; it is not merged to `main`.
+- GitHub Actions runs [43027653881](https://github.com/apostle24/voxa-platform/actions/runs/43027653881) and [43027633770](https://github.com/apostle24/voxa-platform/actions/runs/43027633770) completed successfully.
+- Both successful runs include frozen dependency install, Prisma schema validation/generation, media-worker syntax check, isolated media-worker Docker image build, API/web typecheck, API unit tests, API build and web build.
+- Auth/security integration PR #26 also passed its corrected CI runs 43027605503 and 43027590805.
+- Discovery integration PR #25 had previously passed its CI checks.
+- Documentation and staging checklist: [INTEGRATION_TEST_PLAN.md](INTEGRATION_TEST_PLAN.md).
+
+## Features now present in the integrated candidate
+
+In addition to the earlier MVP foundations documented below, the integration candidate includes:
+- Persistent listener player and discovery inline play/queue.
+- Creator follow/profile journeys and listening history.
+- Episode community engagement and VOXA Moments engagement/feed foundations.
+- Creator analytics and live host insights.
+- Live audience presence, reconnect recovery, signed LiveKit webhook lifecycle, recording/replay pipeline foundations, replay discovery/archive and player restoration.
+- Creator profile/show/episode editing, account profile/password settings and session listing/revocation.
+- Email verification and password recovery using hashed, expiring, one-time tokens.
+- TOTP MFA with encrypted secrets, one-use hashed backup codes and TOTP replay protection.
+- Creator retry action for failed media processing.
+
+## Critical unresolved verification gap: database migration baseline
+
+The current migration folder contains feature migrations but no initial migration that creates the foundational `User`, `Creator`, `Show` and `Episode` tables. The earliest visible feature migration creates `MediaAsset` with a foreign key to the pre-existing `Episode` table. The CI workflow validates the Prisma schema and generates Prisma Client but does not provision PostgreSQL or execute `prisma migrate deploy`.
+
+Consequently, a green CI result does **not** establish that a new empty database can be initialized from the repository's migration history. Before staging, the team must establish the authoritative baseline strategy and add PostgreSQL-backed migration CI. Do not invent a baseline or run destructive resets against shared data.
+
+## Release status
+
+- Code-level combined CI: passed on PR #27's current candidate commit.
+- Merge to `main`: not performed.
+- Database migration replay on empty PostgreSQL: not verified.
+- Browser end-to-end journeys: not verified.
+- Real S3/media-worker, LiveKit, email-provider or Paystack staging flows: not verified.
+- Production deployment: not performed or verified.
+- Payout execution, settlement scheduler and LiveKit recording remain default-off pending explicit staging and operational approval.
+
+---
+
 # VOXA Build Audit — 11 November 2026
 
 ## Audit identity and evidence

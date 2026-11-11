@@ -2,7 +2,7 @@
 
 VOXA is being built as a global podcast, audio/video, creator, live-conversation and community platform. The product direction includes on-demand shows, live rooms, creator communities, VOXA Moments, memberships, and a global creator economy.
 
-> **Current status: early functional web/API MVP, not production-ready.** The repository now contains real authentication, creator and podcast APIs, a web listening journey, a Creator Studio upload/publish flow, a LiveKit-connected web room client, in-app notifications, and a GHS Paystack membership/ledger/payout foundation. Production identity security, media processing, trust-and-safety operations, mobile apps, several social features, deployment, and real-provider staging verification remain incomplete.
+> **Current status: integrated development build; not production-ready.** The full-stack integration candidate combines podcast publishing/playback, creator and listener journeys, VOXA Moments, live rooms, replay, account profile/session controls, email verification, password recovery and TOTP MFA. Its combined GitHub CI checks have passed, including API/web typechecks, API unit tests, production builds and the media-worker image build. This does not yet prove database migration deployment, browser end-to-end behavior, real-provider staging, or production operation. See [the integration and staging verification plan](docs/INTEGRATION_TEST_PLAN.md).
 
 ## Repository structure
 
@@ -39,7 +39,9 @@ There is **no mobile app source tree yet** and no shared contracts package yet. 
 - Live room discovery and room creation.
 - LiveKit browser SDK connection, microphone/camera controls, and host/audience token permissions.
 - Audience stage requests, host approval/rejection, speaker removal and room ending.
-- Room-scoped ephemeral chat and reactions over LiveKit data channels.
+- Room-scoped persistent chat and reactions, audience presence, reconnect recovery, signed LiveKit webhook lifecycle, and host-controlled recording/replay foundations.
+
+Recording remains feature-flagged and needs explicit participant consent controls and real Egress/S3 staging verification.
 
 LIVE is not yet a fully moderated broadcast product: moderator roles, reliable presence, chat moderation, capacity controls, recording/replays, scheduled-room orchestration and extensive real-device/load testing remain outstanding.
 
@@ -50,6 +52,12 @@ LIVE is not yet a fully moderated broadcast product: moderator roles, reliable p
 - `/shows/[showId]` — public show page
 - `/episodes/[episodeId]` — audio/video episode player
 - `/library` — bookmarks and listening progress
+- `/following` — followed creators
+- `/history` — listening history
+- `/moments` — VOXA Moments
+- `/replays` — published live replays
+- `/settings/profile` and `/settings/security` — account and MFA settings
+- `/forgot-password`, `/reset-password`, `/verify-email` — account recovery and verification
 - `/creator/setup` — creator onboarding
 - `/creator/[handle]` — public creator page
 - `/creator/studio` — show/episode management
@@ -63,7 +71,8 @@ LIVE is not yet a fully moderated broadcast product: moderator roles, reliable p
 
 The API uses the global `/v1` prefix. Core endpoint groups include:
 
-- Authentication: `POST /v1/auth/register`, `POST /v1/auth/login`.
+- Authentication: registration/login, rotating refresh-token sessions, logout/current-all-session revocation, email verification, password recovery, TOTP MFA and one-time backup codes.
+- Account security: profile/password updates and authenticated session listing/revocation.
 - Creators: `POST/PATCH /v1/creators/me`, `GET /v1/creators/:handle`, follow/unfollow.
 - Podcast: show and episode draft, publish, public reads, discovery, bookmarks and playback progress.
 - Media: signed upload URL, upload completion, public/member playback URL.
@@ -126,20 +135,22 @@ GitHub Actions workflow `.github/workflows/api-ci.yml` currently performs:
 
 1. Frozen pnpm dependency installation using the committed `pnpm-lock.yaml`.
 2. Prisma schema validation and Prisma Client generation.
-3. API and web TypeScript typechecking.
-4. API unit tests.
-5. API build.
-6. Web build.
+3. Media-worker syntax validation and isolated Docker image build.
+4. API and web TypeScript typechecking.
+5. API unit tests.
+6. API and web production builds.
+
+The current full-stack integration candidate is PR #27 (`integration/full-stack`); its two latest CI runs completed successfully. The PR remains a draft and has not been merged to `main`.
 
 A successful CI run verifies schema/build/typecheck/tests; it does **not** replace database-backed integration tests, real-provider staging tests, browser end-to-end tests, security review or production deployment verification.
 
 ## Security and production limitations
 
-- Authentication is still MVP-grade. Browser access tokens currently use `sessionStorage`; refresh-token rotation, secure HTTP-only cookie sessions, email verification, password recovery, MFA, device/session revocation and rate limiting remain to be implemented.
+- Authentication now includes short-lived browser access tokens, hashed rotating refresh sessions in HttpOnly cookies, replay rejection, session revocation, trusted-origin checks, process-local login/registration throttling, email verification, password recovery, TOTP MFA and one-time backup codes. Shared rate limiting across API replicas and full staging security verification remain outstanding.
 - Initial administrator creation is an operator-run one-time script: from `apps/api`, run `pnpm admin:bootstrap` with `DATABASE_URL`, `VOXA_BOOTSTRAP_ADMIN_EMAIL` and `VOXA_BOOTSTRAP_ADMIN_PASSWORD` set securely. It refuses to create a second administrator or promote an existing account. Never expose this as a public endpoint.
-- Media upload currently checks declared MIME type, object metadata and size. It does not inspect file signatures/codecs, scan malware, moderate content, transcode, create adaptive HLS/DASH renditions or deliver through a configured CDN. Uploaded originals are served through short-lived signed URLs.
+- Media upload and processing now include ownership/metadata/signature checks, a separate worker, malware scanning, FFprobe inspection and FFmpeg MP3 or H.264/AAC MP4 processing. The worker is packaged and CI-built but has not yet been deployed and verified against real staging storage and media. Adaptive HLS/DASH, CDN delivery, thumbnails, transcripts, content moderation and copyright workflows remain outstanding.
 - Notifications are persisted in the inbox; push and email delivery are not implemented.
-- No automated end-to-end tests, load tests, penetration tests, backup/restore drills, incident alerting or production observability are included yet.
+- Database-backed migration deployment from an empty database, browser end-to-end tests, load/penetration tests, backup/restore drills, incident alerting and production observability remain outstanding. The migration baseline must be established before claiming that a fresh database can be initialized from migration history.
 - Report/block/mute/ban/appeal workflows, copyright takedowns, age controls, community discussions, VOXA Moments, gifts, tips, wallets, ticketing, ads, sponsorships, and AI recommendations remain future work.
 - There is no mobile application yet.
 
@@ -148,6 +159,7 @@ Do not commit provider credentials, production database URLs, signing secrets, o
 ## Project documents
 
 - [Full build audit and staged implementation plan](docs/BUILD_AUDIT.md)
+- [Integration and staging verification plan](docs/INTEGRATION_TEST_PLAN.md)
 - [Product specification](docs/PRODUCT_SPEC.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [VOXA LIVE design](docs/VOXA_LIVE.md)
