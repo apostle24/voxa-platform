@@ -24,6 +24,7 @@ type Episode = {
   semanticScore?: number;
   semanticExcerpt?: string;
   semanticExcerptStartSeconds?: number | null;
+  semanticExcerptEndSeconds?: number | null;
   semanticExcerptSpeaker?: string | null;
   show: { id: string; title: string; creator: { handle: string; user: { displayName: string } } };
 };
@@ -290,7 +291,7 @@ export default function DiscoverPage() {
                 <button className="button small" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode)}>{preparingEpisode === episode.id ? 'Preparing…' : '▶ Play'}</button>
                 <button className="ghostButton" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode, true)}>＋ Queue</button>
               </div>
-              {semanticMode && episode.semanticExcerpt ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}><small style={{ color: 'var(--purple)' }}>MEANING MATCH · SCORE {(episode.semanticScore || 0).toFixed(2)}</small><p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 6 }}>{episode.semanticExcerpt}{episode.semanticExcerptSpeaker ? ' — ' + episode.semanticExcerptSpeaker : ''}</p>{episode.semanticExcerptStartSeconds != null ? <Link href={'/episodes/' + episode.id + '?t=' + Math.floor(episode.semanticExcerptStartSeconds)} className="textLink">Jump to transcript moment ↗</Link> : null}</div> : null}
+              {semanticMode && episode.semanticExcerpt ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}><small style={{ color: 'var(--purple)' }}>MEANING MATCH · SCORE {(episode.semanticScore || 0).toFixed(2)}{episode.semanticExcerptStartSeconds != null ? ' · ' + Math.floor(episode.semanticExcerptStartSeconds / 60) + ':' + String(Math.floor(episode.semanticExcerptStartSeconds % 60)).padStart(2, '0') : ''}</small><p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 6 }}>{episode.semanticExcerpt}{episode.semanticExcerptSpeaker ? ' — ' + episode.semanticExcerptSpeaker : ''}</p>{episode.semanticExcerptStartSeconds != null ? <Link href={'/episodes/' + episode.id + '?t=' + Math.floor(episode.semanticExcerptStartSeconds)} className="textLink">Jump to transcript moment ↗</Link> : null}</div> : null}
               {!semanticMode && !activeAiTopic && query.trim() && episode.matchingMoments?.length ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
                 <small style={{ color: 'var(--muted)', letterSpacing: '.06em' }}>MATCHING MOMENTS</small>
                 {episode.matchingMoments.map((moment, index) => <Link key={index} href={'/episodes/' + episode.id + '?t=' + Math.floor(moment.startSeconds)} style={{ display: 'block', marginTop: 9, color: 'inherit', textDecoration: 'none', fontSize: 13 }}>
