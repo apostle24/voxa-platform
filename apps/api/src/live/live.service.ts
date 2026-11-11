@@ -920,6 +920,9 @@ export class LiveService {
     if (!inviteeId || inviteeId === room.hostId || inviteeId === inviterId) throw new BadRequestException('Choose a different VOXA user as the guest');
     const invitee = await this.prisma.user.findUnique({ where: { id: inviteeId }, select: { id: true, displayName: true } });
     if (!invitee) throw new NotFoundException('VOXA guest account not found');
+    if (await this.isRoomCoHost(roomId, inviteeId) || await this.prisma.liveRoomModerator.findUnique({ where: { roomId_userId: { roomId, userId: inviteeId } }, select: { id: true } })) {
+      throw new ConflictException('Room leaders and moderators cannot also be booked as guest speakers');
+    }
     const startsAt = new Date(input.slotStartsAt);
     const endsAt = new Date(input.slotEndsAt);
     const now = Date.now();
@@ -958,7 +961,7 @@ export class LiveService {
     if (!['ACCEPTED', 'DECLINED'].includes(decision)) throw new BadRequestException('Choose accept or decline');
     const invitation = await this.prisma.liveGuestInvitation.findFirst({
       where: { id: invitationId, roomId, inviteeId: userId },
-      select: { id: true, status: true, slotStartsAt: true, slotEndsAt: true },
+      select: { id: true, status: true, inviterId: true, slotStartsAt: true, slotEndsAt: true },
     });
     if (!invitation) throw new NotFoundException('Guest invitation not found');
     if (invitation.status !== 'PENDING') throw new ConflictException('This guest invitation has already been answered or cancelled');
@@ -969,11 +972,18 @@ export class LiveService {
       });
       if (conflict) throw new ConflictException('You already have another accepted speaking slot at this time');
     }
-    return this.prisma.liveGuestInvitation.update({
+    const updated = await this.prisma.liveGuestInvitation.update({
       where: { id: invitationId },
       data: { status: decision, respondedAt: new Date() },
       select: { id: true, roomId: true, status: true, slotStartsAt: true, slotEndsAt: true, respondedAt: true },
     });
+    await createUserNotification(this.prisma, {
+      recipientId: invitation.inviterId, actorId: userId, type: 'LIVE_GUEST_INVITATION_RESPONSE',
+      title: decision === 'ACCEPTED' ? 'Your VOXA LIVE guest accepted' : 'Your VOXA LIVE guest declined',
+      body: 'The invited speaker has ' + decision.toLowerCase() + ' the booked slot.',
+      resourceType: 'live_room', resourceId: roomId, category: 'liveInvitations',
+    });
+    return updated;
   }
 
   async cancelGuestInvitation(actorId: string, roomId: string, invitationId: string) {
@@ -987,6 +997,13 @@ export class LiveService {
       data: { status: 'CANCELLED', respondedAt: new Date() },
     });
     if (!result.count) throw new NotFoundException('Active guest invitation not found');
+    const invitation = await this.prisma.liveGuestInvitation.findFirst({ where: { id: invitationId, roomId }, select: { inviteeId: true } });
+    if (invitation) await createUserNotification(this.prisma, {
+      recipientId: invitation.inviteeId, actorId, type: 'LIVE_GUEST_INVITATION_CANCELLED',
+      title: 'Your VOXA LIVE speaking slot was cancelled',
+      body: 'The host has cancelled your scheduled guest booking.',
+      resourceType: 'live_room', resourceId: roomId, category: 'liveInvitations',
+    });
     return { id: invitationId, status: 'CANCELLED' };
   }
 
