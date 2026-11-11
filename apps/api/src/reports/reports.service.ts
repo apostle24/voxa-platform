@@ -44,9 +44,9 @@ export class ReportsService {
         status: { in: ['NEW', 'REVIEWING'] },
         createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
       },
-      select: { id: true },
+      select: { id: true, status: true },
     });
-    if (duplicate) return { id: duplicate.id, status: 'NEW', duplicate: true };
+    if (duplicate) return { id: duplicate.id, status: duplicate.status, duplicate: true };
     const report = await this.prisma.contentReport.create({
       data: {
         reporterId: userId, targetType: input.targetType, targetId: input.targetId,
