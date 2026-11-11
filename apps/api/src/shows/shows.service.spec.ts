@@ -450,7 +450,7 @@ describe('ShowsService semantic podcast search', () => {
         artworkUrl: null, durationSeconds: 600, isExplicit: false, isLiveReplay: false,
         membershipRequired: false, publishedAt: new Date(),
         show: { id: 'show-1', title: 'Human stories', category: 'Life', language: 'en', creator: { handle: 'host', user: { displayName: 'Host' } } },
-        transcript: { content: 'A conversation about fear and courage', segments: [{ text: 'Choose courage when fear arrives', startSeconds: 45, speaker: 'Host' }] },
+        transcript: { content: 'A conversation about fear and courage', segments: [\n          { text: 'Welcome everyone to the show', startSeconds: 5, endSeconds: 9, speaker: 'Host' },\n          { text: 'Choose courage when fear arrives', startSeconds: 45, endSeconds: 52, speaker: 'Host' },\n        ] },
         intelligence: { summary: 'A hopeful story', topics: ['Resilience'] }, semanticEmbedding: null,
       },
       {
@@ -467,7 +467,7 @@ describe('ShowsService semantic podcast search', () => {
 
     expect(result.items[0].id).toBe('episode-best');
     expect(result.items[0].semanticExcerpt).toContain('Choose courage');
-    expect(result.items[0].semanticExcerptStartSeconds).toBe(45);
+    expect(result.items[0].semanticExcerptStartSeconds).toBe(45);\n    expect(result.items[0].semanticExcerptEndSeconds).toBe(52);
     expect(prisma.episode.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { status: 'PUBLISHED', membershipRequired: false, show: { status: 'PUBLISHED' } },
       take: 250,
