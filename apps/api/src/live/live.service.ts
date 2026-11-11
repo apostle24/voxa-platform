@@ -1,3 +1,4 @@
+import { createUserNotification } from '../notifications/notification-writer';
 import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccessToken, EgressClient, EncodedFileOutput, RoomServiceClient, S3Upload, WebhookReceiver } from 'livekit-server-sdk';
@@ -602,11 +603,20 @@ export class LiveService {
           update: { role: 'SPEAKER', leftAt: null, joinedAt: new Date() },
         });
       }
-      return tx.stageRequest.update({
+      const decision = await tx.stageRequest.update({
         where: { id: requestId },
         data: { status: approve ? 'APPROVED' : 'REJECTED', decidedAt: new Date() },
         select: { id: true, roomId: true, userId: true, status: true, decidedAt: true },
       });
+      if (approve) {
+        await createUserNotification(this.prisma, {
+          recipientId: request.userId, actorId: hostId, type: 'LIVE_STAGE_INVITATION',
+          title: 'You have been invited onto the live stage',
+          body: 'The host approved your request to speak. Return to the live room to join the stage.',
+          resourceType: 'live_room', resourceId: roomId, category: 'liveInvitations',
+        });
+      }
+      return decision;
     });
   }
 }
