@@ -105,6 +105,7 @@ model User {
   membershipSubscriptions MembershipSubscription[] @relation("SubscriberSubscriptions")
   ledgerAccounts LedgerAccount[]
   paymentAttempts PaymentAttempt[]
+  authSessions AuthSession[]
 }
 
 model Creator {
@@ -463,4 +464,19 @@ model PaymentWebhookEvent {
 
   @@unique([provider, eventKey])
   @@index([reference, provider])
+}
+
+
+model AuthSession {
+  id          String   @id @default(cuid())
+  userId      String
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  replacedById String?
+  createdAt   DateTime @default(now())
+  lastUsedAt  DateTime?
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
 }
