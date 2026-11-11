@@ -153,6 +153,7 @@ export default function EpisodePage() {
   const [saving, setSaving] = useState(false);
   const [resumeAt, setResumeAt] = useState(0);
   const [timestampLinkRequested, setTimestampLinkRequested] = useState(false);
+  const [selectedChapterId, setSelectedChapterId] = useState<string | null>(null);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoPlaybackRate, setVideoPlaybackRate] = useState(1);
@@ -191,7 +192,10 @@ export default function EpisodePage() {
         const item = data as Episode;
         if (!active) return;
         setEpisode(item);
-        const requestedTimeValue = new URLSearchParams(window.location.search).get('t');
+        const queryParams = new URLSearchParams(window.location.search);
+        const requestedChapterId = queryParams.get('chapter');
+        if (requestedChapterId) setSelectedChapterId(requestedChapterId);
+        const requestedTimeValue = queryParams.get('t');
         const requestedTime = requestedTimeValue === null ? NaN : Number(requestedTimeValue);
         const hasRequestedTime = Number.isFinite(requestedTime) && requestedTime >= 0;
         if (hasRequestedTime) {
@@ -350,8 +354,18 @@ export default function EpisodePage() {
     if (!episode || !episode.isLiveReplay || !Number.isFinite(seconds) || seconds < 0) return;
     const url = new URL(window.location.href);
     url.searchParams.set('t', String(Math.floor(seconds)));
+    url.searchParams.delete('chapter');
     url.hash = 'replay-player';
     await shareUrl(url.toString(), 'Join this VOXA LIVE replay at ' + formatTime(seconds) + '.', 'Replay moment link copied.');
+  }
+
+  async function shareReplayChapter(chapter: { id: string; title: string; startSeconds: number }) {
+    if (!episode?.isLiveReplay || !Number.isFinite(chapter.startSeconds) || chapter.startSeconds < 0) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('chapter', chapter.id);
+    url.searchParams.set('t', String(Math.floor(chapter.startSeconds)));
+    url.hash = 'replay-player';
+    await shareUrl(url.toString(), 'Watch or listen to "' + chapter.title + '" at ' + formatTime(chapter.startSeconds) + ' in this VOXA LIVE replay.', 'Chapter link copied.');
   }
 
   async function shareUrl(url: string, text: string, copiedMessage: string) {
@@ -418,9 +432,12 @@ export default function EpisodePage() {
             <div className="eyebrow">EPISODE GUIDE</div>
             <h2 style={{ margin: '8px 0 14px' }}>Jump to a chapter.</h2>
             <div style={{ display: 'grid', gap: 8 }}>
-              {chapters.map(chapter => <button key={chapter.id} type="button" className="ghostButton" onClick={() => seekReplay(chapter.startSeconds)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '12px 14px' }}>
-                <span><small style={{ color: 'var(--muted)', marginRight: 12 }}>{String(Math.floor(chapter.startSeconds / 60)).padStart(2, '0')}:{String(chapter.startSeconds % 60).padStart(2, '0')}</small><b>{chapter.title}</b></span><span style={{ color: 'var(--muted)' }}>▶</span>
-              </button>)}
+              {chapters.map(chapter => <div key={chapter.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', border: '1px solid ' + (selectedChapterId === chapter.id ? 'var(--accent, #8b5cf6)' : 'var(--line)'), borderRadius: 10, background: selectedChapterId === chapter.id ? 'var(--surface)' : 'transparent' }}>
+                <button type="button" className="ghostButton" aria-current={selectedChapterId === chapter.id ? 'true' : undefined} onClick={() => { setSelectedChapterId(chapter.id); seekReplay(chapter.startSeconds); }} style={{ display: 'flex', flex: 1, minWidth: 0, alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '5px 4px' }}>
+                  <span><small style={{ color: 'var(--muted)', marginRight: 12, fontVariantNumeric: 'tabular-nums' }}>{String(Math.floor(chapter.startSeconds / 60)).padStart(2, '0')}:{String(chapter.startSeconds % 60).padStart(2, '0')}</small><b>{chapter.title}</b></span><span style={{ color: 'var(--muted)' }}>▶</span>
+                </button>
+                {episode.isLiveReplay && <button type="button" className="ghostButton" onClick={() => void shareReplayChapter(chapter)} aria-label={'Share chapter ' + chapter.title} style={{ flex: '0 0 auto', padding: '6px 9px', fontSize: 12 }}>↗ Share</button>}
+              </div>)}
             </div>
           </section>}
           {intelligence && <section id={episode.isLiveReplay ? 'replay-highlights' : undefined} style={{ scrollMarginTop: 90, marginTop: 30, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
