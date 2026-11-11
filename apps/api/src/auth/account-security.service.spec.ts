@@ -40,7 +40,7 @@ describe('AccountSecurityService', () => {
     expect(token.purpose).toBe('RESET_PASSWORD');
     expect(token.tokenHash).toMatch(/^[a-f0-9]{64}$/);
     expect(token.tokenHash).not.toBe(prisma.emailActionToken.create.mock.calls[0][0].data.rawToken);
-    expect(mail.sendAccountLink).toHaveBeenCalledWith('person@example.com', expect.any(String), expect.any(String), expect.stringContaining('/reset-password?token='));
+    expect(mail.sendAccountLink).toHaveBeenCalledWith('person@example.com', expect.any(String), expect.any(String), expect.stringContaining('/reset-password#token='));
   });
 
   it('consumes a reset token, changes the password and revokes every active session', async () => {
