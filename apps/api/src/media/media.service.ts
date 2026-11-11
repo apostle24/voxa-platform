@@ -254,7 +254,8 @@ export class MediaService {
     if (!render?.playbackKey || render.status !== 'READY') return { ready: false, status: render?.status || 'NOT_REQUESTED', failureReason: render?.failureReason || null };
     const expiresIn = Math.max(60, Math.min(21600, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 3600))));
     const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: render.playbackKey }), { expiresIn });
-    return { ready: true, id: render.id, url, contentType: render.contentType || 'video/mp4', sizeBytes: render.sizeBytes?.toString() || null, aspectRatio: render.aspectRatio, expiresIn };
+    const downloadUrl = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: render.playbackKey, ResponseContentDisposition: 'attachment; filename="voxa-moment.mp4"' }), { expiresIn });
+    return { ready: true, id: render.id, url, downloadUrl, contentType: render.contentType || 'video/mp4', sizeBytes: render.sizeBytes?.toString() || null, aspectRatio: render.aspectRatio, expiresIn };
   }
 
 }
