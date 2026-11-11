@@ -55,6 +55,10 @@ export default function LiveRoomPage() {
   const [agendaTitle, setAgendaTitle] = useState('');
   const [agendaDescription, setAgendaDescription] = useState('');
   const [agendaDuration, setAgendaDuration] = useState('600');
+  const [editingAgendaId, setEditingAgendaId] = useState('');
+  const [agendaEditTitle, setAgendaEditTitle] = useState('');
+  const [agendaEditDescription, setAgendaEditDescription] = useState('');
+  const [agendaEditDuration, setAgendaEditDuration] = useState('600');
   const [handoffSpeakerId, setHandoffSpeakerId] = useState('');
 
   const api = useCallback(async (path: string, method = 'GET', body?: unknown) => {
@@ -295,6 +299,29 @@ export default function LiveRoomPage() {
     finally { setBusy(''); }
   }
 
+
+  function beginAgendaEdit(item: any) {
+    setEditingAgendaId(item.id);
+    setAgendaEditTitle(item.title);
+    setAgendaEditDescription(item.description || '');
+    setAgendaEditDuration(String(item.durationSeconds));
+  }
+
+  async function saveAgendaEdit(event: FormEvent<HTMLFormElement>, itemId: string) {
+    event.preventDefault();
+    setBusy('agenda-edit-' + itemId); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/agenda/' + itemId + '/update', 'POST', {
+        title: agendaEditTitle,
+        description: agendaEditDescription,
+        durationSeconds: Number(agendaEditDuration),
+      });
+      setEditingAgendaId('');
+      await refreshSessionPlan(); await publishSessionPlanUpdate();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to edit agenda segment'); }
+    finally { setBusy(''); }
+  }
+
   async function agendaAction(itemId: string, actionName: 'start' | 'complete' | 'delete') {
     setBusy('agenda-' + actionName + '-' + itemId); setError('');
     try {
@@ -477,9 +504,16 @@ export default function LiveRoomPage() {
           {sessionPlan.activeTurn && <div style={{ padding: 14, margin: '12px 0', borderRadius: 12, background: 'var(--surface)' }}><span className="eyebrow">CURRENT SPEAKER</span><h3 style={{ margin: '5px 0' }}>{sessionPlan.activeTurn.speaker?.displayName || sessionPlan.activeTurn.speakerId}</h3><p className="helperText">Speaking turn started {new Date(sessionPlan.activeTurn.startedAt).toLocaleTimeString()}</p></div>}
           {!sessionPlan.activeTurn && <p className="helperText">No speaker currently has the floor.</p>}
           {sessionPlan.agenda?.length ? <div className="moderationList">{sessionPlan.agenda.map((item: any, index: number) => <div className="moderationRow" key={item.id} style={{ alignItems: 'flex-start' }}>
-            <div style={{ flex: 1 }}><b>{index + 1}. {item.title}</b><small>{item.durationSeconds >= 3600 ? Math.floor(item.durationSeconds / 3600) + 'h ' : ''}{Math.floor(item.durationSeconds % 3600 / 60)}m planned · {item.status}</small>{item.description && <p className="helperText" style={{ marginTop: 5 }}>{item.description}</p>}</div>
-            {(isHost || isModerator) && <div className="moderationActions" style={{ flexWrap: 'wrap' }}>
-              {item.status === 'PENDING' && <><button type="button" className="approveButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'start')}>Start</button><button type="button" className="rejectButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'delete')}>Remove</button></>}
+            <div style={{ flex: 1 }}>
+              {editingAgendaId === item.id ? <form onSubmit={event => void saveAgendaEdit(event, item.id)} style={{ display: 'grid', gap: 8 }}>
+                <input value={agendaEditTitle} onChange={event => setAgendaEditTitle(event.target.value)} minLength={2} maxLength={120} required aria-label="Edit agenda title" style={{ padding: 9, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+                <textarea value={agendaEditDescription} onChange={event => setAgendaEditDescription(event.target.value)} maxLength={500} rows={2} aria-label="Edit agenda description" style={{ padding: 9, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+                <input type="number" min={1} max={14400} required value={agendaEditDuration} onChange={event => setAgendaEditDuration(event.target.value)} aria-label="Edit planned duration in seconds" style={{ padding: 9, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+                <div className="moderationActions"><button className="approveButton" disabled={!!busy}>Save</button><button type="button" className="rejectButton" onClick={() => setEditingAgendaId('')}>Cancel</button></div>
+              </form> : <><b>{index + 1}. {item.title}</b><small>{item.durationSeconds >= 3600 ? Math.floor(item.durationSeconds / 3600) + 'h ' : ''}{Math.floor(item.durationSeconds % 3600 / 60)}m planned · {item.status}</small>{item.description && <p className="helperText" style={{ marginTop: 5 }}>{item.description}</p>}</>}
+            </div>
+            {(isHost || isModerator) && editingAgendaId !== item.id && <div className="moderationActions" style={{ flexWrap: 'wrap' }}>
+              {item.status === 'PENDING' && <><button type="button" className="controlButton" disabled={!!busy} onClick={() => beginAgendaEdit(item)}>Edit</button><button type="button" className="approveButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'start')}>Start</button><button type="button" className="rejectButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'delete')}>Remove</button></>}
               {item.status === 'ACTIVE' && <button type="button" className="approveButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'complete')}>Complete</button>}
               {item.status === 'COMPLETED' && <span className="countBadge">Done</span>}
             </div>}
