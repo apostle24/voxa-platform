@@ -73,7 +73,7 @@ describe('AuthService', () => {
     });
     const result = await service.login({ email: ' PERSON@EXAMPLE.COM ', password: 'Correct-password-123' });
     expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'person@example.com' } });
-    expect(result.user).toMatchObject({ id: 'user-2', email: 'person@example.com', role: 'LISTENER' });
+    expect('user' in result ? result.user : undefined).toMatchObject({ id: 'user-2', email: 'person@example.com', role: 'LISTENER' });
     expect(prisma.authSession.create).toHaveBeenCalled();
   });
 
