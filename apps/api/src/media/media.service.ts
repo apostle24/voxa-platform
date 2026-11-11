@@ -123,6 +123,29 @@ export class MediaService {
     return { uploaded: true, episodeId, mediaAssetId: asset.id, processingStatus: asset.status, mediaKey: objectKey, sizeBytes: head.ContentLength, contentType: head.ContentType };
   }
 
+
+  async getCreatorDraftPreviewUrl(userId: string, episodeId: string) {
+    this.ensureConfigured();
+    const episode = await this.prisma.episode.findFirst({
+      where: {
+        id: episodeId,
+        status: PublicationStatus.DRAFT,
+        show: { creator: { userId } },
+      },
+      select: { id: true, mediaKey: true },
+    });
+    if (!episode) throw new NotFoundException('Draft episode not found');
+    if (!episode.mediaKey) throw new NotFoundException('This draft has no media attached');
+    const asset = await this.prisma.mediaAsset.findFirst({
+      where: { episodeId, objectKey: episode.mediaKey, status: 'READY', playbackKey: { not: null } },
+      select: { playbackKey: true, contentType: true, sizeBytes: true, durationSeconds: true },
+    });
+    if (!asset?.playbackKey) throw new ServiceUnavailableException('This draft is still being processed');
+    const expiresIn = Math.max(60, Math.min(900, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 600))));
+    const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: asset.playbackKey }), { expiresIn });
+    return { url, expiresIn, contentType: asset.contentType || 'application/octet-stream', sizeBytes: asset.sizeBytes.toString(), durationSeconds: asset.durationSeconds ?? null };
+  }
+
   async getPlaybackUrl(episodeId: string, userId?: string) {
     this.ensureConfigured();
     const episode = await this.prisma.episode.findFirst({
