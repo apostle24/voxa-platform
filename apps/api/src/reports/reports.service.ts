@@ -104,8 +104,13 @@ export class ReportsService {
       select: { id: true, status: true, targetType: true, targetId: true },
     });
     if (!report) throw new NotFoundException('Report not found');
-    if (report.status === 'ACTIONED' || report.status === 'DISMISSED') {
-      throw new BadRequestException('This report has already been closed');
+    const isRestore = input.action.startsWith('RESTORE_');
+    if (report.status === 'DISMISSED' || (report.status === 'ACTIONED' && !isRestore) || (report.status !== 'ACTIONED' && isRestore)) {
+      throw new BadRequestException('This report is not in a state that permits this action');
+    }
+    if (isRestore) {
+      const previous = await this.prisma.moderationAction.findFirst({ where: { reportId, action: { startsWith: 'HIDE_' } }, orderBy: { createdAt: 'desc' }, select: { id: true } });
+      if (!previous) throw new BadRequestException('There is no recorded hide action to reverse');
     }
     const expectedType = input.action.endsWith('EPISODE') ? 'EPISODE' : 'MOMENT';
     if (report.targetType !== expectedType) throw new BadRequestException('The moderation action does not match this report target');
@@ -129,7 +134,7 @@ export class ReportsService {
         action: input.action, reason: input.reason.trim(),
       }});
       await tx.contentReport.update({ where: { id: reportId }, data: {
-        status: 'ACTIONED', reviewerId: userId, moderatorNote: input.reason.trim(), reviewedAt: new Date(),
+        status: hide ? 'ACTIONED' : 'REVIEWING', reviewerId: userId, moderatorNote: input.reason.trim(), reviewedAt: hide ? new Date() : null,
       }});
       return { reportId, targetType: report.targetType, targetId: report.targetId, action: input.action, status: 'ACTIONED' };
     });
