@@ -9,7 +9,9 @@ import { Room, RoomEvent } from 'livekit-client';
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type StageState = {
   isHost: boolean;
+  isModerator: boolean;
   hostId: string;
+  moderators: { userId: string; assignedAt: string }[];
   requests: { id: string; userId: string; requestedAt: string }[];
   speakers: { userId: string; role: string; joinedAt: string }[];
   ownRequest: { status: string; requestedAt: string } | null;
@@ -26,6 +28,8 @@ export default function LiveRoomPage() {
   const [status, setStatus] = useState('Not connected');
   const [error, setError] = useState('');
   const [isHost, setIsHost] = useState(false);
+  const [isModerator, setIsModerator] = useState(false);
+  const [moderatorUserId, setModeratorUserId] = useState('');
   const [mic, setMic] = useState(false);
   const [camera, setCamera] = useState(false);
   const [stage, setStage] = useState<StageState | null>(null);
@@ -41,17 +45,17 @@ export default function LiveRoomPage() {
   const [reporting, setReporting] = useState(false);
   const [reported, setReported] = useState(false);
 
-  const api = useCallback(async (path: string, method = 'GET') => {
+  const api = useCallback(async (path: string, method = 'GET', body?: unknown) => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
     if (!token) throw new Error('Please sign in to VOXA first.');
-    const response = await apiFetch(API + path, { method, headers: { Authorization: 'Bearer ' + token } });
+    const response = await apiFetch(API + path, { method, headers: { Authorization: 'Bearer ' + token, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Request failed');
     return data;
   }, []);
 
   const refreshStage = useCallback(async () => {
-    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
+    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); setIsModerator(Boolean(data.isModerator)); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
   }, [api, roomId]);
 
@@ -67,6 +71,7 @@ export default function LiveRoomPage() {
       const roomState = await api('/live/rooms/' + roomId + '/stage');
       setStage(roomState);
       setIsHost(Boolean(roomState.isHost));
+      setIsModerator(Boolean(roomState.isModerator));
       if (roomState.status === 'SCHEDULED' && (!roomState.isHost || (roomState.scheduledAt && new Date(roomState.scheduledAt).getTime() > Date.now()))) {
         setStatus(roomState.scheduledAt ? 'Scheduled · starts ' + new Date(roomState.scheduledAt).toLocaleString() : 'Scheduled · waiting for the host');
         setError('');
@@ -216,6 +221,18 @@ export default function LiveRoomPage() {
     try { await room.localParticipant.setCameraEnabled(!camera); setCamera(!camera); }
     catch (e) { setError(e instanceof Error ? e.message : 'Camera unavailable'); }
   }
+  async function addModerator(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const userId = moderatorUserId.trim();
+    if (!userId) return;
+    setBusy('moderator-add'); setError('');
+    try { await api('/live/rooms/' + roomId + '/moderators', 'POST', { userId }); setModeratorUserId(''); await refreshStage(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Unable to add moderator'); }
+    finally { setBusy(''); }
+  }
+  async function removeModerator(userId: string) {
+    await action('moderator-remove-' + userId, '/live/rooms/' + roomId + '/moderators/' + encodeURIComponent(userId) + '/remove');
+  }
   async function removeSpeaker(userId: string) {
     await action('remove-' + userId, '/live/rooms/' + roomId + '/speakers/' + encodeURIComponent(userId) + '/remove');
   }
@@ -288,7 +305,7 @@ export default function LiveRoomPage() {
           {status === 'Disconnected' && <button className="button" onClick={()=>void connect()}>Reconnect to live room ↻</button>}
           {isHost && <button className="button danger" disabled={busy==='end'} onClick={()=>void endRoom()}>{busy==='end'?'Ending…':'End room'}</button>}
         </div>
-        {isHost && <section className="moderationPanel">
+        {(isHost || isModerator) && <section className="moderationPanel">
           <div className="sectionTitle"><div><span className="eyebrow">HOST CONTROLS</span><h2>Stage requests <span className="countBadge">{stage?.requests.length ?? 0}</span></h2></div><button className="ghostButton" onClick={()=>void refreshStage()}>↻ Refresh</button></div>
           {!stage?.requests.length ? <p className="helperText">No pending requests. New requests appear automatically.</p> : <div className="moderationList">{stage.requests.map(request=><div className="moderationRow" key={request.id}><div><b>Listener</b><small>{request.userId}</small></div><div className="moderationActions"><button className="approveButton" disabled={!!busy} onClick={()=>void action('approve-'+request.id,'/live/rooms/'+roomId+'/stage-requests/'+request.id+'/approve')}>Approve</button><button className="rejectButton" disabled={!!busy} onClick={()=>void action('reject-'+request.id,'/live/rooms/'+roomId+'/stage-requests/'+request.id+'/reject')}>Reject</button></div></div>)}</div>}
           <div className="sectionTitle speakerHeading"><div><span className="eyebrow">ON AIR</span><h2>Speakers</h2></div></div>
@@ -296,6 +313,17 @@ export default function LiveRoomPage() {
         </section>}
         {!isHost && <p className="helperText">{pending ? 'Your request is waiting for the host.' : approved ? 'The host approved your request. Reconnect to refresh your speaking permissions.' : 'You are listening. Request the stage whenever you are ready to speak.'}</p>}
       </>}
+        {isHost && <section className="moderationPanel" style={{ marginTop: 24 }}>
+          <div className="sectionTitle"><div><span className="eyebrow">ROOM TEAM</span><h2>Moderators</h2></div><span className="countBadge">{stage?.moderators?.length || 0}</span></div>
+          <p className="helperText">Assign trusted VOXA members to approve stage requests, remove speakers and moderate room chat. Moderators cannot end the room, manage recording, or appoint other moderators.</p>
+          <form onSubmit={addModerator} style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <input value={moderatorUserId} onChange={event => setModeratorUserId(event.target.value)} placeholder="VOXA user ID" aria-label="Moderator VOXA user ID" style={{ flex: 1, minWidth: 180, padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+            <button className="button small" disabled={!!busy || !moderatorUserId.trim()}>{busy === 'moderator-add' ? 'Adding…' : 'Add moderator'}</button>
+          </form>
+          <div className="moderationList" style={{ marginTop: 14 }}>
+            {stage?.moderators?.length ? stage.moderators.map(moderator => <div className="moderationRow" key={moderator.userId}><div><b>Room moderator</b><small>{moderator.userId}</small></div><button type="button" className="rejectButton" disabled={!!busy} onClick={() => void removeModerator(moderator.userId)}>Remove</button></div>) : <p className="helperText">No moderators assigned yet.</p>}
+          </div>
+        </section>}
       {isHost && <section className="moderationPanel" style={{ marginTop: 24 }}>
         <div className="sectionTitle"><div><span className="eyebrow">LIVE RECORDING</span><h2>Room recording</h2></div><span className="countBadge">{analytics?.room?.recordingStatus || 'NOT_STARTED'}</span></div>
         <p className="helperText">Recording is optional. Only start after every person speaking on stage has clearly agreed. Make sure listeners are informed too.</p>
