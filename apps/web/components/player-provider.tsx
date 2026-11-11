@@ -46,7 +46,71 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [queueOpen, setQueueOpen] = useState(false);\n  const restored = useRef(false);\n\n  const refreshTrack = useCallback(async (saved: VoxaTrack): Promise<VoxaTrack> => {\n    const episodeResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(saved.episodeId));\n    const episode = await episodeResponse.json();\n    if (!episodeResponse.ok) throw new Error(episode.message || 'This episode is no longer available');\n    const token = sessionStorage.getItem('voxa_access_token') || '';\n    if (episode.membershipRequired && !token) throw new Error('Sign in and join the creator membership to continue this episode');\n    const playbackResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(saved.episodeId) + (episode.membershipRequired ? '/member-playback-url' : '/playback-url'), {\n      headers: episode.membershipRequired ? { Authorization: 'Bearer ' + token } : undefined,\n    });\n    const playback = await playbackResponse.json();\n    if (!playbackResponse.ok) throw new Error(playback.message || 'Unable to refresh the playback link');\n    return { ...saved, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, durationSeconds: episode.durationSeconds, contentType: playback.contentType || 'audio/mpeg', url: playback.url };\n  }, []);\n\n  useEffect(() => {\n    let active = true;\n    async function restore() {\n      try {\n        const raw = sessionStorage.getItem('voxa_player_state');\n        if (!raw) return;\n        const saved = JSON.parse(raw) as { currentTrack?: VoxaTrack | null; queue?: VoxaTrack[]; currentTime?: number };\n        const queued = Array.isArray(saved.queue) ? saved.queue : [];\n        const restoredQueue = await Promise.all(queued.slice(0, 50).map(async track => {\n          try { return await refreshTrack(track); } catch { return null; }\n        }));\n        if (!active) return;\n        setQueue(restoredQueue.filter((track): track is VoxaTrack => track !== null));\n        if (saved.currentTrack) {\n          try {\n            const track = await refreshTrack({ ...saved.currentTrack, resumeAt: Math.max(0, Number(saved.currentTime) || saved.currentTrack.resumeAt || 0) });\n            if (!active) return;\n            setCurrentTrack(track);\n            setCurrentTime(track.resumeAt || 0);\n            const audio = audioRef.current;\n            if (audio) {\n              audio.src = track.url;\n              audio.load();\n              if (track.resumeAt && track.resumeAt > 0) {\n                const restorePosition = () => { audio.currentTime = track.resumeAt || 0; audio.removeEventListener('loadedmetadata', restorePosition); };\n                audio.addEventListener('loadedmetadata', restorePosition);\n              }\n            }\n          } catch {\n            sessionStorage.removeItem('voxa_player_state');\n          }\n        }\n      } catch {\n        sessionStorage.removeItem('voxa_player_state');\n      } finally {\n        restored.current = true;\n      }\n    }\n    void restore();\n    return () => { active = false; };\n  }, [refreshTrack]);\n\n  useEffect(() => {\n    if (!restored.current) return;\n    const safeTrack = currentTrack ? { ...currentTrack, url: '' } : null;\n    const safeQueue = queue.map(({ url: _url, ...track }) => track);\n    sessionStorage.setItem('voxa_player_state', JSON.stringify({ currentTrack: safeTrack, queue: safeQueue, currentTime }));\n  }, [currentTrack, queue, currentTime]);
+  const [queueOpen, setQueueOpen] = useState(false);
+  const restored = useRef(false);
+
+  const refreshTrack = useCallback(async (saved: VoxaTrack): Promise<VoxaTrack> => {
+    const episodeResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(saved.episodeId));
+    const episode = await episodeResponse.json();
+    if (!episodeResponse.ok) throw new Error(episode.message || 'This episode is no longer available');
+    const token = sessionStorage.getItem('voxa_access_token') || '';
+    if (episode.membershipRequired && !token) throw new Error('Sign in and join the creator membership to continue this episode');
+    const playbackResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(saved.episodeId) + (episode.membershipRequired ? '/member-playback-url' : '/playback-url'), {
+      headers: episode.membershipRequired ? { Authorization: 'Bearer ' + token } : undefined,
+    });
+    const playback = await playbackResponse.json();
+    if (!playbackResponse.ok) throw new Error(playback.message || 'Unable to refresh the playback link');
+    return { ...saved, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, durationSeconds: episode.durationSeconds, contentType: playback.contentType || 'audio/mpeg', url: playback.url };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    async function restore() {
+      try {
+        const raw = sessionStorage.getItem('voxa_player_state');
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { currentTrack?: VoxaTrack | null; queue?: VoxaTrack[]; currentTime?: number };
+        const queued = Array.isArray(saved.queue) ? saved.queue : [];
+        const restoredQueue = await Promise.all(queued.slice(0, 50).map(async track => {
+          try { return await refreshTrack(track); } catch { return null; }
+        }));
+        if (!active) return;
+        setQueue(restoredQueue.filter((track): track is VoxaTrack => track !== null));
+        if (saved.currentTrack) {
+          try {
+            const track = await refreshTrack({ ...saved.currentTrack, resumeAt: Math.max(0, Number(saved.currentTime) || saved.currentTrack.resumeAt || 0) });
+            if (!active) return;
+            setCurrentTrack(track);
+            setCurrentTime(track.resumeAt || 0);
+            const audio = audioRef.current;
+            if (audio) {
+              audio.src = track.url;
+              audio.load();
+              if (track.resumeAt && track.resumeAt > 0) {
+                const restorePosition = () => { audio.currentTime = track.resumeAt || 0; audio.removeEventListener('loadedmetadata', restorePosition); };
+                audio.addEventListener('loadedmetadata', restorePosition);
+              }
+            }
+          } catch {
+            sessionStorage.removeItem('voxa_player_state');
+          }
+        }
+      } catch {
+        sessionStorage.removeItem('voxa_player_state');
+      } finally {
+        restored.current = true;
+      }
+    }
+    void restore();
+    return () => { active = false; };
+  }, [refreshTrack]);
+
+  useEffect(() => {
+    if (!restored.current) return;
+    const safeTrack = currentTrack ? { ...currentTrack, url: '' } : null;
+    const safeQueue = queue.map(({ url: _url, ...track }) => track);
+    sessionStorage.setItem('voxa_player_state', JSON.stringify({ currentTrack: safeTrack, queue: safeQueue, currentTime }));
+  }, [currentTrack, queue, currentTime]);
 
   const playTrack = useCallback((track: VoxaTrack) => {
     const audio = audioRef.current;
@@ -74,7 +138,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (!queue.length) return;
     const [next, ...rest] = queue;
     setQueue(rest);
-    playTrack(next);
+    void refreshTrack(next).then(playTrack).catch(() => setIsPlaying(false));
   }, [queue, playTrack, refreshTrack]);
 
   const togglePlayback = useCallback(() => {
