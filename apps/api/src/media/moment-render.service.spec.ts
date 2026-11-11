@@ -27,7 +27,7 @@ describe('MediaService Moment rendering', () => {
     await expect(service.createMomentRender('creator-1', 'moment-1', { aspectRatio: '9:16', subtitles: 'A key insight' }))
       .resolves.toMatchObject({ id: 'render-1', queued: true });
     expect(prisma.momentRender.create).toHaveBeenCalledWith({
-      data: { momentId: 'moment-1', aspectRatio: '9:16', subtitles: 'A key insight' },
+      data: { momentId: 'moment-1', aspectRatio: '9:16', subtitles: { text: 'A key insight' } },
       select: { id: true, status: true, aspectRatio: true, createdAt: true },
     });
   });
