@@ -1,0 +1,1 @@
+ALTER TABLE "Episode" ADD COLUMN "isLiveReplay" BOOLEAN NOT NULL DEFAULT false;

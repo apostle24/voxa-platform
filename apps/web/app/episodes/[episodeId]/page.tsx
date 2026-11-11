@@ -17,6 +17,7 @@ type Episode = {
   durationSeconds?: number | null;
   isExplicit: boolean;
   membershipRequired: boolean;
+  isLiveReplay?: boolean;
   show: { id: string; title: string; creator: { handle: string; user: { displayName: string } } };
 };
 
@@ -236,7 +237,7 @@ export default function EpisodePage() {
               ? <img src={episode.artworkUrl} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 18 }} />
               : <div style={{ width: '100%', aspectRatio: '1', borderRadius: 18, background: 'linear-gradient(135deg,#29234c,#8b5cf6)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 64, fontWeight: 800 }}>▶</div>}
             <div>
-              <p className="eyebrow">VOXA EPISODE{episode.membershipRequired ? ' · MEMBERS ONLY' : ''}</p>
+              <p className="eyebrow">{episode.isLiveReplay ? 'VOXA LIVE REPLAY' : 'VOXA EPISODE'}{episode.membershipRequired ? ' · MEMBERS ONLY' : ''}</p>
               <h1 style={{ fontSize: 'clamp(2rem,5vw,3.25rem)', margin: '0.4rem 0' }}>{episode.title}</h1>
               <p style={{ color: 'var(--muted, #a1a1aa)' }}>From <Link href={'/creator/' + encodeURIComponent(episode.show.creator.handle)}>{episode.show.creator.user.displayName}</Link></p>
               <p style={{ lineHeight: 1.7 }}>{episode.description || 'Press play to listen to this episode.'}</p>

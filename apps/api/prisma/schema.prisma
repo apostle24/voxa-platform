@@ -157,6 +157,7 @@ model Episode {
   durationSeconds Int?
   isExplicit      Boolean  @default(false)
   membershipRequired Boolean @default(false)
+  isLiveReplay     Boolean  @default(false)
   status          PublicationStatus @default(DRAFT)
   publishedAt     DateTime?
   createdAt       DateTime @default(now())

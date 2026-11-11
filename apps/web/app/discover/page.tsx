@@ -12,7 +12,7 @@ type Show = {
 };
 type Episode = {
   id: string; title: string; description?: string | null; artworkUrl?: string | null;
-  durationSeconds?: number | null; isExplicit: boolean;
+  durationSeconds?: number | null; isExplicit: boolean; isLiveReplay?: boolean;
   show: { id: string; title: string; creator: { handle: string; user: { displayName: string } } };
 };
 
@@ -101,7 +101,7 @@ export default function DiscoverPage() {
           {episodes.length ? <div className="creatorShowGrid">
             {episodes.map(episode => <Link className="creatorShowCard" href={'/episodes/' + episode.id} key={episode.id}>
               {episode.artworkUrl ? <img src={episode.artworkUrl} alt="" /> : <div style={{ height: 130, borderRadius: 7, background: 'linear-gradient(135deg,#1e3440,#426b76)', display: 'grid', placeItems: 'center', fontSize: 36 }}>▶</div>}
-              <span>EPISODE{episode.isExplicit ? ' · EXPLICIT' : ''}</span><h3>{episode.title}</h3>
+              <span>{episode.isLiveReplay ? 'LIVE REPLAY' : 'EPISODE'}{episode.isExplicit ? ' · EXPLICIT' : ''}</span><h3>{episode.title}</h3>
               <p>{episode.description || 'Listen to this episode.'}</p>
               <small>{episode.show.title} · {episode.show.creator.user.displayName}</small>
             </Link>)}

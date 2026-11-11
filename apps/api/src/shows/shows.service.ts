@@ -176,7 +176,7 @@ export class ShowsService {
         episodes: {
           where: { status: PublicationStatus.PUBLISHED },
           orderBy: { publishedAt: 'desc' },
-          select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, membershipRequired: true, publishedAt: true },
+          select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, membershipRequired: true, isLiveReplay: true, publishedAt: true },
         },
       },
     });
@@ -188,7 +188,7 @@ export class ShowsService {
     const episode = await this.prisma.episode.findFirst({
       where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
       select: {
-        id: true, title: true, description: true, mediaKey: true, artworkUrl: true, durationSeconds: true, isExplicit: true, membershipRequired: true, publishedAt: true,
+        id: true, title: true, description: true, mediaKey: true, artworkUrl: true, durationSeconds: true, isExplicit: true, membershipRequired: true, isLiveReplay: true, publishedAt: true,
         show: { select: { id: true, title: true, creator: { select: { handle: true, user: { select: { displayName: true } } } } } },
       },
     });
@@ -544,7 +544,7 @@ export class ShowsService {
     const items = await this.prisma.episode.findMany({
       where, take: limit + 1, ...(params.cursor ? { skip: 1, cursor: { id: params.cursor } } : {}),
       orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
-      select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, publishedAt: true,
+      select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, isLiveReplay: true, publishedAt: true,
         show: { select: { id: true, title: true, category: true, language: true, creator: { select: { handle: true, user: { select: { displayName: true } } } } } } },
     });
     const hasMore = items.length > limit;
