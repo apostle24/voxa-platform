@@ -43,6 +43,18 @@ export class LiveController {
     return this.live.deleteChatMessage(req.user.id, roomId, messageId);
   }
 
+  @Post('rooms/:roomId/presence/heartbeat')
+  @UseGuards(JwtAuthGuard)
+  heartbeatViewer(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body('sessionId') sessionId: string) {
+    return this.live.heartbeatViewer(req.user.id, roomId, sessionId);
+  }
+
+  @Post('rooms/:roomId/presence/leave')
+  @UseGuards(JwtAuthGuard)
+  leaveViewer(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body('sessionId') sessionId: string) {
+    return this.live.leaveViewer(req.user.id, roomId, sessionId);
+  }
+
   @Get('rooms/:roomId/analytics')
   @UseGuards(JwtAuthGuard)
   getRoomAnalytics(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {

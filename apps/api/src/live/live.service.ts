@@ -70,16 +70,17 @@ export class LiveService {
 
     // DeleteRoom forcibly disconnects all participants and prevents further joins.
     await this.roomServiceClient().deleteRoom(room.id);
-    const ended = await this.prisma.liveRoom.update({
-      where: { id: roomId },
-      data: { status: LiveRoomStatus.ENDED, endedAt: new Date() },
-      select: { id: true, status: true, endedAt: true },
+    return this.prisma.$transaction(async (tx) => {
+      const ended = await tx.liveRoom.update({
+        where: { id: roomId },
+        data: { status: LiveRoomStatus.ENDED, endedAt: new Date() },
+        select: { id: true, status: true, endedAt: true },
+      });
+      const leftAt = ended.endedAt ?? new Date();
+      await tx.liveStageMember.updateMany({ where: { roomId, leftAt: null }, data: { leftAt } });
+      await tx.liveViewerSession.updateMany({ where: { roomId, leftAt: null }, data: { leftAt } });
+      return ended;
     });
-    await this.prisma.liveStageMember.updateMany({
-      where: { roomId, leftAt: null },
-      data: { leftAt: ended.endedAt ?? new Date() },
-    });
-    return ended;
   }
 
   async createRoom(userId: string, input: CreateLiveRoomDto) {
@@ -112,15 +113,64 @@ export class LiveService {
 
 
 
+
+  private validateViewerSessionId(sessionId: string) {
+    if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]{16,128}$/.test(sessionId)) {
+      throw new ConflictException('A valid viewer session ID is required');
+    }
+  }
+
+  async heartbeatViewer(userId: string, roomId: string, sessionId: string) {
+    this.validateViewerSessionId(sessionId);
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, status: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Viewer presence is available only while the room is live');
+    const stageMember = await this.prisma.liveStageMember.findUnique({ where: { roomId_userId: { roomId, userId } }, select: { leftAt: true } });
+    const existingSession = await this.prisma.liveViewerSession.findUnique({ where: { roomId_sessionId: { roomId, sessionId } }, select: { userId: true } });
+    if (existingSession && existingSession.userId !== userId) throw new ForbiddenException('Viewer session belongs to another account');
+    if (room.hostId === userId || (stageMember && stageMember.leftAt === null)) {
+      await this.prisma.liveViewerSession.updateMany({ where: { roomId, userId, leftAt: null }, data: { leftAt: new Date() } });
+      return { tracked: false, reason: 'HOST_OR_SPEAKER' };
+    }
+    const now = new Date();
+    await this.prisma.liveViewerSession.upsert({
+      where: { roomId_sessionId: { roomId, sessionId } },
+      create: { roomId, userId, sessionId, joinedAt: now, lastSeenAt: now },
+      update: { lastSeenAt: now, leftAt: null },
+    });
+    const activeSince = new Date(now.getTime() - 45_000);
+    const [activeUsers, activeStageMembers] = await Promise.all([
+      this.prisma.liveViewerSession.groupBy({ by: ['userId'], where: { roomId, leftAt: null, lastSeenAt: { gte: activeSince } } }),
+      this.prisma.liveStageMember.findMany({ where: { roomId, leftAt: null }, select: { userId: true } }),
+    ]);
+    const excludedUserIds = new Set([room.hostId, ...activeStageMembers.map(member => member.userId)]);
+    const concurrentViewers = activeUsers.filter(viewer => !excludedUserIds.has(viewer.userId)).length;
+    await this.prisma.liveRoom.updateMany({
+      where: { id: roomId, peakAudienceCount: { lt: concurrentViewers } },
+      data: { peakAudienceCount: concurrentViewers },
+    });
+    return { tracked: true, concurrentViewers };
+  }
+
+  async leaveViewer(userId: string, roomId: string, sessionId: string) {
+    this.validateViewerSessionId(sessionId);
+    const result = await this.prisma.liveViewerSession.updateMany({
+      where: { roomId, userId, sessionId, leftAt: null }, data: { leftAt: new Date() },
+    });
+    return { left: result.count > 0 };
+  }
+
   async getRoomAnalytics(hostId: string, roomId: string) {
-    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true, startedAt: true, endedAt: true } });
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true, startedAt: true, endedAt: true, peakAudienceCount: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can view room analytics');
-    const [stageMembers, requestCounts, chatMessageCount, deletedMessageCount] = await Promise.all([
+    const activeSince = new Date(Date.now() - 45_000);
+    const [stageMembers, requestCounts, chatMessageCount, deletedMessageCount, activeViewerUsers] = await Promise.all([
       this.prisma.liveStageMember.findMany({ where: { roomId }, orderBy: { joinedAt: 'asc' }, select: { userId: true, role: true, joinedAt: true, leftAt: true } }),
       this.prisma.stageRequest.groupBy({ by: ['status'], where: { roomId }, _count: { _all: true } }),
       this.prisma.liveChatMessage.count({ where: { roomId } }),
       this.prisma.liveChatMessage.count({ where: { roomId, deletedAt: { not: null } } }),
+      this.prisma.liveViewerSession.groupBy({ by: ['userId'], where: { roomId, leftAt: null, lastSeenAt: { gte: activeSince } } }),
     ]);
     const now = room.endedAt ?? new Date();
     const durationSeconds = room.startedAt ? Math.max(0, Math.floor((now.getTime() - room.startedAt.getTime()) / 1000)) : 0;
@@ -130,12 +180,15 @@ export class LiveService {
       currentlyOnStage: member.leftAt === null,
     }));
     const requests = Object.fromEntries(requestCounts.map(item => [item.status.toLowerCase(), item._count._all]));
+    const stageUserIds = new Set([room.hostId, ...stageMembers.filter(member => member.leftAt === null).map(member => member.userId)]);
+    const concurrentViewers = activeViewerUsers.filter(viewer => !stageUserIds.has(viewer.userId)).length;
     return {
       room: { id: room.id, title: room.title, status: room.status, startedAt: room.startedAt, endedAt: room.endedAt, durationSeconds },
       stage: { totalSpeakerSessions: speakers.length, activeSpeakers: speakers.filter(speaker => speaker.currentlyOnStage).length, speakers },
       requests: { pending: requests.pending ?? 0, approved: requests.approved ?? 0, rejected: requests.rejected ?? 0 },
+      audience: { concurrentViewers, peakConcurrentViewers: room.peakAudienceCount },
       chat: { totalMessages: chatMessageCount, removedMessages: deletedMessageCount, visibleMessages: chatMessageCount - deletedMessageCount },
-      measurementNote: 'VOXA records stage participation and chat activity. Audience listener counts and total unique viewers are not available from the current event data.',
+      measurementNote: 'Concurrent and peak audience counts use authenticated viewer heartbeats. A viewer is present for 45 seconds after their latest heartbeat; brief network interruptions may affect the estimate.',
     };
   }
 
@@ -235,9 +288,14 @@ export class LiveService {
 
     // LiveKit removes the participant and revokes the current token on LiveKit Cloud.
     await this.roomServiceClient().removeParticipant(roomId, speakerId);
-    await this.prisma.liveStageMember.update({
-      where: { roomId_userId: { roomId, userId: speakerId } },
-      data: { leftAt: new Date() },
+    const leftAt = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.liveStageMember.update({
+        where: { roomId_userId: { roomId, userId: speakerId } }, data: { leftAt },
+      });
+      await tx.liveViewerSession.updateMany({
+        where: { roomId, userId: speakerId, leftAt: null }, data: { leftAt },
+      });
     });
     return { roomId, userId: speakerId, removedFromStage: true };
   }
@@ -267,6 +325,9 @@ export class LiveService {
     if (!request) throw new NotFoundException('Pending stage request not found');
     return this.prisma.$transaction(async (tx) => {
       if (approve) {
+        await tx.liveViewerSession.updateMany({
+          where: { roomId, userId: request.userId, leftAt: null }, data: { leftAt: new Date() },
+        });
         await tx.liveStageMember.upsert({
           where: { roomId_userId: { roomId, userId: request.userId } },
           create: { roomId, userId: request.userId, role: 'SPEAKER' },
