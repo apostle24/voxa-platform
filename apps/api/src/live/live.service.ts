@@ -111,6 +111,34 @@ export class LiveService {
   }
 
 
+
+  async getRoomAnalytics(hostId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true, startedAt: true, endedAt: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can view room analytics');
+    const [stageMembers, requestCounts, chatMessageCount, deletedMessageCount] = await Promise.all([
+      this.prisma.liveStageMember.findMany({ where: { roomId }, orderBy: { joinedAt: 'asc' }, select: { userId: true, role: true, joinedAt: true, leftAt: true } }),
+      this.prisma.stageRequest.groupBy({ by: ['status'], where: { roomId }, _count: { _all: true } }),
+      this.prisma.liveChatMessage.count({ where: { roomId } }),
+      this.prisma.liveChatMessage.count({ where: { roomId, deletedAt: { not: null } } }),
+    ]);
+    const now = room.endedAt ?? new Date();
+    const durationSeconds = room.startedAt ? Math.max(0, Math.floor((now.getTime() - room.startedAt.getTime()) / 1000)) : 0;
+    const speakers = stageMembers.map(member => ({
+      userId: member.userId, role: member.role, joinedAt: member.joinedAt, leftAt: member.leftAt,
+      durationSeconds: Math.max(0, Math.floor(((member.leftAt ?? now).getTime() - member.joinedAt.getTime()) / 1000)),
+      currentlyOnStage: member.leftAt === null,
+    }));
+    const requests = Object.fromEntries(requestCounts.map(item => [item.status.toLowerCase(), item._count._all]));
+    return {
+      room: { id: room.id, title: room.title, status: room.status, startedAt: room.startedAt, endedAt: room.endedAt, durationSeconds },
+      stage: { totalSpeakerSessions: speakers.length, activeSpeakers: speakers.filter(speaker => speaker.currentlyOnStage).length, speakers },
+      requests: { pending: requests.pending ?? 0, approved: requests.approved ?? 0, rejected: requests.rejected ?? 0 },
+      chat: { totalMessages: chatMessageCount, removedMessages: deletedMessageCount, visibleMessages: chatMessageCount - deletedMessageCount },
+      measurementNote: 'VOXA records stage participation and chat activity. Audience listener counts and total unique viewers are not available from the current event data.',
+    };
+  }
+
   async getStageState(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');
