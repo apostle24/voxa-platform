@@ -124,6 +124,31 @@ export class MediaService {
   }
 
 
+  async retryFailedProcessing(userId: string, showId: string, episodeId: string) {
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, showId, status: PublicationStatus.DRAFT, show: { creator: { userId } } },
+      select: { id: true, mediaKey: true },
+    });
+    if (!episode) throw new NotFoundException('Draft episode not found');
+    if (!episode.mediaKey) throw new ConflictException('Upload media before retrying processing');
+
+    const result = await this.prisma.mediaAsset.updateMany({
+      where: { episodeId, objectKey: episode.mediaKey, status: 'FAILED' },
+      data: {
+        status: 'QUEUED',
+        failureReason: null,
+        processingStartedAt: null,
+        processingAttempts: 0,
+        processedAt: null,
+        playbackKey: null,
+      },
+    });
+    if (result.count !== 1) {
+      throw new ConflictException('This media is not in a failed state. Refresh the studio and try again.');
+    }
+    return { queued: true, episodeId, processingStatus: 'QUEUED' };
+  }
+
   async getCreatorDraftPreviewUrl(userId: string, episodeId: string) {
     this.ensureConfigured();
     const episode = await this.prisma.episode.findFirst({
