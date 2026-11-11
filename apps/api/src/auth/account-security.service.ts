@@ -18,7 +18,7 @@ export class AccountSecurityService {
     const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, email: true, emailVerifiedAt: true } });
     if (!user || user.emailVerifiedAt) return { accepted: true };
     const raw = await this.issueToken(user.id, 'VERIFY_EMAIL', VERIFY_TTL_MS);
-    const url = this.frontendUrl('/verify-email?token=' + encodeURIComponent(raw));
+    const url = this.frontendUrl('/verify-email#token=' + encodeURIComponent(raw));
     await this.mail.sendAccountLink(user.email, 'Verify your VOXA email', 'Use this link to verify your email. It expires in 24 hours.', url);
     return { accepted: true };
   }
