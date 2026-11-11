@@ -15,6 +15,7 @@ type Episode = {
   mediaAssets: { id: string; status: string; contentType: string }[];
 };
 type MembershipPlan = { id: string; name: string; description?: string | null; priceMinor: number; currency: string; isActive: boolean };
+type CreatorLiveRoom = { id: string; title: string; description?: string | null; isAudioOnly: boolean; status: string; scheduledAt?: string | null; startedAt?: string | null; _count?: { stage: number; requests: number } };
 type Show = {
   id: string; title: string; description?: string | null; status: string;
   category?: string | null; artworkUrl?: string | null; episodes: Episode[];
@@ -24,6 +25,7 @@ export default function CreatorStudioPage() {
   const [token, setToken] = useState('');
   const [shows, setShows] = useState<Show[]>([]);
   const [plans, setPlans] = useState<MembershipPlan[]>([]);
+  const [liveRooms, setLiveRooms] = useState<CreatorLiveRoom[]>([]);
   const [planName, setPlanName] = useState('');
   const [planDescription, setPlanDescription] = useState('');
   const [planPrice, setPlanPrice] = useState('');
@@ -72,6 +74,12 @@ export default function CreatorStudioPage() {
     if (!episodeShowId && data?.[0]?.id) setEpisodeShowId(data[0].id);
   }
 
+  async function loadLiveRooms() {
+    if (!token) return;
+    const data = await request('/live/rooms/me');
+    setLiveRooms(data || []);
+  }
+
   async function loadPlans() {
     if (!token) return;
     const data = await request('/creators/me/membership-plans');
@@ -79,7 +87,7 @@ export default function CreatorStudioPage() {
   }
 
   async function loadWorkspace() {
-    await Promise.all([loadShows(), loadPlans()]);
+    await Promise.all([loadShows(), loadPlans(), loadLiveRooms()]);
   }
 
   useEffect(() => {
@@ -259,6 +267,16 @@ export default function CreatorStudioPage() {
     finally { setBusy(false); }
   }
 
+  async function unpublishEpisode(showId: string, episodeId: string) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/unpublish', { method: 'POST' });
+      await loadShows();
+      setNotice('Episode unpublished. It is now a draft and is no longer available publicly.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to unpublish episode'); }
+    finally { setBusy(false); }
+  }
+
   async function publishEpisode(showId: string, episodeId: string) {
     setBusy(true); setError(''); setNotice('');
     try { await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/publish', { method: 'POST' }); await loadShows(); setPublishedEpisodeId(episodeId); setNotice('Episode published and available to listeners.'); }
@@ -270,13 +288,31 @@ export default function CreatorStudioPage() {
 
   return (
     <main className="appShell">
-      <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/discover">Discover</Link><Link href="/library">My library</Link><Link href="/creator/audience">Audience</Link><Link href="/creator/earnings">Earnings</Link></div></nav>
+      <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/discover">Discover</Link><Link href="/library">My library</Link><Link href="/creator/audience">Audience</Link><Link href="/creator/analytics">Analytics</Link><Link href="/live">VOXA LIVE</Link><Link href="/creator/earnings">Earnings</Link></div></nav>
       <section className="communityPage" style={{ maxWidth: 1120 }}>
         <div className="eyebrow">CREATOR WORKSPACE</div>
         <h1 style={{ fontSize: 'clamp(34px,5vw,54px)', letterSpacing: -2, margin: '12px 0' }}>Creator Studio.</h1>
         <p style={{ color: 'var(--muted)', fontSize: 13 }}>Create a show, publish episodes and manage your audio or video uploads.</p>
         {error && <p className="errorText">{error}</p>}
         {notice && <div style={{ color: '#8ee6b7', fontSize: 12, margin: '12px 0' }}><p>{notice}</p>{publishedEpisodeId && <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}><Link className="textLink" href={'/episodes/' + publishedEpisodeId}>Open published episode ↗</Link><Link className="textLink" href="/discover">View in Discover ↗</Link></div>}</div>}
+        <div className="creatorOverviewGrid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, margin: '22px 0' }}>
+          <article className="membershipCard"><span>YOUR SHOWS</span><h3>{shows.length}</h3><small>Owned show projects</small></article>
+          <article className="membershipCard"><span>PUBLISHED EPISODES</span><h3>{shows.reduce((total, show) => total + show.episodes.filter(episode => episode.status === 'PUBLISHED').length, 0)}</h3><small>Available to listeners</small></article>
+          <article className="membershipCard"><span>EPISODE DRAFTS</span><h3>{shows.reduce((total, show) => total + show.episodes.filter(episode => episode.status !== 'PUBLISHED').length, 0)}</h3><small>Still in production</small></article>
+          <article className="membershipCard"><span>LIVE / SCHEDULED</span><h3>{liveRooms.filter(room => ['LIVE', 'SCHEDULED'].includes(room.status)).length}</h3><small>Your current live sessions</small></article>
+        </div>
+        <section style={{ margin: '12px 0 32px', padding: 20, border: '1px solid var(--line)', borderRadius: 12, background: 'var(--panel)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <div><div className="eyebrow">VOXA LIVE · YOUR ROOMS</div><h2 style={{ margin: '6px 0' }}>Live session management</h2><p style={{ color: 'var(--muted)', fontSize: 12 }}>Open a room to manage your stage, speakers, chat, recording and audience.</p></div>
+            <Link className="button small" href="/live">Create or schedule a live room ↗</Link>
+          </div>
+          {liveRooms.length ? <div style={{ display: 'grid', gap: 9, marginTop: 16 }}>
+            {liveRooms.map(room => <article key={room.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', padding: 12, border: '1px solid var(--line)', borderRadius: 9 }}>
+              <div><span className="eyebrow">{room.status} · {room.isAudioOnly ? 'AUDIO' : 'VIDEO'}</span><h3 style={{ margin: '5px 0' }}>{room.title}</h3><small style={{ color: 'var(--muted)' }}>{room.scheduledAt ? 'Scheduled ' + new Date(room.scheduledAt).toLocaleString() : room.startedAt ? 'Started ' + new Date(room.startedAt).toLocaleString() : 'Created live session'} · {room._count?.stage ?? 0} on stage · {room._count?.requests ?? 0} stage requests</small></div>
+              <Link className="ghostButton" href={'/live/' + room.id}>{room.status === 'LIVE' ? 'Open live control room ↗' : room.status === 'SCHEDULED' ? 'Manage scheduled room ↗' : 'View session ↗'}</Link>
+            </article>)}
+          </div> : <div className="emptyState" style={{ marginTop: 16 }}><h3>No live sessions yet</h3><p>Schedule a conversation or start a live audio/video room for your audience.</p></div>}
+        </section>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16, margin: '28px 0 40px' }}>
           <form className="createPanel" onSubmit={createShow}>
             <div className="eyebrow">01 · NEW SHOW</div><h2>Create a <em>show.</em></h2>
@@ -354,7 +390,7 @@ export default function CreatorStudioPage() {
                   <button className="ghostButton" disabled={busy || plans.length === 0 || episode.status === 'PUBLISHED'} onClick={() => void toggleEpisodeMembership(show.id, episode.id, episode.membershipRequired)}>{episode.membershipRequired ? 'Members only ✓' : 'Make members only'}</button>
                   {episode.status !== 'PUBLISHED' && episode.mediaAssets?.[0]?.status === 'FAILED' && <button className="button small" disabled={busy} onClick={() => void retryMediaProcessing(show.id, episode.id)}>Retry processing</button>}
                   {episode.status !== 'PUBLISHED' && <button className="button small" disabled={busy || show.status !== 'PUBLISHED' || !episode.mediaKey || !episode.durationSeconds || episode.mediaAssets?.[0]?.status !== 'READY'} onClick={() => void publishEpisode(show.id, episode.id)}>{episode.mediaAssets?.[0]?.status === 'READY' ? 'Publish episode' : 'Media processing…'}</button>}
-                  {episode.status === 'PUBLISHED' && <Link className="ghostButton" href={'/episodes/' + episode.id}>Open episode ↗</Link>}
+                  {episode.status === 'PUBLISHED' && <><Link className="ghostButton" href={'/episodes/' + episode.id}>Open episode ↗</Link><button className="ghostButton" disabled={busy} onClick={() => void unpublishEpisode(show.id, episode.id)}>Unpublish</button></>}
                   {episode.status !== 'PUBLISHED' && episode.mediaAssets?.[0]?.status === 'READY' && <button className="ghostButton" onClick={() => void previewDraft(episode.id)}>Preview replay</button>}
                   {draftPreview?.episodeId === episode.id && (draftPreview.contentType.startsWith('video/') ? <video controls playsInline preload="metadata" src={draftPreview.url} style={{ width: '100%', maxHeight: 420, borderRadius: 10, background: '#000' }} /> : <audio controls preload="metadata" src={draftPreview.url} style={{ width: '100%' }} />)}
                 </div>
