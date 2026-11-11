@@ -214,6 +214,13 @@ export class ReportsService {
         actorId: userId, reportId, targetType: 'USER', targetId: target.id,
         action: input.action, reason: input.reason.trim(),
       }});
+      if (input.action === 'WARN_USER') {
+        await tx.notification.create({ data: {
+          recipientId: target.id, actorId: userId, type: 'MODERATION_WARNING',
+          title: 'Account warning from VOXA', body: input.reason.trim(),
+          resourceType: 'MODERATION_REPORT', resourceId: reportId,
+        }});
+      }
       await tx.contentReport.update({ where: { id: reportId }, data: {
         status: 'ACTIONED', reviewerId: userId, moderatorNote: input.reason.trim(), reviewedAt: now,
       }});
