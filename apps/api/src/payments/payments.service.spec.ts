@@ -14,7 +14,12 @@ describe('PaymentsService safety boundaries', () => {
     prisma = {
       payoutRequest: { findUnique: jest.fn(), updateMany: jest.fn() },
       financialAuditLog: { create: jest.fn() },
-      paymentAttempt: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+      paymentAttempt: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), create: jest.fn(), update: jest.fn() },
+      paymentWebhookEvent: { create: jest.fn(), update: jest.fn() },
+      membershipSubscription: { findUnique: jest.fn(), upsert: jest.fn() },
+      creator: { findUniqueOrThrow: jest.fn() },
+      ledgerAccount: { upsert: jest.fn() },
+      ledgerTransaction: { create: jest.fn() },
       membershipPlan: { findFirst: jest.fn() },
       user: { findUnique: jest.fn() },
       $transaction: jest.fn(),
@@ -138,6 +143,93 @@ describe('PaymentsService safety boundaries', () => {
     expect(prisma.paymentAttempt.update).toHaveBeenCalledWith({
       where: { id: 'attempt-1' }, data: { status: 'FAILED' },
     });
+  });
+
+
+  it('posts verified membership revenue and provider fees to separate balanced ledger transactions', async () => {
+    const body = { event: 'charge.success', data: { reference: 'VOXA_TEST' } };
+    const rawBody = Buffer.from(JSON.stringify(body));
+    const signature = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY!)
+      .update(rawBody).digest('hex');
+    const attempt = {
+      id: 'attempt-1', reference: 'VOXA_TEST', provider: 'paystack',
+      userId: 'listener-1', creatorId: 'creator-1', planId: 'plan-1',
+      amountMinor: 10000, currency: 'GHS',
+      platformFeeBps: 1500, platformFeeMinor: 1500, creatorNetMinor: 8500,
+      status: 'INITIALIZED',
+    };
+    prisma.paymentAttempt.findUnique.mockResolvedValue(attempt);
+    prisma.paymentAttempt.findUniqueOrThrow.mockResolvedValue(attempt);
+    prisma.paymentAttempt.update.mockResolvedValue({});
+    prisma.paymentWebhookEvent.create.mockResolvedValue({});
+    prisma.paymentWebhookEvent.update.mockResolvedValue({});
+    prisma.membershipSubscription.findUnique.mockResolvedValue(null);
+    prisma.membershipSubscription.upsert.mockResolvedValue({});
+    prisma.creator.findUniqueOrThrow.mockResolvedValue({ userId: 'creator-user-1' });
+
+    const accountIds = new Map<string, string>();
+    prisma.ledgerAccount.upsert.mockImplementation(async ({ where, create }: any) => {
+      const key = where.accountKey as string;
+      if (!accountIds.has(key)) accountIds.set(key, 'account-' + (accountIds.size + 1));
+      return { id: accountIds.get(key) };
+    });
+    prisma.ledgerTransaction.create
+      .mockResolvedValueOnce({ id: 'membership-ledger-1' })
+      .mockResolvedValueOnce({ id: 'provider-fee-ledger-1' });
+
+    const tx = {
+      paymentWebhookEvent: prisma.paymentWebhookEvent,
+      paymentAttempt: { findUniqueOrThrow: prisma.paymentAttempt.findUniqueOrThrow, update: prisma.paymentAttempt.update },
+      membershipSubscription: prisma.membershipSubscription,
+      creator: prisma.creator,
+      ledgerAccount: prisma.ledgerAccount,
+      ledgerTransaction: prisma.ledgerTransaction,
+    };
+    prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => callback(tx));
+
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        status: true,
+        data: { status: 'success', reference: 'VOXA_TEST', amount: 10000, currency: 'GHS', fees: 200 },
+      }), { status: 200 }),
+    );
+
+    await expect(service.handlePaystackWebhook(body, rawBody, signature)).resolves.toEqual({
+      received: true, membershipActivated: true, transactionId: 'membership-ledger-1',
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.paystack.co/transaction/verify/VOXA_TEST',
+      expect.objectContaining({ headers: { Authorization: 'Bearer test-paystack-secret' } }),
+    );
+    expect(prisma.ledgerTransaction.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        idempotencyKey: 'paystack:membership:VOXA_TEST',
+        type: 'MEMBERSHIP_PAYMENT',
+        amountMinor: 10000,
+        entries: { create: [
+          { accountId: 'account-1', direction: 'DEBIT', amountMinor: 10000 },
+          { accountId: 'account-2', direction: 'CREDIT', amountMinor: 8500 },
+          { accountId: 'account-3', direction: 'CREDIT', amountMinor: 1500 },
+        ] },
+      }),
+    });
+    expect(prisma.ledgerTransaction.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({
+        idempotencyKey: 'paystack:provider-fee:VOXA_TEST',
+        type: 'PROVIDER_PROCESSING_FEE',
+        amountMinor: 200,
+        entries: { create: [
+          { accountId: 'account-4', direction: 'DEBIT', amountMinor: 200 },
+          { accountId: 'account-1', direction: 'CREDIT', amountMinor: 200 },
+        ] },
+      }),
+    });
+    expect(prisma.paymentAttempt.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'attempt-1' },
+      data: expect.objectContaining({ status: 'PAID', providerFeeMinor: 200 }),
+    }));
+    expect(prisma.paymentWebhookEvent.update).toHaveBeenCalled();
   });
 
   it('keeps payout execution disabled unless both explicit safety flags are enabled', async () => {
