@@ -35,6 +35,8 @@ export default function CreatorStudioPage() {
   const [momentCaption, setMomentCaption] = useState('');
   const [momentStart, setMomentStart] = useState('0');
   const [momentEnd, setMomentEnd] = useState('30');
+  const [momentAspect, setMomentAspect] = useState<'9:16' | '16:9'>('9:16');
+  const [momentSubtitles, setMomentSubtitles] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -141,9 +143,12 @@ export default function CreatorStudioPage() {
         method: 'POST',
         body: JSON.stringify({ caption: momentCaption, startSeconds: Number(momentStart), endSeconds: Number(momentEnd) }),
       });
+      await request('/moments/' + encodeURIComponent(created.id) + '/render', {
+        method: 'POST', body: JSON.stringify({ aspectRatio: momentAspect, subtitles: momentSubtitles }),
+      });
       await request('/moments/' + encodeURIComponent(created.id) + '/publish', { method: 'POST' });
-      setMomentCaption('');
-      setNotice('Your VOXA Moment is now published. It is available in the Moments feed.');
+      setMomentCaption(''); setMomentSubtitles('');
+      setNotice('Your VOXA Moment is published. Its trimmed video export is queued; the Moments feed will use the rendered clip when ready.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to publish Moment'); }
     finally { setBusy(false); }
   }
@@ -358,7 +363,9 @@ export default function CreatorStudioPage() {
             <label>Start (seconds)<input required type="number" min={0} value={momentStart} onChange={event => setMomentStart(event.target.value)} /></label>
             <label>End (seconds)<input required type="number" min={1} value={momentEnd} onChange={event => setMomentEnd(event.target.value)} /></label>
           </div>
-          <small>Moments are limited to 90 seconds and can only use fully processed public video episodes. Members-only source episodes are excluded.</small>
+          <label>Video format<select value={momentAspect} onChange={event => setMomentAspect(event.target.value as '9:16' | '16:9')}><option value="9:16">Vertical · 9:16 (short-form)</option><option value="16:9">Horizontal · 16:9 (wide video)</option></select></label>
+          <label>Subtitle overlay<textarea rows={2} maxLength={5000} value={momentSubtitles} onChange={event => setMomentSubtitles(event.target.value)} placeholder="Optional subtitle text burned into the exported clip" /></label>
+          <small>Moments are limited to 90 seconds and can only use fully processed public video episodes. VOXA renders the selected range into a new MP4, crops it to the selected format, and can burn in your subtitle text.</small>
           <button className="button full" disabled={busy || !momentEpisodeId || !momentCaption.trim() || Number(momentEnd) <= Number(momentStart) || Number(momentEnd) - Number(momentStart) > 90}>{busy ? 'Publishing…' : 'Publish Moment'}</button>
           <p><Link className="textLink" href="/moments">View the Moments feed ↗</Link></p>
         </form>
