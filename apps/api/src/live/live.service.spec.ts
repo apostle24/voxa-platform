@@ -65,7 +65,7 @@ describe('LiveService access boundaries', () => {
       recordingTranscript: { language: 'en', segments: [] },
     });
     prisma.liveRoom.update.mockResolvedValue({ id: 'room-1' });
-    prisma.mediaAsset.findUnique.mockResolvedValue({ id: 'asset-1', episodeId: 'episode-1' });
+    prisma.mediaAsset.findUnique.mockResolvedValue({ id: 'asset-1', episodeId: 'episode-1', episode: { isLiveReplay: true } });
     const result = await service.ingestLiveTranscript('room-1', 'test-ingest-secret', {
       language: 'en',
       segments: [{ id: 'seg-1', text: 'Welcome to VOXA', speaker: 'host-1', startSeconds: 2.5, endSeconds: 4 }],
