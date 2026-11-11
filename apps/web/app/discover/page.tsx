@@ -196,11 +196,11 @@ export default function DiscoverPage() {
           <div className="eyebrow sectionEyebrow">LIVE RIGHT NOW</div>
           {liveRooms.length ? <div className="creatorShowGrid">
             {liveRooms.slice(0,6).map(room => <article className="creatorShowCard" key={room.id}>
-              <span style={{ color: 'var(--purple)' }}>● LIVE · {room.isAudioOnly ? 'AUDIO' : 'VIDEO'}</span>
+              <span style={{ color: 'var(--purple)' }}>● LIVE · {room.status === 'LIVE' ? 'LIVE NOW' : 'UPCOMING'} · {room.isAudioOnly ? 'AUDIO' : 'VIDEO'}</span>
               <h3>{room.title}</h3>
               <p>{room.description || 'Join the conversation and meet the people behind the voices.'}</p>
               <small>Hosted by {room.host?.displayName || room.host?.creator?.handle || 'VOXA creator'} · {room._count?.stage ?? 0} on stage</small>
-              <Link className="button small" href={'/live/' + room.id} style={{ display: 'inline-flex', marginTop: 12 }}>Join live room ↗</Link>
+              <Link className="button small" href={'/live/' + room.id} style={{ display: 'inline-flex', marginTop: 12 }}>{room.status === 'LIVE' ? 'Join live room' : 'View room'} ↗</Link>
             </article>)}
           </div> : <div className="emptyState"><p>No public live rooms are open right now.</p><Link className="textLink" href="/live">Explore VOXA LIVE ↗</Link></div>}
           <div className="eyebrow sectionEyebrow">VOXA MOMENTS</div>
