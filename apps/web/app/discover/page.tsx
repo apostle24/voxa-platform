@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { FormEvent, useEffect, useState } from 'react';
+import { apiFetch } from '../../lib/api';
+import { useVoxaPlayer, type VoxaTrack } from '../../components/player-provider';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
@@ -13,6 +15,7 @@ type Show = {
 type Episode = {
   id: string; title: string; description?: string | null; artworkUrl?: string | null;
   durationSeconds?: number | null; isExplicit: boolean; isLiveReplay?: boolean;
+  membershipRequired: boolean;
   show: { id: string; title: string; creator: { handle: string; user: { displayName: string } } };
 };
 
@@ -24,6 +27,9 @@ export default function DiscoverPage() {
   const [category, setCategory] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [preparingEpisode, setPreparingEpisode] = useState<string | null>(null);
+  const [playbackError, setPlaybackError] = useState('');
+  const { playTrack, enqueueTrack } = useVoxaPlayer();
 
   async function load(search = query, selectedCategory = category) {
     setLoading(true);
@@ -56,6 +62,38 @@ export default function DiscoverPage() {
       .catch(() => setCategories([]));
     void load('', '');
   }, []);
+
+  async function prepareEpisode(episode: Episode, enqueue = false) {
+    if (preparingEpisode) return;
+    setPreparingEpisode(episode.id);
+    setPlaybackError('');
+    try {
+      const token = sessionStorage.getItem('voxa_access_token') || '';
+      if (episode.membershipRequired && !token) {
+        throw new Error('Sign in and join this creator’s membership to listen to this episode.');
+      }
+      const endpoint = episode.membershipRequired ? '/member-playback-url' : '/playback-url';
+      const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episode.id) + endpoint);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to prepare this episode');
+      const track: VoxaTrack = {
+        episodeId: episode.id,
+        title: episode.title,
+        showTitle: episode.show.title,
+        creatorName: episode.show.creator.user.displayName,
+        artworkUrl: episode.artworkUrl,
+        url: data.url,
+        contentType: data.contentType || 'audio/mpeg',
+        durationSeconds: episode.durationSeconds,
+      };
+      if (enqueue) enqueueTrack(track);
+      else playTrack(track);
+    } catch (reason) {
+      setPlaybackError(reason instanceof Error ? reason.message : 'Unable to prepare playback');
+    } finally {
+      setPreparingEpisode(null);
+    }
+  }
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -98,13 +136,20 @@ export default function DiscoverPage() {
             </Link>)}
           </div> : <div className="emptyState"><p>No shows match this search yet.</p></div>}
           <div className="eyebrow sectionEyebrow">LATEST EPISODES</div>
+          {playbackError && <p className="errorText" role="alert">{playbackError}</p>}
           {episodes.length ? <div className="creatorShowGrid">
-            {episodes.map(episode => <Link className="creatorShowCard" href={'/episodes/' + episode.id} key={episode.id}>
-              {episode.artworkUrl ? <img src={episode.artworkUrl} alt="" /> : <div style={{ height: 130, borderRadius: 7, background: 'linear-gradient(135deg,#1e3440,#426b76)', display: 'grid', placeItems: 'center', fontSize: 36 }}>▶</div>}
-              <span>{episode.isLiveReplay ? 'LIVE REPLAY' : 'EPISODE'}{episode.isExplicit ? ' · EXPLICIT' : ''}</span><h3>{episode.title}</h3>
-              <p>{episode.description || 'Listen to this episode.'}</p>
-              <small>{episode.show.title} · {episode.show.creator.user.displayName}</small>
-            </Link>)}
+            {episodes.map(episode => <article className="creatorShowCard" key={episode.id}>
+              <Link href={'/episodes/' + episode.id} style={{ color: 'inherit', textDecoration: 'none' }}>
+                {episode.artworkUrl ? <img src={episode.artworkUrl} alt="" /> : <div style={{ height: 130, borderRadius: 7, background: 'linear-gradient(135deg,#1e3440,#426b76)', display: 'grid', placeItems: 'center', fontSize: 36 }}>▶</div>}
+                <span>{episode.isLiveReplay ? 'LIVE REPLAY' : 'EPISODE'}{episode.isExplicit ? ' · EXPLICIT' : ''}{episode.membershipRequired ? ' · MEMBERS' : ''}</span><h3>{episode.title}</h3>
+                <p>{episode.description || 'Listen to this episode.'}</p>
+                <small>{episode.show.title} · {episode.show.creator.user.displayName}</small>
+              </Link>
+              <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', marginTop: 12 }}>
+                <button className="button small" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode)}>{preparingEpisode === episode.id ? 'Preparing…' : '▶ Play'}</button>
+                <button className="ghostButton" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode, true)}>＋ Queue</button>
+              </div>
+            </article>)}
           </div> : <div className="emptyState"><p>No episodes match this search yet.</p></div>}
         </>}
       </section>

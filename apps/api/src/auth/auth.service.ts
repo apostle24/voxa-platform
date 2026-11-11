@@ -11,6 +11,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { MfaService } from './mfa.service';
 
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const REFRESH_TTL_SECONDS = REFRESH_TTL_MS / 1000;
@@ -29,6 +30,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly mfa: MfaService,
   ) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
       throw new Error('JWT_SECRET must be configured with at least 32 characters');
@@ -82,6 +84,26 @@ export class AuthService {
     return { success: true, sessionsRevoked: true };
   }
 
+
+  async listSessions(userId: string) {
+    return this.prisma.authSession.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: { id: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+    });
+  }
+
+  async revokeSession(userId: string, sessionId: string) {
+    const now = new Date();
+    const result = await this.prisma.authSession.updateMany({
+      where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: now } },
+      data: { revokedAt: now },
+    });
+    if (result.count !== 1) throw new NotFoundException('Active session not found');
+    return { success: true, sessionId };
+  }
+
   async register(input: RegisterDto) {
     const email = input.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({
@@ -99,7 +121,7 @@ export class AuthService {
       },
       select: { id: true, email: true, displayName: true, role: true },
     });
-    return this.issueTokens(user);
+    return { verificationRequired: true, user };
   }
 
   async login(input: LoginDto) {
@@ -108,12 +130,20 @@ export class AuthService {
     if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
       throw new UnauthorizedException('Invalid email or password');
     }
+    if (user.emailVerifiedAt === null) {
+      throw new UnauthorizedException('Please verify your email before signing in');
+    }
+    if (await this.mfa.isEnabled(user.id)) return this.mfa.createLoginChallenge(user.id);
     return this.issueTokens({
       id: user.id,
       email: user.email,
       displayName: user.displayName,
       role: user.role,
     });
+  }
+
+  async issueAuthenticatedSession(user: AuthUser) {
+    return this.issueTokens(user);
   }
 
   async refresh(refreshToken: string) {
@@ -136,9 +166,10 @@ export class AuthService {
     const tokenHash = this.hashToken(refreshToken);
     const session = await this.prisma.authSession.findUnique({
       where: { tokenHash },
-      include: { user: { select: { id: true, email: true, displayName: true, role: true } } },
+      include: { user: { select: { id: true, email: true, displayName: true, role: true, emailVerifiedAt: true } } },
     });
     const now = new Date();
+    if (session?.user.emailVerifiedAt === null) throw new UnauthorizedException('Please verify your email before signing in');
     if (!session || session.userId !== claims.sub || session.id !== claims.jti || session.revokedAt || session.expiresAt <= now) {
       throw new UnauthorizedException('Refresh session is invalid or expired');
     }
@@ -177,25 +208,6 @@ export class AuthService {
       });
     }
     return { success: true };
-  }
-
-  async listSessions(userId: string) {
-    return this.prisma.authSession.findMany({
-      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
-      orderBy: { createdAt: 'desc' },
-      take: 30,
-      select: { id: true, createdAt: true, lastUsedAt: true, expiresAt: true },
-    });
-  }
-
-  async revokeSession(userId: string, sessionId: string) {
-    const now = new Date();
-    const result = await this.prisma.authSession.updateMany({
-      where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: now } },
-      data: { revokedAt: now },
-    });
-    if (result.count !== 1) throw new NotFoundException('Active session not found');
-    return { success: true, sessionId };
   }
 
   async logoutAll(userId: string) {
