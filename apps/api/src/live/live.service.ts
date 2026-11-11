@@ -562,7 +562,9 @@ export class LiveService {
         const completed = event.egressInfo.status === LIVEKIT_EGRESS_STATUS_COMPLETE && Boolean(fileLocation);
         const failure = event.egressInfo.status === LIVEKIT_EGRESS_STATUS_COMPLETE
           ? 'LiveKit completed the recording without returning a media file'
-          : 'LiveKit Egress did not complete the recording successfully';
+          : event.egressInfo.status === 4
+            ? 'LiveKit Egress reported a recording failure'
+            : 'LiveKit Egress did not complete the recording successfully';
         await tx.liveRoom.updateMany({
           where: { recordingEgressId: event.egressInfo.egressId },
           data: {
