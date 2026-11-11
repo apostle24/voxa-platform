@@ -125,7 +125,7 @@ export class CreatorsService {
   async getFollowStatus(userId: string, handle: string) {
     const creator = await this.prisma.creator.findUnique({
       where: { handle: handle.toLowerCase() },
-      select: { id: true, userId: true },
+      select: { id: true, userId: true, handle: true },
     });
     if (!creator) throw new NotFoundException('Creator not found');
     if (creator.userId === userId) return { following: false, isOwnProfile: true };
