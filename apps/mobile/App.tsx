@@ -67,16 +67,16 @@ export default function App() {
   const [deepLinkTarget, setDeepLinkTarget] = useState<DeepLinkTarget | null>(null);
 
   function openDeepLink(rawUrl: string) {
-    const match = rawUrl.match(/^voxa:\/\/([^/?#]+)\/([^/?#]+)/i);
+    const match = rawUrl.match(/^voxa:\/\/([^/?#]+)(?:\/([^/?#]+))?/i);
     if (!match) return;
     const kind = match[1].toLowerCase();
+    if (kind === 'notifications') { setTab('Profile'); return; }
+    if (!match[2]) return;
     const id = decodeURIComponent(match[2]);
-    if (!id) return;
     if (kind === 'episodes' || kind === 'episode') { setDeepLinkTarget({ kind: 'episode', id }); setTab('Discover'); }
     else if (kind === 'profiles' || kind === 'creators' || kind === 'creator') { setDeepLinkTarget({ kind: 'creator', id }); setTab('Profile'); }
     else if (kind === 'communities' || kind === 'community') { setDeepLinkTarget({ kind: 'community', id }); setTab('Communities'); }
     else if (kind === 'live' || kind === 'rooms') { setDeepLinkTarget({ kind: 'live', id }); setTab('LIVE'); }
-    else if (kind === 'notifications') setTab('Profile');
   }
 
   function openNotificationData(data: Record<string, unknown>) {
