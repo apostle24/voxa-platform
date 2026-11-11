@@ -347,7 +347,7 @@ export default function EpisodePage() {
         {error && <p className="errorText">{error}</p>}
         {episode && <>
           <Link href={'/shows/' + episode.show.id} style={{ color: 'var(--muted, #a1a1aa)', textDecoration: 'none' }}>← {episode.show.title}</Link>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 220px) 1fr', gap: 28, alignItems: 'center', margin: '2rem 0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 24, alignItems: 'center', margin: '2rem 0' }}>
             {episode.artworkUrl
               ? <img src={episode.artworkUrl} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 18 }} />
               : <div style={{ width: '100%', aspectRatio: '1', borderRadius: 18, background: 'linear-gradient(135deg,#29234c,#8b5cf6)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 64, fontWeight: 800 }}>▶</div>}
@@ -395,7 +395,7 @@ export default function EpisodePage() {
           {transcriptError && <p style={{ color: 'var(--muted)', fontSize: 12 }}>{transcriptError}</p>}
           {audioUrl && <section style={{ border: '1px solid var(--border, #30303a)', background: 'var(--surface, #15151c)', borderRadius: 18, padding: 22 }}>
             {mediaType.startsWith('video/')
-              ? <video
+              ? <><video
                   ref={videoRef}
                   controls
                   playsInline
@@ -413,10 +413,41 @@ export default function EpisodePage() {
                   }}
                   onEnded={() => { const end = videoRef.current?.duration || 0; latestVideoTime.current = end; void saveProgress(end, true); }}
                 />
-              : <div className="episodePlayerActions">
-                  <button className="button" onClick={() => playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>▶ Play episode</button>
-                  <button className="ghostButton" onClick={() => playTrackNext({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>⇥ Play next</button>
-                  <button className="ghostButton" onClick={() => enqueueTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>＋ Add to queue</button>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                  <button type="button" className="ghostButton" aria-label="Rewind 15 seconds" onClick={() => seekReplay(videoCurrentTime - 15, false)}>−15 sec</button>
+                  <button type="button" className="ghostButton" aria-label="Forward 15 seconds" onClick={() => seekReplay(videoCurrentTime + 15, false)}>+15 sec</button>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    Speed
+                    <select aria-label="Video playback speed" value={videoPlaybackRate} onChange={event => {
+                      const rate = Number(event.target.value);
+                      setVideoPlaybackRate(rate);
+                      if (videoRef.current) videoRef.current.playbackRate = rate;
+                    }} style={{ background: 'var(--panel)', color: 'inherit', border: '1px solid var(--line)', borderRadius: 7, padding: '6px 8px' }}>
+                      {[0.75, 1, 1.25, 1.5, 1.75, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+                    </select>
+                  </label>
+                  <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{formatTime(videoCurrentTime)} / {formatTime(videoDuration)}</span>
+                </div>
+                <input aria-label="Replay video position" type="range" min="0" max={Math.max(videoDuration, 1)} step="1" value={Math.min(videoCurrentTime, videoDuration || 0)} onChange={event => seekReplay(Number(event.target.value), false)} style={{ width: '100%', marginTop: 10, accentColor: 'var(--accent, #8b5cf6)' }} />
+              </>
+              : <div style={{ display: 'grid', gap: 12 }}>
+                  <div className="episodePlayerActions">
+                    <button className="button" onClick={() => {
+                      if (currentTrack?.episodeId === episode.id) seek(resumeAt);
+                      else playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt });
+                    }}>{currentTrack?.episodeId === episode.id ? '↻ Resume from saved position' : '▶ Play episode'}</button>
+                    <button className="ghostButton" onClick={() => playTrackNext({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>⇥ Play next</button>
+                    <button className="ghostButton" onClick={() => enqueueTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>＋ Add to queue</button>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                    <button type="button" className="ghostButton" onClick={() => seekReplay((currentTrack?.episodeId === episode.id ? currentTime : resumeAt) - 15, false)}>−15 sec</button>
+                    <button type="button" className="ghostButton" onClick={() => seekReplay((currentTrack?.episodeId === episode.id ? currentTime : resumeAt) + 15, false)}>+15 sec</button>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>Speed
+                      <select aria-label="Audio playback speed" value={playbackRate} onChange={event => changePlaybackRate(Number(event.target.value))} style={{ background: 'var(--panel)', color: 'inherit', border: '1px solid var(--line)', borderRadius: 7, padding: '6px 8px' }}>
+                        {[0.75, 1, 1.25, 1.5, 1.75, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+                      </select>
+                    </label>
+                  </div>
                 </div>}
             <p style={{ color: 'var(--muted, #a1a1aa)', fontSize: 13, marginBottom: 0 }}>
               {resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
