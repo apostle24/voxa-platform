@@ -13,6 +13,32 @@ const EXTENSIONS: Record<string, string> = {
   'video/webm': 'webm', 'video/quicktime': 'mov',
 };
 
+function hasSignature(contentType: string, bytes: Uint8Array): boolean {
+  const ascii = (start: number, value: string) =>
+    value.split('').every((char, index) => bytes[start + index] === char.charCodeAt(0));
+  const isIsoBmff = bytes.length >= 12 && ascii(4, 'ftyp');
+  switch (contentType) {
+    case 'audio/mpeg':
+      return ascii(0, 'ID3') || (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0);
+    case 'audio/mp4':
+    case 'video/mp4':
+      return isIsoBmff && !ascii(8, 'qt  ');
+    case 'video/quicktime':
+      return isIsoBmff && ascii(8, 'qt  ');
+    case 'audio/aac':
+      return bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xf6) === 0xf0;
+    case 'audio/wav':
+      return ascii(0, 'RIFF') && ascii(8, 'WAVE');
+    case 'audio/ogg':
+      return ascii(0, 'OggS');
+    case 'audio/webm':
+    case 'video/webm':
+      return bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
+    default:
+      return false;
+  }
+}
+
 @Injectable()
 export class MediaService {
   private readonly client: S3Client;
@@ -75,6 +101,19 @@ export class MediaService {
       ? Number(this.config.get('MEDIA_MAX_VIDEO_BYTES', 2147483648))
       : Number(this.config.get('MEDIA_MAX_AUDIO_BYTES', 524288000));
     if (head.ContentLength > maxBytes) throw new ConflictException('Uploaded media exceeds the configured size limit');
+
+    // Inspect bytes from object storage; never trust the browser's Content-Type label alone.
+    const sample = await this.client.send(new GetObjectCommand({
+      Bucket: this.bucket, Key: objectKey, Range: 'bytes=0-31',
+    }));
+    if (!sample.Body || typeof (sample.Body as { transformToByteArray?: unknown }).transformToByteArray !== 'function') {
+      throw new ConflictException('Unable to inspect uploaded media signature');
+    }
+    const signature = await (sample.Body as { transformToByteArray: () => Promise<Uint8Array> }).transformToByteArray();
+    if (!hasSignature(head.ContentType, signature)) {
+      throw new ConflictException('Uploaded file signature does not match its declared media type');
+    }
+
     const asset = await this.prisma.mediaAsset.upsert({
       where: { objectKey },
       create: { episodeId, objectKey, contentType: head.ContentType, sizeBytes: BigInt(head.ContentLength), status: 'UPLOADED' },
