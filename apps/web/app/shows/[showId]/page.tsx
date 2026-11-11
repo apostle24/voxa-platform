@@ -16,6 +16,7 @@ type Episode = {
   durationSeconds?: number | null;
   isExplicit: boolean;
   membershipRequired: boolean;
+  isLiveReplay?: boolean;
   publishedAt?: string | null;
 };
 type Show = {
@@ -119,7 +120,7 @@ export default function ShowPage() {
               <div style={{ width: 52, height: 52, borderRadius: 12, background: '#28233f', color: '#c4b5fd', display: 'grid', placeItems: 'center', fontWeight: 800 }}>{String(index + 1).padStart(2, '0')}</div>
               <div>
                 <h3 style={{ margin: '0 0 5px' }}>{episode.title}</h3>
-                <p style={{ margin: 0, color: 'var(--muted, #a1a1aa)', fontSize: 14 }}>{episode.description || 'Listen to this episode'} · {duration(episode.durationSeconds)}{episode.isExplicit ? ' · Explicit' : ''}{episode.membershipRequired ? ' · Members' : ''}</p>
+                <p style={{ margin: 0, color: 'var(--muted, #a1a1aa)', fontSize: 14 }}>{episode.isLiveReplay ? 'Recorded live on VOXA' : episode.description || 'Listen to this episode'} · {duration(episode.durationSeconds)}{episode.isExplicit ? ' · Explicit' : ''}{episode.membershipRequired ? ' · Members' : ''}</p>
               </div>
               <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <button className="button small" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode)}>{preparingEpisode === episode.id ? 'Preparing…' : '▶ Play'}</button>
