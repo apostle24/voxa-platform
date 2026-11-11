@@ -339,6 +339,134 @@ describe('PaymentsService safety boundaries', () => {
     });
   });
 
+
+  it('settles a verified successful payout and books provider fees separately', async () => {
+    const body = { event: 'transfer.success', data: { reference: 'VOXA_PAYOUT_PAID' } };
+    const rawBody = Buffer.from(JSON.stringify(body));
+    const signature = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY!)
+      .update(rawBody).digest('hex');
+    const payout = {
+      id: 'payout-paid-1', reference: 'VOXA_PAYOUT_PAID', provider: 'paystack',
+      amountMinor: 5000, currency: 'GHS', status: 'SUBMITTED',
+      creator: { userId: 'creator-user-1' },
+    };
+    prisma.payoutRequest.findFirst.mockResolvedValue(payout);
+    prisma.payoutRequest.findUniqueOrThrow.mockResolvedValue(payout);
+    prisma.paymentWebhookEvent.create.mockResolvedValue({});
+    prisma.paymentWebhookEvent.update.mockResolvedValue({});
+    prisma.ledgerAccount.findUnique
+      .mockResolvedValueOnce({ id: 'hold-account' })
+      .mockResolvedValueOnce({ id: 'clearing-account' });
+    prisma.ledgerAccount.upsert.mockResolvedValue({ id: 'fee-expense-account' });
+    prisma.ledgerTransaction.create
+      .mockResolvedValueOnce({ id: 'payout-paid-ledger' })
+      .mockResolvedValueOnce({ id: 'payout-fee-ledger' });
+    prisma.payoutRequest.update.mockResolvedValue({});
+    const tx = {
+      paymentWebhookEvent: prisma.paymentWebhookEvent,
+      payoutRequest: prisma.payoutRequest,
+      ledgerAccount: prisma.ledgerAccount,
+      ledgerTransaction: prisma.ledgerTransaction,
+      financialAuditLog: prisma.financialAuditLog,
+    };
+    prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => callback(tx));
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        status: true,
+        data: {
+          status: 'success', reference: 'VOXA_PAYOUT_PAID', amount: 5000,
+          currency: 'GHS', transfer_code: 'TRF_123', fees: 125,
+        },
+      }), { status: 200 }),
+    );
+
+    await expect(service.handlePaystackWebhook(body, rawBody, signature)).resolves.toEqual({
+      received: true, transferEventProcessed: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.paystack.co/transfer/verify/VOXA_PAYOUT_PAID',
+      expect.objectContaining({ headers: { Authorization: 'Bearer test-paystack-secret' } }),
+    );
+    expect(prisma.ledgerTransaction.create).toHaveBeenNthCalledWith(1, {
+      data: expect.objectContaining({
+        idempotencyKey: 'payout-paid:VOXA_PAYOUT_PAID',
+        type: 'CREATOR_PAYOUT_PAID', amountMinor: 5000,
+        entries: { create: [
+          { accountId: 'hold-account', direction: 'DEBIT', amountMinor: 5000 },
+          { accountId: 'clearing-account', direction: 'CREDIT', amountMinor: 5000 },
+        ] },
+      }),
+    });
+    expect(prisma.ledgerTransaction.create).toHaveBeenNthCalledWith(2, {
+      data: expect.objectContaining({
+        idempotencyKey: 'paystack:payout-provider-fee:VOXA_PAYOUT_PAID',
+        type: 'PAYOUT_PROVIDER_PROCESSING_FEE', amountMinor: 125,
+        entries: { create: [
+          { accountId: 'fee-expense-account', direction: 'DEBIT', amountMinor: 125 },
+          { accountId: 'clearing-account', direction: 'CREDIT', amountMinor: 125 },
+        ] },
+      }),
+    });
+    expect(prisma.payoutRequest.update).toHaveBeenCalledWith({
+      where: { id: 'payout-paid-1' },
+      data: expect.objectContaining({ status: 'PAID', providerTransferCode: 'TRF_123' }),
+    });
+  });
+
+  it('returns a reversed paid payout from clearing to creator availability', async () => {
+    const body = { event: 'transfer.reversed', data: { reference: 'VOXA_PAYOUT_REVERSAL' } };
+    const rawBody = Buffer.from(JSON.stringify(body));
+    const signature = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY!)
+      .update(rawBody).digest('hex');
+    const payout = {
+      id: 'payout-reversal-1', reference: 'VOXA_PAYOUT_REVERSAL', provider: 'paystack',
+      amountMinor: 5000, currency: 'GHS', status: 'PAID',
+      creator: { userId: 'creator-user-1' },
+    };
+    prisma.payoutRequest.findFirst.mockResolvedValue(payout);
+    prisma.payoutRequest.findUniqueOrThrow.mockResolvedValue(payout);
+    prisma.paymentWebhookEvent.create.mockResolvedValue({});
+    prisma.paymentWebhookEvent.update.mockResolvedValue({});
+    prisma.ledgerAccount.findUnique.mockResolvedValue({ id: 'clearing-account' });
+    prisma.ledgerAccount.upsert.mockResolvedValue({ id: 'available-account' });
+    prisma.ledgerTransaction.create.mockResolvedValue({ id: 'reversal-ledger' });
+    prisma.payoutRequest.update.mockResolvedValue({});
+    const tx = {
+      paymentWebhookEvent: prisma.paymentWebhookEvent,
+      payoutRequest: prisma.payoutRequest,
+      ledgerAccount: prisma.ledgerAccount,
+      ledgerTransaction: prisma.ledgerTransaction,
+      financialAuditLog: prisma.financialAuditLog,
+    };
+    prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => callback(tx));
+    jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        status: true,
+        data: { status: 'reversed', reference: 'VOXA_PAYOUT_REVERSAL', amount: 5000, currency: 'GHS' },
+      }), { status: 200 }),
+    );
+
+    await expect(service.handlePaystackWebhook(body, rawBody, signature)).resolves.toEqual({
+      received: true, transferEventProcessed: true,
+    });
+
+    expect(prisma.ledgerTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        idempotencyKey: 'payout-reversal:VOXA_PAYOUT_REVERSAL',
+        type: 'CREATOR_PAYOUT_REVERSED', amountMinor: 5000,
+        entries: { create: [
+          { accountId: 'clearing-account', direction: 'DEBIT', amountMinor: 5000 },
+          { accountId: 'available-account', direction: 'CREDIT', amountMinor: 5000 },
+        ] },
+      }),
+    });
+    expect(prisma.payoutRequest.update).toHaveBeenCalledWith({
+      where: { id: 'payout-reversal-1' },
+      data: { status: 'FAILED', failureReason: 'Paystack reversed the transfer' },
+    });
+  });
+
   it('keeps payout execution disabled unless both explicit safety flags are enabled', async () => {
     await expect(service.submitApprovedPayout('admin-1', 'payout-1'))
       .rejects.toBeInstanceOf(ServiceUnavailableException);
