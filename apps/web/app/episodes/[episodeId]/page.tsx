@@ -373,7 +373,7 @@ export default function EpisodePage() {
           </div>
           {episode.isLiveReplay && <>
             <nav aria-label="Replay sections" style={{ position: 'sticky', top: 8, zIndex: 5, display: 'flex', gap: 8, overflowX: 'auto', padding: '10px 12px', margin: '0 0 18px', border: '1px solid var(--line)', borderRadius: 12, background: 'var(--panel)', scrollbarWidth: 'thin' }}>
-              {[['replay-player', 'Replay'], ['replay-chapters', 'Chapters'], ['replay-transcript', 'Transcript'], ['episode-discussion', 'Discussion']].map(([id, label]) => <a key={id} href={'#' + id} style={{ flex: '0 0 auto', padding: '7px 11px', borderRadius: 8, color: 'inherit', textDecoration: 'none', fontSize: 13, background: 'var(--surface)' }}>{label}</a>)}
+              {[['replay-player', 'Replay'], ['replay-chapters', 'Chapters'], ['replay-transcript', 'Transcript'], ['episode-discussion', 'Discussion']].filter(([id]) => id === 'replay-player' ? Boolean(audioUrl) : id === 'replay-chapters' ? chapters.length > 0 : id === 'replay-transcript' ? Boolean(transcript) : true).map(([id, label]) => <a key={id} href={'#' + id} style={{ flex: '0 0 auto', padding: '7px 11px', borderRadius: 8, color: 'inherit', textDecoration: 'none', fontSize: 13, background: 'var(--surface)' }}>{label}</a>)}
             </nav>
             <section aria-label="Live session details" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 10, margin: '0 0 24px' }}>
               {[
