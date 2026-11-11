@@ -71,13 +71,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const playNext = useCallback(() => {
-    setQueue(items => {
-      if (!items.length) return items;
-      const [next, ...rest] = items;
-      window.setTimeout(() => playTrack(next), 0);
-      return rest;
-    });
-  }, [playTrack]);
+    if (!queue.length) return;
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    playTrack(next);
+  }, [queue, playTrack]);
 
   const togglePlayback = useCallback(() => {
     const audio = audioRef.current;
