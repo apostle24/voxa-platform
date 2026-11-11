@@ -4,7 +4,7 @@ import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableEx
 import { ConfigService } from '@nestjs/config';
 import { AccessToken, AgentDispatchClient, EgressClient, EncodedFileOutput, RoomServiceClient, S3Upload, WebhookReceiver } from 'livekit-server-sdk';
 import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
-import { LiveRoomStatus, LiveRoomVisibility } from '@prisma/client';
+import { LiveRoomStatus, LiveRoomVisibility, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
 
@@ -398,7 +398,7 @@ export class LiveService {
       where: { id: roomId, recordingStatus: room.recordingStatus },
       data: {
         recordingStatus: 'STARTING', recordingConsentAt: consentAt, recordingFailure: null,
-        recordingEgressId: null, recordingObjectKey: null, recordingStartedAt: null, recordingEndedAt: null,
+        recordingEgressId: null, recordingObjectKey: null, recordingTranscript: Prisma.DbNull, recordingStartedAt: null, recordingEndedAt: null,
       },
     });
     if (claimed.count !== 1) throw new ConflictException('Recording state changed; refresh and try again');
@@ -471,8 +471,8 @@ export class LiveService {
         const slash = location.indexOf('/');
         if (slash > 0 && location.slice(0, slash) === bucket) objectKey = location.slice(slash + 1);
       }
-      const asset = await this.prisma.mediaAsset.findUnique({ where: { objectKey }, select: { id: true, episodeId: true } });
-      if (asset) {
+      const asset = await this.prisma.mediaAsset.findUnique({ where: { objectKey }, select: { id: true, episodeId: true, episode: { select: { isLiveReplay: true } } } });
+      if (asset?.episode.isLiveReplay) {
         const content = segments.map((segment) => {
           const minutes = Math.floor(segment.startSeconds / 60);
           const seconds = Math.floor(segment.startSeconds % 60).toString().padStart(2, '0');
