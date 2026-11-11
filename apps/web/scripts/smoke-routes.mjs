@@ -33,5 +33,5 @@ for (const route of routes) {
   assert.equal(response.status, 200, route + ' should render (received ' + response.status + ')');
   const html = await response.text();
   assert.ok(html.includes('<html') || html.includes('<!DOCTYPE html'), route + ' should return an HTML document');
-  process.stdout.write('PASS ' + route + '\\n');
+  process.stdout.write('PASS ' + route + '\n');
 }
