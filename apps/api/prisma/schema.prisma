@@ -175,6 +175,7 @@ model Episode {
   mediaAssets     MediaAsset[]
   moments         Moment[]
   comments        EpisodeComment[]
+  transcript      EpisodeTranscript?
   likes           EpisodeLike[]
 
   @@index([showId, status, publishedAt])
@@ -724,4 +725,14 @@ model CommunityPost {
 
   @@index([communityId, createdAt])
   @@index([authorId, createdAt])
+}
+
+
+model EpisodeTranscript {
+  id        String   @id @default(cuid())
+  episodeId String   @unique
+  content   String   @db.Text
+  language  String   @default("en")
+  updatedAt DateTime @updatedAt
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
 }
