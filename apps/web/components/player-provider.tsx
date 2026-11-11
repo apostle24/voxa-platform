@@ -211,12 +211,6 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setPlaybackRate(safeRate);
   }, []);
 
-  const changePlaybackRate = useCallback((rate: number) => {
-    const safeRate = Math.min(2, Math.max(0.5, rate));
-    if (audioRef.current) audioRef.current.playbackRate = safeRate;
-    setPlaybackRate(safeRate);
-  }, []);
-
   const seek = useCallback((seconds: number) => {
     const audio = audioRef.current;
     if (!audio) return;
