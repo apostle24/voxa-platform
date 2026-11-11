@@ -139,6 +139,9 @@ export default function EpisodePage() {
   const [saving, setSaving] = useState(false);
   const [resumeAt, setResumeAt] = useState(0);
   const [token, setToken] = useState('');
+  const [transcript, setTranscript] = useState<{ content: string; language: string } | null>(null);
+  const [transcriptQuery, setTranscriptQuery] = useState('');
+  const [transcriptError, setTranscriptError] = useState('');
 
   const saveProgress = useCallback(async (positionSeconds: number, force = false) => {
     if (!token || !episodeId || (!force && Date.now() - lastSavedAt.current < 15000)) return;
@@ -169,6 +172,17 @@ export default function EpisodePage() {
         const item = data as Episode;
         if (!active) return;
         setEpisode(item);
+        try {
+          const transcriptResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-transcript' : '/transcript'),
+            { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
+          if (transcriptResponse.ok) {
+            const transcriptData = await transcriptResponse.json();
+            if (active && transcriptData?.content) setTranscript(transcriptData);
+          } else if (transcriptResponse.status !== 404) {
+            const transcriptData = await transcriptResponse.json().catch(() => ({}));
+            if (active) setTranscriptError(transcriptData.message || 'Transcript unavailable');
+          }
+        } catch { if (active) setTranscriptError('Transcript unavailable'); }
 
         if (item.membershipRequired && !accessToken) {
           throw new Error('This is a members-only episode. Sign in and join the creator membership to listen.');
@@ -244,6 +258,13 @@ export default function EpisodePage() {
               <button className="button small" onClick={() => void toggleBookmark()}>{bookmarked ? 'Saved ✓' : '＋ Save episode'}</button>
             </div>
           </div>
+          {transcript && <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+            <div className="eyebrow">EPISODE TRANSCRIPT · {transcript.language.toUpperCase()}</div>
+            <h2 style={{ margin: '8px 0 14px' }}>Read along.</h2>
+            <input value={transcriptQuery} onChange={event => setTranscriptQuery(event.target.value)} placeholder="Find a word or phrase in this transcript…" aria-label="Search transcript" style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit', marginBottom: 14 }} />
+            <div style={{ maxHeight: 420, overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.85, fontSize: 14 }}>{transcriptQuery.trim() ? (transcript.content.split(/\n+/).filter(line => line.toLowerCase().includes(transcriptQuery.toLowerCase())).join('\n') || 'No matching transcript lines.') : transcript.content}</div>
+          </section>}
+          {transcriptError && <p style={{ color: 'var(--muted)', fontSize: 12 }}>{transcriptError}</p>}
           {audioUrl && <section style={{ border: '1px solid var(--border, #30303a)', background: 'var(--surface, #15151c)', borderRadius: 18, padding: 22 }}>
             {mediaType.startsWith('video/')
               ? <video
