@@ -23,6 +23,14 @@ export default function CommunityDetailPage() {
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Community not found');
     setCommunity(data);
+    const token = sessionStorage.getItem('voxa_access_token') || '';
+    if (token) {
+      const membershipResponse = await apiFetch(API + '/communities/' + data.id + '/membership', { headers: { Authorization: 'Bearer ' + token } });
+      if (membershipResponse.ok) {
+        const membershipData = await membershipResponse.json();
+        setJoined(Boolean(membershipData.joined));
+      }
+    }
   }
   useEffect(() => { void load().catch(e => setError(e.message)); }, [params.slug]);
 
