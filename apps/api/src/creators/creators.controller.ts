@@ -35,6 +35,12 @@ export class CreatorsController {
     return this.creators.getByHandle(handle);
   }
 
+  @Get(':handle/follow-status')
+  @UseGuards(JwtAuthGuard)
+  followStatus(@Req() request: AuthenticatedRequest, @Param('handle') handle: string) {
+    return this.creators.getFollowStatus(request.user.id, handle);
+  }
+
   @Post(':handle/follow')
   @UseGuards(JwtAuthGuard)
   follow(@Req() request: AuthenticatedRequest, @Param('handle') handle: string) {
