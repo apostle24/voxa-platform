@@ -12,9 +12,10 @@ import { PaymentsModule } from './payments/payments.module';
 import { ShowsModule } from './shows/shows.module';
 import { HealthController } from './health.controller';
 import { PrismaModule } from './prisma/prisma.module';
+import { ReportsModule } from './reports/reports.module';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, CreatorsModule, ShowsModule, MediaModule, LiveModule, NotificationsModule, MembershipsModule, LedgerModule, PaymentsModule],
+  imports: [ConfigModule.forRoot({ isGlobal: true }), PrismaModule, AuthModule, CreatorsModule, ShowsModule, MediaModule, LiveModule, NotificationsModule, MembershipsModule, LedgerModule, PaymentsModule, ReportsModule],
   controllers: [HealthController, CatalogController],
 })
 export class AppModule {}

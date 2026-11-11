@@ -115,6 +115,8 @@ model User {
   emailActionTokens EmailActionToken[]
   mfaCredential MfaCredential?
   mfaChallenges MfaLoginChallenge[]
+  submittedReports ContentReport[] @relation("ReportSubmitter")
+  reviewedReports ContentReport[] @relation("ReportReviewer")
 }
 
 model Creator {
@@ -676,4 +678,51 @@ model MfaLoginChallenge {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt, consumedAt])
+}
+
+
+enum ReportTargetType {
+  EPISODE
+  MOMENT
+  LIVE_ROOM
+  USER
+}
+
+enum ReportReason {
+  HARASSMENT
+  HATE
+  VIOLENCE
+  SEXUAL_CONTENT
+  SPAM
+  COPYRIGHT
+  SELF_HARM
+  OTHER
+}
+
+enum ReportStatus {
+  NEW
+  REVIEWING
+  ACTIONED
+  DISMISSED
+}
+
+model ContentReport {
+  id             String           @id @default(cuid())
+  reporterId     String
+  targetType     ReportTargetType
+  targetId       String
+  reason         ReportReason
+  details        String?
+  status         ReportStatus     @default(NEW)
+  reviewerId     String?
+  moderatorNote  String?
+  reviewedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  reporter       User             @relation("ReportSubmitter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reviewer       User?            @relation("ReportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([reporterId, createdAt])
 }
