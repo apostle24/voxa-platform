@@ -127,6 +127,7 @@ model User {
   creator     Creator?
   follows     Follow[]   @relation("Follower")
   liveRooms   LiveRoom[] @relation("RoomHost")
+  liveRoomModerations LiveRoomModerator[]
   liveChatMessages LiveChatMessage[]
   bookmarks   EpisodeBookmark[]
   playbackProgress PlaybackProgress[]
@@ -400,6 +401,7 @@ model LiveRoomModerator {
   userId     String
   assignedAt DateTime @default(now())
   room       LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roomId, userId])
   @@index([userId, assignedAt])
