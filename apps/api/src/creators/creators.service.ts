@@ -79,6 +79,20 @@ export class CreatorsService {
     };
   }
 
+  async getFollowStatus(userId: string, handle: string) {
+    const creator = await this.prisma.creator.findUnique({
+      where: { handle: handle.toLowerCase() },
+      select: { id: true, userId: true },
+    });
+    if (!creator) throw new NotFoundException('Creator not found');
+    if (creator.userId === userId) return { following: false, isOwnProfile: true };
+    const follow = await this.prisma.follow.findUnique({
+      where: { followerId_creatorId: { followerId: userId, creatorId: creator.id } },
+      select: { followerId: true },
+    });
+    return { following: Boolean(follow), isOwnProfile: false };
+  }
+
   async follow(userId: string, handle: string) {
     const creator = await this.prisma.creator.findUnique({
       where: { handle: handle.toLowerCase() },
