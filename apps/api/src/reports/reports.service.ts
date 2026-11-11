@@ -149,4 +149,74 @@ export class ReportsService {
     });
     return result;
   }
+
+  async applyAccountAction(userId: string, reportId: string, input: {
+    action: 'WARN_USER' | 'SUSPEND_USER' | 'REINSTATE_USER';
+    reason: string;
+    suspensionDays?: number;
+  }) {
+    const actor = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (!actor || !['ADMIN', 'MODERATOR'].includes(actor.role)) throw new ForbiddenException('Moderator access required');
+    const report = await this.prisma.contentReport.findUnique({
+      where: { id: reportId },
+      select: { id: true, status: true, targetType: true, targetId: true },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+    if (report.targetType !== 'USER') throw new BadRequestException('This report is not for an account');
+    const reinstate = input.action === 'REINSTATE_USER';
+    if (report.status === 'DISMISSED' || (!reinstate && report.status === 'ACTIONED') || (reinstate && report.status !== 'ACTIONED')) {
+      throw new BadRequestException('This report is not in a state that permits this action');
+    }
+    const target = await this.prisma.user.findUnique({
+      where: { id: report.targetId },
+      select: { id: true, role: true, suspendedUntil: true },
+    });
+    if (!target) throw new NotFoundException('Reported account no longer exists');
+    if (target.role === 'ADMIN' || (target.role === 'MODERATOR' && actor.role !== 'ADMIN')) {
+      throw new ForbiddenException('Your role does not permit moderation of this account');
+    }
+    if (input.action === 'SUSPEND_USER') {
+      if (![1, 7, 30].includes(input.suspensionDays || 0)) {
+        throw new BadRequestException('Choose a suspension duration of 1, 7 or 30 days');
+      }
+      if (target.suspendedUntil && target.suspendedUntil > new Date()) {
+        throw new BadRequestException('This account is already suspended');
+      }
+    }
+    if (reinstate) {
+      const previous = await this.prisma.moderationAction.findFirst({
+        where: { reportId, targetType: 'USER', targetId: report.targetId, action: 'SUSPEND_USER' },
+        orderBy: { createdAt: 'desc' }, select: { id: true },
+      });
+      if (!previous || !target.suspendedUntil) throw new BadRequestException('There is no active or recorded suspension to reverse');
+    }
+    const now = new Date();
+    const suspendedUntil = input.action === 'SUSPEND_USER'
+      ? new Date(now.getTime() + (input.suspensionDays as number) * 24 * 60 * 60 * 1000)
+      : null;
+    return this.prisma.$transaction(async (tx) => {
+      if (input.action === 'SUSPEND_USER') {
+        const changed = await tx.user.updateMany({
+          where: { id: target.id, OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: now } }] },
+          data: { suspendedUntil, suspensionReason: input.reason.trim() },
+        });
+        if (changed.count !== 1) throw new BadRequestException('This account is already suspended');
+        await tx.authSession.updateMany({ where: { userId: target.id, revokedAt: null }, data: { revokedAt: now } });
+      } else if (reinstate) {
+        const changed = await tx.user.updateMany({
+          where: { id: target.id, suspendedUntil: { not: null } },
+          data: { suspendedUntil: null, suspensionReason: null },
+        });
+        if (changed.count !== 1) throw new BadRequestException('This account is not currently suspended');
+      }
+      await tx.moderationAction.create({ data: {
+        actorId: userId, reportId, targetType: 'USER', targetId: target.id,
+        action: input.action, reason: input.reason.trim(),
+      }});
+      await tx.contentReport.update({ where: { id: reportId }, data: {
+        status: 'ACTIONED', reviewerId: userId, moderatorNote: input.reason.trim(), reviewedAt: now,
+      }});
+      return { reportId, targetType: 'USER', targetId: target.id, action: input.action, status: 'ACTIONED', suspendedUntil };
+    });
+  }
 }
