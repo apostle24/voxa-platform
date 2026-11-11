@@ -11,11 +11,11 @@ describe('LiveService access boundaries', () => {
 
   beforeEach(() => {
     prisma = {
-      liveRoom: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+      liveRoom: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn() },
-      stageRequest: { upsert: jest.fn(), groupBy: jest.fn() },
+      stageRequest: { upsert: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), groupBy: jest.fn() },
       liveKitWebhookEvent: { createMany: jest.fn() },
       $transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
     };
@@ -81,6 +81,31 @@ describe('LiveService access boundaries', () => {
     receiver.mockRestore();
   });
 
+
+
+  it('includes the scheduled start time in the public live room listing', async () => {
+    const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
+    prisma.liveRoom.findMany.mockResolvedValue([{
+      id: 'room-scheduled', title: 'Global Creator Roundtable', status: 'SCHEDULED', scheduledAt,
+    }]);
+    const rooms = await service.listLiveRooms();
+    expect(prisma.liveRoom.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: { in: ['LIVE', 'SCHEDULED'] }, visibility: 'PUBLIC' },
+      select: expect.objectContaining({ scheduledAt: true }),
+    }));
+    expect(rooms[0].scheduledAt).toEqual(scheduledAt);
+  });
+
+  it('returns scheduled start time with host stage state', async () => {
+    const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED', scheduledAt,
+    });
+    prisma.stageRequest.findMany.mockResolvedValue([]);
+    prisma.liveStageMember.findMany.mockResolvedValue([]);
+    const state = await service.getStageState('host-1', 'room-scheduled');
+    expect(state).toEqual(expect.objectContaining({ isHost: true, status: 'SCHEDULED', scheduledAt }));
+  });
 
   it('creates a scheduled room with its requested start time', async () => {
     const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
