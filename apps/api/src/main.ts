@@ -6,6 +6,8 @@ import { AppModule } from './app.module';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   app.setGlobalPrefix('v1');
+  const express = require('express');
+  app.use('/v1/live/webhooks/livekit', express.raw({ type: 'application/webhook+json', limit: '1mb' }));
   app.enableShutdownHooks();
   app.enableCors({
     origin: process.env.CORS_ORIGINS?.split(',').map((origin) => origin.trim()).filter(Boolean) ?? false,

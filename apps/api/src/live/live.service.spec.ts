@@ -1,5 +1,6 @@
 import { ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { WebhookReceiver } from 'livekit-server-sdk';
 import { PrismaService } from '../prisma/prisma.service';
 import { LiveService } from './live.service';
 
@@ -15,6 +16,7 @@ describe('LiveService access boundaries', () => {
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn() },
       stageRequest: { upsert: jest.fn(), groupBy: jest.fn() },
+      liveKitWebhookEvent: { createMany: jest.fn() },
       $transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
     };
     config = {
@@ -25,6 +27,42 @@ describe('LiveService access boundaries', () => {
       } as Record<string, string>)[key]),
     };
     service = new LiveService(prisma as unknown as PrismaService, config as unknown as ConfigService);
+  });
+
+  it('verifies and idempotently reconciles a participant-left webhook', async () => {
+    const receiver = jest.spyOn(WebhookReceiver.prototype, 'receive').mockResolvedValue({
+      id: 'evt-left-1', event: 'participant_left', room: { name: 'room-1' },
+      participant: { identity: 'viewer-1' },
+    } as any);
+    prisma.liveKitWebhookEvent.createMany.mockResolvedValue({ count: 1 });
+    prisma.liveViewerSession.updateMany.mockResolvedValue({ count: 1 });
+    prisma.liveStageMember.updateMany.mockResolvedValue({ count: 0 });
+    const result = await service.receiveLiveKitWebhook('{"event":"participant_left"}', 'signed-token');
+    expect(result).toEqual({ received: true, duplicate: false, event: 'participant_left' });
+    expect(receiver).toHaveBeenCalledWith('{"event":"participant_left"}', 'signed-token');
+    expect(prisma.liveViewerSession.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { roomId: 'room-1', userId: 'viewer-1', leftAt: null },
+    }));
+    receiver.mockRestore();
+  });
+
+  it('does not reprocess duplicate LiveKit webhook deliveries', async () => {
+    const receiver = jest.spyOn(WebhookReceiver.prototype, 'receive').mockResolvedValue({
+      id: 'evt-left-duplicate', event: 'participant_left', room: { name: 'room-1' },
+      participant: { identity: 'viewer-1' },
+    } as any);
+    prisma.liveKitWebhookEvent.createMany.mockResolvedValue({ count: 0 });
+    const result = await service.receiveLiveKitWebhook('{"event":"participant_left"}', 'signed-token');
+    expect(result).toEqual({ received: true, duplicate: true });
+    expect(prisma.liveViewerSession.updateMany).not.toHaveBeenCalled();
+    receiver.mockRestore();
+  });
+
+  it('rejects invalid LiveKit webhook signatures', async () => {
+    const receiver = jest.spyOn(WebhookReceiver.prototype, 'receive').mockRejectedValue(new Error('bad signature'));
+    await expect(service.receiveLiveKitWebhook('{"event":"room_finished"}', 'invalid'))
+      .rejects.toThrow('LiveKit webhook signature verification failed');
+    receiver.mockRestore();
   });
 
   it('does not issue a join token to a non-host for a restricted room', async () => {
