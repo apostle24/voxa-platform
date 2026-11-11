@@ -209,6 +209,17 @@ describe('LiveService access boundaries', () => {
     await expect(service.joinToken('listener-1', 'room-1')).rejects.toBeInstanceOf(ForbiddenException);
   });
 
+
+  it('does not grant a stage member microphone publishing permission until the host hands over the floor', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC',
+      stage: [{ userId: 'speaker-2', role: 'SPEAKER' }],
+    });
+    prisma.liveSpeakerTurn.findFirst.mockResolvedValue(null);
+    const result = await service.joinToken('speaker-2', 'room-1');
+    expect(result.canPublish).toBe(false);
+  });
+
   it('does not allow stage requests in restricted rooms', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({
       id: 'room-1',
@@ -437,7 +448,8 @@ describe('LiveService access boundaries', () => {
     prisma.liveStageMember.findUnique.mockResolvedValue({ userId: 'speaker-2', leftAt: null });
     prisma.liveSpeakerTurn.findFirst.mockResolvedValue({ speakerId: 'speaker-1' });
     prisma.liveStageMember.findMany.mockResolvedValue([{ userId: 'speaker-1' }, { userId: 'speaker-2' }]);
-    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ listParticipants: jest.fn().mockResolvedValue([{ identity: 'speaker-1' }, { identity: 'speaker-2' }]), updateParticipant: jest.fn().mockResolvedValue({}) });
+    const liveKitClient = { listParticipants: jest.fn().mockResolvedValue([{ identity: 'speaker-1' }, { identity: 'speaker-2' }]), updateParticipant: jest.fn().mockResolvedValue({}) };
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue(liveKitClient);
     prisma.liveSpeakerTurn.create.mockResolvedValue({ id: 'turn-2', speakerId: 'speaker-2', status: 'ACTIVE' });
     await expect(service.handoffSpeaker('host-1', 'room-1', 'speaker-2'))
       .resolves.toMatchObject({ id: 'turn-2', speakerId: 'speaker-2', status: 'ACTIVE' });
@@ -448,6 +460,8 @@ describe('LiveService access boundaries', () => {
     expect(prisma.liveSpeakerTurn.create).toHaveBeenCalledWith(expect.objectContaining({
       data: { roomId: 'room-1', speakerId: 'speaker-2', agendaItemId: null },
     }));
+    expect(liveKitClient.updateParticipant).toHaveBeenCalledWith('room-1', 'speaker-2', undefined, expect.objectContaining({ canPublish: true }));
+    expect(liveKitClient.updateParticipant).toHaveBeenCalledWith('room-1', 'speaker-1', undefined, expect.objectContaining({ canPublish: false }));
   });
 
   it('starts a pending agenda segment and completes any previously active segment', async () => {
