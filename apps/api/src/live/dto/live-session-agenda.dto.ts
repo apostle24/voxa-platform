@@ -1,4 +1,4 @@
-import { IsInt, IsOptional, IsString, Length, MaxLength, Min } from 'class-validator';
+import { IsInt, IsOptional, IsString, Length, Max, MaxLength, Min } from 'class-validator';
 
 export class CreateLiveAgendaItemDto {
   @IsString()
