@@ -12,8 +12,8 @@ describe('AuthService', () => {
   beforeEach(() => {
     process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters-long';
     prisma = {
-      user: { findUnique: jest.fn(), create: jest.fn() },
-      authSession: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
+      user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
+      authSession: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn(),
     };
     jwt = {
@@ -25,6 +25,62 @@ describe('AuthService', () => {
   });
 
   afterAll(() => { delete process.env.JWT_SECRET; });
+
+  it('returns only the authenticated account profile fields', async () => {
+    const profile = { id: 'user-10', email: 'listener@example.com', displayName: 'Listener', role: 'LISTENER', createdAt: new Date(), creator: null };
+    prisma.user.findUnique.mockResolvedValue(profile);
+    await expect(service.getMyProfile('user-10')).resolves.toEqual(profile);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'user-10' },
+      select: { id: true, email: true, displayName: true, role: true, createdAt: true, creator: { select: { handle: true } } },
+    });
+  });
+
+  it('normalizes and persists the account display name', async () => {
+    prisma.user.update.mockResolvedValue({ id: 'user-10', email: 'listener@example.com', displayName: 'Joshua Manyikina', role: 'LISTENER' });
+    await expect(service.updateMyProfile('user-10', '  Joshua   Manyikina  ')).resolves.toMatchObject({ displayName: 'Joshua Manyikina' });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-10' }, data: { displayName: 'Joshua Manyikina' },
+      select: { id: true, email: true, displayName: true, role: true },
+    });
+  });
+
+  it('rejects a display name that is blank after trimming', async () => {
+    await expect(service.updateMyProfile('user-10', '   ')).rejects.toThrow('Display name must be between 2 and 80 characters');
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
+
+  it('changes the password after verifying the current password and revokes all refresh sessions atomically', async () => {
+    const oldHash = await bcrypt.hash('Current-password-123', 4);
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-4', passwordHash: oldHash });
+    const tx = {
+      user: { update: jest.fn().mockResolvedValue({}) },
+      authSession: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
+    };
+    prisma.$transaction.mockImplementation((callback: any) => callback(tx));
+
+    await expect(service.changePassword('user-4', 'Current-password-123', 'Brand-new-password-456'))
+      .resolves.toEqual({ success: true, sessionsRevoked: true });
+    const savedHash = tx.user.update.mock.calls[0][0].data.passwordHash;
+    await expect(bcrypt.compare('Brand-new-password-456', savedHash)).resolves.toBe(true);
+    expect(tx.authSession.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-4', revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it('rejects an incorrect current password without changing the account', async () => {
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-4', passwordHash: await bcrypt.hash('Current-password-123', 4) });
+    await expect(service.changePassword('user-4', 'wrong-current-password', 'Brand-new-password-456'))
+      .rejects.toBeInstanceOf(UnauthorizedException);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects a new password that is too short', async () => {
+    await expect(service.changePassword('user-4', 'Current-password-123', 'short'))
+      .rejects.toThrow('New password must be between 12 and 128 characters');
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+  });
 
   it('normalizes email, hashes the password, persists a refresh session, and returns a short-lived access token', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
@@ -134,6 +190,31 @@ describe('AuthService', () => {
     jwt.verifyAsync.mockResolvedValue({ sub: 'user-4', jti: 'session-old', typ: 'access' });
     await expect(service.refresh('wrong-kind-token')).rejects.toBeInstanceOf(UnauthorizedException);
     expect(prisma.authSession.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('lists only active sessions belonging to the authenticated account', async () => {
+    const sessions = [{ id: 'session-1', createdAt: new Date(), lastUsedAt: null, expiresAt: new Date(Date.now() + 60_000) }];
+    prisma.authSession.findMany.mockResolvedValue(sessions);
+    await expect(service.listSessions('user-4')).resolves.toEqual(sessions);
+    expect(prisma.authSession.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user-4', revokedAt: null, expiresAt: { gt: expect.any(Date) } },
+      orderBy: { createdAt: 'desc' }, take: 30,
+      select: { id: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+    });
+  });
+
+  it('revokes an active session only when it belongs to the authenticated account', async () => {
+    prisma.authSession.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.revokeSession('user-4', 'session-1')).resolves.toEqual({ success: true, sessionId: 'session-1' });
+    expect(prisma.authSession.updateMany).toHaveBeenCalledWith({
+      where: { id: 'session-1', userId: 'user-4', revokedAt: null, expiresAt: { gt: expect.any(Date) } },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it('does not reveal or revoke another account session', async () => {
+    prisma.authSession.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.revokeSession('user-4', 'someone-elses-session')).rejects.toThrow('Active session not found');
   });
 
   it('revokes every active session for the user on logout-all', async () => {

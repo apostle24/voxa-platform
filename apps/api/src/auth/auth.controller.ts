@@ -1,9 +1,11 @@
-import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, HttpCode, HttpStatus, Param, Patch, Post, Req, Res, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { AuthRateLimitGuard } from './auth-rate-limit.guard';
 import { JwtAuthGuard, AuthenticatedRequest } from './jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { UpdateAccountProfileDto } from './dto/update-account-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 type AuthHttpRequest = { headers: { cookie?: string; origin?: string } };
 type AuthHttpResponse = {
@@ -18,6 +20,26 @@ const COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 @Controller('auth')
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
+
+  @Get('me')
+  @UseGuards(JwtAuthGuard)
+  getMyProfile(@Req() request: AuthenticatedRequest) {
+    return this.auth.getMyProfile(request.user.id);
+  }
+
+  @Patch('me')
+  @UseGuards(JwtAuthGuard)
+  updateMyProfile(@Req() request: AuthenticatedRequest, @Body() input: UpdateAccountProfileDto) {
+    return this.auth.updateMyProfile(request.user.id, input.displayName);
+  }
+
+  @Patch('password')
+  @UseGuards(JwtAuthGuard)
+  async changePassword(@Req() request: AuthenticatedRequest, @Body() input: ChangePasswordDto, @Res({ passthrough: true }) response: AuthHttpResponse) {
+    const result = await this.auth.changePassword(request.user.id, input.currentPassword, input.newPassword);
+    response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
+    return result;
+  }
 
   @Post('register')
   @UseGuards(AuthRateLimitGuard)
@@ -48,6 +70,18 @@ export class AuthController {
     await this.auth.logout(this.readRefreshCookie(request));
     response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
     return { success: true };
+  }
+
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  listSessions(@Req() request: AuthenticatedRequest) {
+    return this.auth.listSessions(request.user.id);
+  }
+
+  @Delete('sessions/:sessionId')
+  @UseGuards(JwtAuthGuard)
+  revokeSession(@Req() request: AuthenticatedRequest, @Param('sessionId') sessionId: string) {
+    return this.auth.revokeSession(request.user.id, sessionId);
   }
 
   @Post('logout-all')

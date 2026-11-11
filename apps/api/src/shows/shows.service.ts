@@ -37,7 +37,7 @@ export class ShowsService {
         episodes: {
           orderBy: { createdAt: 'desc' },
           select: {
-            id: true, title: true, description: true, status: true,
+            id: true, title: true, description: true, artworkUrl: true, status: true,
             durationSeconds: true, mediaKey: true, membershipRequired: true, publishedAt: true,
             mediaAssets: {
               orderBy: { createdAt: 'desc' }, take: 1,

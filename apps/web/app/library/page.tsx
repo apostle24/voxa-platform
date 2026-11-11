@@ -25,6 +25,7 @@ export default function LibraryPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [signedIn, setSignedIn] = useState(false);
+  const [removingBookmark, setRemovingBookmark] = useState<string | null>(null);
 
   useEffect(() => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -44,9 +45,22 @@ export default function LibraryPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  async function removeBookmark(episodeId: string) {
+    const token = sessionStorage.getItem('voxa_access_token') || '';
+    setRemovingBookmark(episodeId);
+    setError('');
+    try {
+      const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/bookmark', { method: 'DELETE', headers: { Authorization: 'Bearer ' + token } });
+      if (!response.ok) { const data = await response.json(); throw new Error(data.message || 'Unable to remove saved episode'); }
+      setBookmarks(current => current.filter(item => item.episode.id !== episodeId));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to remove saved episode');
+    } finally { setRemovingBookmark(null); }
+  }
+
   return (
     <main className="appShell">
-      <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/discover">Discover</Link><Link href="/history">History</Link><Link href="/following">Following</Link><Link href="/live">Explore LIVE</Link></div></nav>
+      <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/discover">Discover</Link><Link href="/history">History</Link><Link href="/following">Following</Link><Link href="/settings/profile">Settings</Link><Link href="/live">Explore LIVE</Link></div></nav>
       <section className="communityPage" style={{ maxWidth: 1120 }}>
         <div className="eyebrow">YOUR PERSONAL LISTENING SPACE</div>
         <h1 style={{ fontSize: 'clamp(34px,5vw,54px)', letterSpacing: -2, margin: '12px 0' }}>Your library.</h1>
@@ -64,10 +78,11 @@ export default function LibraryPage() {
           </div> : <div className="emptyState"><p>No unfinished episodes yet. Start listening to a show.</p><Link href="/discover" className="textLink">Discover podcasts ↗</Link></div>}
           <div className="eyebrow sectionEyebrow">SAVED EPISODES</div>
           {bookmarks.length ? <div className="creatorShowGrid">
-            {bookmarks.map(item => <Link className="creatorShowCard" href={'/episodes/' + item.episode.id} key={item.episode.id}>
+            {bookmarks.map(item => <article className="creatorShowCard" key={item.episode.id}>
               {item.episode.artworkUrl ? <img src={item.episode.artworkUrl} alt="" /> : <div style={{ height: 110, borderRadius: 7, background: '#29234c', display: 'grid', placeItems: 'center', fontSize: 30 }}>♫</div>}
-              <span>SAVED EPISODE</span><h3>{item.episode.title}</h3><small>{item.episode.show.title}</small>
-            </Link>)}
+              <span>SAVED EPISODE</span><h3><Link href={'/episodes/' + item.episode.id}>{item.episode.title}</Link></h3><small>{item.episode.show.title}</small>
+              <button className="ghostButton" style={{ marginTop: 12 }} disabled={removingBookmark !== null} onClick={() => void removeBookmark(item.episode.id)}>{removingBookmark === item.episode.id ? 'Removing…' : 'Remove from library'}</button>
+            </article>)}
           </div> : <div className="emptyState"><p>You have not saved any episodes yet.</p></div>}
         </>}
       </section>
