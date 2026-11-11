@@ -34,6 +34,8 @@ export default function LiveRoomPage() {
   const [chatDraft, setChatDraft] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
+  const [recordingConsent, setRecordingConsent] = useState(false);
+  const [replayDraft, setReplayDraft] = useState<{ episodeId: string; processingStatus: string } | null>(null);
 
   const api = useCallback(async (path: string, method = 'GET') => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -179,6 +181,47 @@ export default function LiveRoomPage() {
     await roomRef.current?.disconnect(); setStatus('Room ended');
   }
 
+  async function startRecording() {
+    if (!recordingConsent) { setError('Confirm speaker consent before starting a recording.'); return; }
+    setBusy('recording-start'); setError('');
+    try {
+      const token = sessionStorage.getItem('voxa_access_token') || '';
+      const response = await apiFetch(API + '/live/rooms/' + roomId + '/recording/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ consentConfirmed: true }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to start recording');
+      setRecordingConsent(false);
+      await refreshStage();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to start recording'); }
+    finally { setBusy(''); }
+  }
+
+  async function createReplayDraft() {
+    setBusy('replay-draft'); setError('');
+    try {
+      const data = await api('/live/rooms/' + roomId + '/recording/create-replay-draft', 'POST');
+      setReplayDraft({ episodeId: data.episodeId, processingStatus: data.processingStatus });
+      await refreshStage();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to create replay draft'); }
+    finally { setBusy(''); }
+  }
+  async function stopRecording() {
+    setBusy('recording-stop'); setError('');
+    try {
+      const token = sessionStorage.getItem('voxa_access_token') || '';
+      const response = await apiFetch(API + '/live/rooms/' + roomId + '/recording/stop', {
+        method: 'POST', headers: { Authorization: 'Bearer ' + token },
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to stop recording');
+      await refreshStage();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to stop recording'); }
+    finally { setBusy(''); }
+  }
+
   const approved = stage?.ownRequest?.status === 'APPROVED';
   const pending = stage?.ownRequest?.status === 'PENDING';
 
@@ -205,6 +248,21 @@ export default function LiveRoomPage() {
         </section>}
         {!isHost && <p className="helperText">{pending ? 'Your request is waiting for the host.' : approved ? 'The host approved your request. Reconnect to refresh your speaking permissions.' : 'You are listening. Request the stage whenever you are ready to speak.'}</p>}
       </>}
+      {isHost && <section className="moderationPanel" style={{ marginTop: 24 }}>
+        <div className="sectionTitle"><div><span className="eyebrow">LIVE RECORDING</span><h2>Room recording</h2></div><span className="countBadge">{analytics?.room?.recordingStatus || 'NOT_STARTED'}</span></div>
+        <p className="helperText">Recording is optional. Only start after every person speaking on stage has clearly agreed. Make sure listeners are informed too.</p>
+        {(!analytics?.room?.recordingStatus || ['NOT_STARTED', 'FAILED'].includes(analytics.room.recordingStatus)) && <>
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', margin: '14px 0', fontSize: 13 }}>
+            <input type="checkbox" checked={recordingConsent} onChange={event => setRecordingConsent(event.target.checked)} />
+            I confirm that everyone currently speaking has agreed to be recorded and participants have been notified.
+          </label>
+          <button className="button" disabled={!recordingConsent || !!busy} onClick={() => void startRecording()}>{busy === 'recording-start' ? 'Starting recording…' : 'Start recording'}</button>
+        </>}
+        {analytics?.room?.recordingStatus === 'RECORDING' && <button className="button danger" disabled={!!busy} onClick={() => void stopRecording()}>{busy === 'recording-stop' ? 'Stopping…' : 'Stop recording'}</button>}
+        {['STARTING', 'STOPPING'].includes(analytics?.room?.recordingStatus) && <p className="helperText">Recording service is processing your request. Refresh the room insights in a moment.</p>}
+        {analytics?.room?.recordingStatus === 'COMPLETED' && <><p className="helperText">Recording completed. Create a private draft episode to send it through VOXA's malware scan and media processing.</p><button className="button" disabled={!!busy} onClick={() => void createReplayDraft()}>{busy === 'replay-draft' ? 'Creating replay draft…' : 'Create replay draft'}</button>{replayDraft && <div className="helperText"><p>Draft episode created ({replayDraft.episodeId}). Media processing status: {replayDraft.processingStatus}. The episode stays unpublished until you review and publish it.</p><Link className="button" href="/creator/studio">Open Creator Studio ↗</Link></div>}</>}
+        {analytics?.room?.recordingStatus === 'FAILED' && <p className="helperText">The recording failed. Check LiveKit Egress and storage configuration before trying again.</p>}
+      </section>}
       {isHost && analytics && <section className="moderationPanel" style={{ marginTop: 24 }}>
         <div className="sectionTitle"><div><span className="eyebrow">HOST INSIGHTS</span><h2>Live room activity</h2></div><button className="ghostButton" onClick={() => void refreshStage()}>↻ Refresh</button></div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>

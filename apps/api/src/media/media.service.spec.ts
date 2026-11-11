@@ -49,6 +49,43 @@ describe('MediaService upload safeguards', () => {
 
   afterEach(() => sendSpy.mockRestore());
 
+  it('issues a short-lived preview URL only for the creator owner of a READY draft', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', mediaKey: 'live-recordings/room-1/replay.mp4',
+    });
+    prisma.mediaAsset.findFirst.mockResolvedValue({
+      playbackKey: 'processed/episode-1/asset-1.mp4',
+      contentType: 'video/mp4', sizeBytes: BigInt(2048), durationSeconds: 120,
+    });
+
+    const result = await service.getCreatorDraftPreviewUrl('user-1', 'episode-1');
+    expect(result).toMatchObject({
+      url: 'https://storage.example/upload', contentType: 'video/mp4',
+      sizeBytes: '2048', durationSeconds: 120, expiresIn: 600,
+    });
+    expect(prisma.episode.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'episode-1', status: 'DRAFT', show: { creator: { userId: 'user-1' } } },
+    }));
+    expect(getSignedUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not issue a draft preview URL to a non-owner', async () => {
+    prisma.episode.findFirst.mockResolvedValue(null);
+    await expect(service.getCreatorDraftPreviewUrl('user-2', 'episode-1'))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(getSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it('does not preview a draft until its media asset is READY', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', mediaKey: 'live-recordings/room-1/replay.mp4',
+    });
+    prisma.mediaAsset.findFirst.mockResolvedValue(null);
+    await expect(service.getCreatorDraftPreviewUrl('user-1', 'episode-1'))
+      .rejects.toThrow('still being processed');
+    expect(getSignedUrl).not.toHaveBeenCalled();
+  });
+
   it('does not issue a playback URL until a processed asset is READY', async () => {
     prisma.episode.findFirst.mockResolvedValue({
       mediaKey: 'users/user-1/episodes/episode-1/source.mp3',

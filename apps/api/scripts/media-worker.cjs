@@ -101,6 +101,7 @@ async function processAsset(asset) {
       where: { id: asset.id },
       data: { status: 'READY', playbackKey, contentType, sizeBytes: BigInt(file.size), durationSeconds: duration, processedAt: new Date(), processingStartedAt: null, failureReason: null },
     });
+    await prisma.episode.update({ where: { id: asset.episodeId }, data: { durationSeconds: duration } });
     console.log(JSON.stringify({ event: 'media_ready', assetId: asset.id, episodeId: asset.episodeId }));
   } catch (error) {
     const reason = String(error && error.message || error).slice(0, 1000);
