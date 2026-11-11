@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../lib/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
@@ -15,19 +16,19 @@ export default function NotificationsPage() {
     const token = sessionStorage.getItem('voxa_access_token');
     if (!token) { setError('Sign in to view your notifications.'); return; }
     try {
-      const response = await fetch(API + '/notifications', { headers: { Authorization: 'Bearer ' + token } });
+      const response = await apiFetch(API + '/notifications', { headers: { Authorization: 'Bearer ' + token } });
       const data = await response.json(); if (!response.ok) throw new Error(data.message || 'Could not load notifications');
       setItems(data.items); setUnread(data.unreadCount);
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not load notifications'); }
   }
   async function markRead(id: string) {
     const token = sessionStorage.getItem('voxa_access_token') || '';
-    const response = await fetch(API + '/notifications/' + id + '/read', { method: 'PATCH', headers: { Authorization: 'Bearer ' + token } });
+    const response = await apiFetch(API + '/notifications/' + id + '/read', { method: 'PATCH', headers: { Authorization: 'Bearer ' + token } });
     if (response.ok) { setItems(current => current.map(item => item.id === id ? { ...item, readAt: new Date().toISOString() } : item)); setUnread(value => Math.max(0, value - 1)); }
   }
   async function markAll() {
     setBusy(true); const token = sessionStorage.getItem('voxa_access_token') || '';
-    const response = await fetch(API + '/notifications/read-all', { method: 'PATCH', headers: { Authorization: 'Bearer ' + token } });
+    const response = await apiFetch(API + '/notifications/read-all', { method: 'PATCH', headers: { Authorization: 'Bearer ' + token } });
     if (response.ok) { setItems(current => current.map(item => ({ ...item, readAt: item.readAt || new Date().toISOString() }))); setUnread(0); }
     setBusy(false);
   }
