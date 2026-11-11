@@ -196,6 +196,42 @@ export class ShowsService {
     return episode;
   }
 
+  async getEpisodeTranscript(episodeId: string, userId?: string) {
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
+      select: { id: true, membershipRequired: true, show: { select: { creator: { select: { id: true, userId: true } } } } },
+    });
+    if (!episode) throw new NotFoundException('Published episode not found');
+    if (episode.membershipRequired && episode.show.creator.userId !== userId) {
+      if (!userId) throw new ForbiddenException('Sign in and join this creator membership to access the transcript');
+      const subscription = await this.prisma.membershipSubscription.findFirst({
+        where: { subscriberId: userId, creatorId: episode.show.creator.id, status: 'ACTIVE', currentPeriodEnd: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (!subscription) throw new ForbiddenException('An active creator membership is required to access this transcript');
+    }
+    return this.prisma.episodeTranscript.findUnique({
+      where: { episodeId }, select: { episodeId: true, content: true, language: true, updatedAt: true },
+    });
+  }
+
+  async saveEpisodeTranscript(userId: string, showId: string, episodeId: string, content: string, language = 'en') {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
+    if (!episode) throw new NotFoundException('Episode not found');
+    const value = content.trim();
+    if (!value) {
+      await this.prisma.episodeTranscript.deleteMany({ where: { episodeId } });
+      return { episodeId, deleted: true };
+    }
+    return this.prisma.episodeTranscript.upsert({
+      where: { episodeId },
+      create: { episodeId, content: value, language: language.trim() || 'en' },
+      update: { content: value, language: language.trim() || 'en' },
+      select: { episodeId: true, content: true, language: true, updatedAt: true },
+    });
+  }
+
   async bookmark(userId: string, episodeId: string) {
     await this.getEpisode(episodeId);
     await this.prisma.episodeBookmark.upsert({
