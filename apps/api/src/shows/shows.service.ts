@@ -585,6 +585,7 @@ export class ShowsService {
       { title: { contains: params.q, mode: 'insensitive' } },
       { description: { contains: params.q, mode: 'insensitive' } },
       { show: { title: { contains: params.q, mode: 'insensitive' } } },
+      { membershipRequired: false, transcript: { is: { content: { contains: params.q, mode: 'insensitive' } } } },
     ];
     const items = await this.prisma.episode.findMany({
       where, take: limit + 1, ...(params.cursor ? { skip: 1, cursor: { id: params.cursor } } : {}),
