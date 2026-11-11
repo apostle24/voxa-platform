@@ -95,6 +95,8 @@ export default function CreatorAudiencePage() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to search members'); }
   }
 
+  if (!token) return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link></nav><section className="communityPage"><div className="emptyState"><h2>Sign in to view your audience</h2><p>Manage creator followers and communities from your VOXA account.</p><Link className="button small" href="/login">Sign in</Link></div></section></main>;
+
   return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/creator/studio">Creator Studio</Link><Link href="/discover">Discover</Link></div></nav><section className="communityPage" style={{ maxWidth: 1120 }}>
     <div className="audienceHeader">
       <div><div className="eyebrow">CREATOR WORKSPACE</div><h1>Audience & communities</h1><p>See who follows your creator profile and manage membership in communities you own.</p></div>
