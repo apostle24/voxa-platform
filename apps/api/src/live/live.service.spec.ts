@@ -11,7 +11,9 @@ describe('LiveService access boundaries', () => {
   beforeEach(() => {
     prisma = {
       liveRoom: { findUnique: jest.fn() },
-      stageRequest: { upsert: jest.fn() },
+      liveStageMember: { findMany: jest.fn() },
+      liveChatMessage: { count: jest.fn() },
+      stageRequest: { upsert: jest.fn(), groupBy: jest.fn() },
       liveStageMember: { findUnique: jest.fn() },
     };
     config = {
@@ -47,4 +49,25 @@ describe('LiveService access boundaries', () => {
     await expect(service.requestStage('listener-1', 'room-1')).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.stageRequest.upsert).not.toHaveBeenCalled();
   });
+
+  it('returns room activity analytics only to the host', async () => {
+    const startedAt = new Date('2026-11-11T10:00:00.000Z');
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', title: 'VOXA Live', status: 'LIVE', startedAt, endedAt: null });
+    prisma.liveStageMember.findMany.mockResolvedValue([{ userId: 'speaker-1', role: 'SPEAKER', joinedAt: new Date('2026-11-11T10:05:00.000Z'), leftAt: null }]);
+    prisma.stageRequest.groupBy.mockResolvedValue([{ status: 'APPROVED', _count: { _all: 1 } }, { status: 'PENDING', _count: { _all: 2 } }]);
+    prisma.liveChatMessage.count.mockResolvedValueOnce(8).mockResolvedValueOnce(1);
+    const result = await service.getRoomAnalytics('host-1', 'room-1');
+    expect(result.stage.totalSpeakerSessions).toBe(1);
+    expect(result.stage.activeSpeakers).toBe(1);
+    expect(result.requests).toEqual({ pending: 2, approved: 1, rejected: 0 });
+    expect(result.chat).toEqual({ totalMessages: 8, removedMessages: 1, visibleMessages: 7 });
+    expect(result.measurementNote).toContain('unique viewers are not available');
+  });
+
+  it('does not disclose room analytics to a non-host', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    await expect(service.getRoomAnalytics('listener-1', 'room-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.liveStageMember.findMany).not.toHaveBeenCalled();
+  });
+
 });
