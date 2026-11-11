@@ -750,7 +750,7 @@ export class ShowsService {
       return { ...episode, score, reason };
     }).sort((a,b)=>b.score-a.score || new Date(b.publishedAt || 0).getTime()-new Date(a.publishedAt || 0).getTime())
       .slice(0,limit).map(({score,...episode})=>episode);
-    if (preferredCategories.length || creatorIds.length) return { items: recommendations, personalized: true };
+    if (recommendations.length) return { items: recommendations, personalized: true };
     const fallback = await this.prisma.episode.findMany({
       where: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED },
         ...(excludedIds.size ? { id: { notIn: [...excludedIds] } } : {}) },
