@@ -172,3 +172,7 @@ VOXA includes authenticated reports for episodes, VOXA Moments, live rooms, comm
 
 ## Web Creator Studio
 The web Creator Studio provides a consolidated creator workspace for show and episode publishing, media processing, transcript and chapter editing, creator audience tools, analytics, and VOXA LIVE session management. The studio overview shows owned shows, published episodes, drafts, and live/scheduled sessions. Creators can open a live room from the dashboard to manage stage requests, speakers, chat, recording, and audience interactions. Published episodes can be returned to draft using the authenticated unpublish endpoint. The authenticated `GET /live/rooms/me` endpoint lists only the current creator's live rooms for this dashboard.
+
+
+## Web Community Experience
+The web community area supports community discovery and search, community creation with optional artwork, joining and leaving, member-only discussion feeds, post creation, threaded replies, and reporting community posts. Public community detail responses contain community metadata and counts only; discussion content is retrieved through the authenticated membership-protected posts endpoint. Community owners can manage their members from Creator Audience. Authorized moderators can use `/admin/community-moderation` to review community-post reports, hide reported posts, dismiss reports, and restore previously hidden posts.
