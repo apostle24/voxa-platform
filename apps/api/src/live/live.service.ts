@@ -851,8 +851,12 @@ export class LiveService {
     if (!room) throw new NotFoundException('Live room not found');
     if (!(await this.canManageLiveSession(roomId, hostId, room.hostId))) throw new ForbiddenException('Only the host or an appointed co-host can hand off the speaking turn');
     if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Speaker handoff is available only while the room is live');
-    const speaker = await this.prisma.liveStageMember.findUnique({ where: { roomId_userId: { roomId, userId: speakerId } }, select: { userId: true, leftAt: true } });
+    const speaker = await this.prisma.liveStageMember.findUnique({ where: { roomId_userId: { roomId, userId: speakerId } }, select: { userId: true, role: true, leftAt: true } });
     if (!speaker || speaker.leftAt) throw new ConflictException('The selected participant must already be an active stage speaker');
+    if (speaker.role === 'GUEST') {
+      const booking = await this.prisma.liveGuestInvitation.findFirst({ where: { roomId, inviteeId: speakerId, status: 'ACCEPTED', slotStartsAt: { lte: new Date() }, slotEndsAt: { gt: new Date() } }, select: { id: true } });
+      if (!booking) throw new ConflictException('The guest can only receive the speaking turn during their accepted booking slot');
+    }
     if (agendaItemId) {
       const agendaItem = await this.prisma.liveAgendaItem.findFirst({ where: { id: agendaItemId, roomId, status: 'ACTIVE' }, select: { id: true } });
       if (!agendaItem) throw new ConflictException('Select the active agenda segment for this speaker turn');
