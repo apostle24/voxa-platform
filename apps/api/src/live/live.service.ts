@@ -516,6 +516,119 @@ export class LiveService {
     };
   }
 
+
+  async getAudienceInteractions(userId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, visibility: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    const isModerator = room.hostId === userId || await this.canModerateRoom(roomId, userId, room.hostId);
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && !isModerator) throw new ForbiddenException('This room is not publicly accessible');
+    const [polls, questions] = await Promise.all([
+      this.prisma.livePoll.findMany({
+        where: { roomId }, orderBy: { createdAt: 'desc' }, take: 10,
+        select: {
+          id: true, question: true, status: true, createdAt: true, closedAt: true, createdBy: true,
+          options: { select: { id: true, text: true, _count: { select: { votes: true } } } },
+          votes: { where: { userId }, select: { optionId: true } },
+        },
+      }),
+      this.prisma.liveQuestion.findMany({
+        where: { roomId, ...(isModerator ? {} : { OR: [{ status: { in: ['APPROVED', 'ANSWERED'] } }, { userId }] }) },
+        orderBy: [{ isPinned: 'desc' }, { createdAt: 'desc' }], take: 100,
+        select: { id: true, question: true, status: true, isPinned: true, answer: true, createdAt: true, userId: true, author: { select: { displayName: true } } },
+      }),
+    ]);
+    return {
+      isModerator,
+      polls: polls.map(poll => ({ ...poll, myVote: poll.votes[0]?.optionId ?? null, votes: undefined, options: poll.options.map(option => ({ id: option.id, text: option.text, voteCount: option._count.votes })) })),
+      questions,
+    };
+  }
+
+  async createLivePoll(userId: string, roomId: string, question: string, options: string[]) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Polls can be created only while the room is live');
+    if (!(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host or an assigned moderator can create polls');
+    const cleanOptions = [...new Set((options || []).map(option => option.trim()).filter(Boolean))];
+    const cleanQuestion = question?.trim();
+    if (!cleanQuestion || cleanQuestion.length < 5 || cleanQuestion.length > 240) throw new BadRequestException('Poll question must be between 5 and 240 characters');
+    if (cleanOptions.length < 2 || cleanOptions.length > 6 || cleanOptions.some(option => option.length > 80)) throw new BadRequestException('Add 2 to 6 unique poll options, each no longer than 80 characters');
+    return this.prisma.livePoll.create({
+      data: { roomId, createdBy: userId, question: cleanQuestion, options: { create: cleanOptions.map(text => ({ text })) } },
+      select: { id: true, question: true, status: true, createdAt: true, options: { select: { id: true, text: true } } },
+    });
+  }
+
+  async voteLivePoll(userId: string, roomId: string, pollId: string, optionId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, visibility: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room is not publicly accessible');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Voting is available only while the room is live');
+    const poll = await this.prisma.livePoll.findFirst({ where: { id: pollId, roomId }, select: { id: true, status: true } });
+    if (!poll) throw new NotFoundException('Live poll not found');
+    if (poll.status !== 'OPEN') throw new ConflictException('This poll is closed');
+    const option = await this.prisma.livePollOption.findFirst({ where: { id: optionId, pollId }, select: { id: true } });
+    if (!option) throw new BadRequestException('Choose an option from this poll');
+    await this.prisma.livePollVote.upsert({
+      where: { pollId_userId: { pollId, userId } },
+      create: { pollId, optionId, userId },
+      update: { optionId, createdAt: new Date() },
+    });
+    return { pollId, optionId, recorded: true };
+  }
+
+  async closeLivePoll(userId: string, roomId: string, pollId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (!(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host or an assigned moderator can close polls');
+    const result = await this.prisma.livePoll.updateMany({ where: { id: pollId, roomId, status: 'OPEN' }, data: { status: 'CLOSED', closedAt: new Date() } });
+    if (!result.count) throw new NotFoundException('Open live poll not found');
+    return { pollId, status: 'CLOSED' };
+  }
+
+  async submitLiveQuestion(userId: string, roomId: string, question: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, visibility: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Questions can be submitted only while the room is live');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room is not publicly accessible');
+    if (room.hostId !== userId) {
+      const blocked = await this.prisma.userBlock.findFirst({ where: { OR: [
+        { blockerId: userId, blockedUserId: room.hostId }, { blockerId: room.hostId, blockedUserId: userId },
+      ] }, select: { id: true } });
+      if (blocked) throw new ForbiddenException('You cannot submit questions in this room');
+    }
+    const clean = question?.trim();
+    if (!clean || clean.length < 5 || clean.length > 500) throw new BadRequestException('Question must be between 5 and 500 characters');
+    return this.prisma.liveQuestion.create({
+      data: { roomId, userId, question: clean },
+      select: { id: true, question: true, status: true, createdAt: true },
+    });
+  }
+
+  async moderateLiveQuestion(userId: string, roomId: string, questionId: string, input: { status?: string; pinned?: boolean; answer?: string }) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (!(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host or an assigned moderator can manage audience questions');
+    const current = await this.prisma.liveQuestion.findFirst({ where: { id: questionId, roomId }, select: { id: true, status: true } });
+    if (!current) throw new NotFoundException('Audience question not found');
+    const answer = input.answer?.trim();
+    if (input.answer !== undefined && (!answer || answer.length > 1000)) throw new BadRequestException('Answer must be between 1 and 1000 characters');
+    const status = answer ? 'ANSWERED' : input.status ?? current.status;
+    if (input.status && !['APPROVED', 'REJECTED', 'CLOSED'].includes(input.status)) throw new BadRequestException('Invalid question moderation status');
+    if (status === 'REJECTED' && input.pinned) throw new BadRequestException('Rejected questions cannot be pinned');
+    if (input.pinned === true && !['APPROVED', 'ANSWERED'].includes(status)) throw new ConflictException('Approve a question before pinning it');
+    return this.prisma.liveQuestion.update({
+      where: { id: questionId },
+      data: {
+        ...(input.status ? { status: input.status } : {}),
+        ...(input.pinned !== undefined ? { isPinned: input.pinned } : {}),
+        ...(answer ? { answer, status: 'ANSWERED', answeredBy: userId } : {}),
+        ...(status === 'REJECTED' || status === 'CLOSED' ? { isPinned: false } : {}),
+      },
+      select: { id: true, question: true, status: true, isPinned: true, answer: true, answeredBy: true },
+    });
+  }
+
   async getStageState(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, scheduledAt: true } });
     if (!room) throw new NotFoundException('Live room not found');

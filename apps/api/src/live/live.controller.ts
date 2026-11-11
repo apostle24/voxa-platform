@@ -2,6 +2,7 @@ import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@ne
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
 import { CreateLiveChatMessageDto } from './dto/create-live-chat-message.dto';
+import { CreateLivePollDto, VoteLivePollDto, CreateLiveQuestionDto, ModerateLiveQuestionDto } from './dto/live-audience-interactions.dto';
 import { LiveService } from './live.service';
 
 @Controller('live')
@@ -71,6 +72,43 @@ export class LiveController {
   @UseGuards(JwtAuthGuard)
   removeRoomModerator(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('moderatorId') moderatorId: string) {
     return this.live.removeRoomModerator(req.user.id, roomId, moderatorId);
+  }
+
+
+  @Get('rooms/:roomId/interactions')
+  @UseGuards(JwtAuthGuard)
+  getAudienceInteractions(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.getAudienceInteractions(req.user.id, roomId);
+  }
+
+  @Post('rooms/:roomId/polls')
+  @UseGuards(JwtAuthGuard)
+  createLivePoll(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body() input: CreateLivePollDto) {
+    return this.live.createLivePoll(req.user.id, roomId, input.question, input.options);
+  }
+
+  @Post('rooms/:roomId/polls/:pollId/vote')
+  @UseGuards(JwtAuthGuard)
+  voteLivePoll(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('pollId') pollId: string, @Body() input: VoteLivePollDto) {
+    return this.live.voteLivePoll(req.user.id, roomId, pollId, input.optionId);
+  }
+
+  @Post('rooms/:roomId/polls/:pollId/close')
+  @UseGuards(JwtAuthGuard)
+  closeLivePoll(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('pollId') pollId: string) {
+    return this.live.closeLivePoll(req.user.id, roomId, pollId);
+  }
+
+  @Post('rooms/:roomId/questions')
+  @UseGuards(JwtAuthGuard)
+  submitLiveQuestion(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body() input: CreateLiveQuestionDto) {
+    return this.live.submitLiveQuestion(req.user.id, roomId, input.question);
+  }
+
+  @Post('rooms/:roomId/questions/:questionId/moderate')
+  @UseGuards(JwtAuthGuard)
+  moderateLiveQuestion(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('questionId') questionId: string, @Body() input: ModerateLiveQuestionDto) {
+    return this.live.moderateLiveQuestion(req.user.id, roomId, questionId, input);
   }
 
   @Get('rooms/:roomId/chat')

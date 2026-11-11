@@ -14,6 +14,10 @@ describe('LiveService access boundaries', () => {
       userBlock: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       liveRoom: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
       liveRoomModerator: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn(), deleteMany: jest.fn() },
+      livePoll: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn() },
+      livePollOption: { findFirst: jest.fn() },
+      livePollVote: { upsert: jest.fn() },
+      liveQuestion: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       user: { findUnique: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
@@ -333,6 +337,71 @@ describe('LiveService access boundaries', () => {
     prisma.liveRoomModerator.findMany.mockResolvedValue([{ userId: 'moderator-1' }]);
     const state = await service.getStageState('moderator-1', 'room-1');
     expect(state).toMatchObject({ isHost: false, isModerator: true, requests: [{ id: 'request-1' }] });
+  });
+
+
+  it('allows an assigned moderator to create a poll with unique options', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveRoomModerator.findUnique.mockResolvedValue({ id: 'assignment-1' });
+    prisma.livePoll.create.mockResolvedValue({ id: 'poll-1', question: 'Which topic next?', status: 'OPEN', options: [{ id: 'a', text: 'Design' }, { id: 'b', text: 'Technology' }] });
+    const result = await service.createLivePoll('moderator-1', 'room-1', 'Which topic next?', ['Design', 'Technology', 'Design']);
+    expect(result).toMatchObject({ id: 'poll-1', status: 'OPEN' });
+    expect(prisma.livePoll.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ roomId: 'room-1', createdBy: 'moderator-1', options: { create: [{ text: 'Design' }, { text: 'Technology' }] } }),
+    }));
+  });
+
+  it('prevents an unassigned listener from creating a live poll', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveRoomModerator.findUnique.mockResolvedValue(null);
+    await expect(service.createLivePoll('listener-1', 'room-1', 'Which topic next?', ['One', 'Two']))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.livePoll.create).not.toHaveBeenCalled();
+  });
+
+  it('records one vote per user and rejects an option from another poll', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC' });
+    prisma.livePoll.findFirst.mockResolvedValue({ id: 'poll-1', status: 'OPEN' });
+    prisma.livePollOption.findFirst.mockResolvedValue({ id: 'option-1' });
+    prisma.livePollVote.upsert.mockResolvedValue({});
+    await expect(service.voteLivePoll('listener-1', 'room-1', 'poll-1', 'option-1'))
+      .resolves.toEqual({ pollId: 'poll-1', optionId: 'option-1', recorded: true });
+    expect(prisma.livePollVote.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { pollId_userId: { pollId: 'poll-1', userId: 'listener-1' } },
+    }));
+    prisma.livePollOption.findFirst.mockResolvedValue(null);
+    await expect(service.voteLivePoll('listener-1', 'room-1', 'poll-1', 'foreign-option')).rejects.toThrow('Choose an option from this poll');
+  });
+
+  it('stores audience questions as pending until a moderator approves them', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC' });
+    prisma.liveQuestion.create.mockResolvedValue({ id: 'question-1', question: 'Can you explain this?', status: 'PENDING' });
+    await expect(service.submitLiveQuestion('listener-1', 'room-1', 'Can you explain this?'))
+      .resolves.toMatchObject({ id: 'question-1', status: 'PENDING' });
+    expect(prisma.liveQuestion.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: { roomId: 'room-1', userId: 'listener-1', question: 'Can you explain this?' },
+    }));
+  });
+
+  it('allows a room moderator to approve and answer an audience question', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    prisma.liveRoomModerator.findUnique.mockResolvedValue({ id: 'assignment-1' });
+    prisma.liveQuestion.findFirst.mockResolvedValue({ id: 'question-1', status: 'PENDING' });
+    prisma.liveQuestion.update.mockResolvedValue({ id: 'question-1', status: 'ANSWERED', answer: 'Here is the answer.' });
+    await expect(service.moderateLiveQuestion('moderator-1', 'room-1', 'question-1', { status: 'APPROVED', answer: 'Here is the answer.' }))
+      .resolves.toMatchObject({ status: 'ANSWERED', answer: 'Here is the answer.' });
+    expect(prisma.liveQuestion.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'question-1' },
+      data: expect.objectContaining({ status: 'ANSWERED', answeredBy: 'moderator-1', answer: 'Here is the answer.' }),
+    }));
+  });
+
+  it('prevents an unassigned viewer from moderating audience questions', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    prisma.liveRoomModerator.findUnique.mockResolvedValue(null);
+    await expect(service.moderateLiveQuestion('listener-1', 'room-1', 'question-1', { status: 'APPROVED' }))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.liveQuestion.update).not.toHaveBeenCalled();
   });
 
 });
