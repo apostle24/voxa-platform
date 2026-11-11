@@ -3,7 +3,7 @@
 Expo / React Native application for Android and iOS.
 
 ## Setup
-- Node.js 20+ and pnpm 9+
+- Node.js 22.13+ and npm
 - From `apps/mobile`: `npm install` (this native app has its own dependency install so it does not change the web/API lockfile)
 - Set `EXPO_PUBLIC_VOXA_API_URL` to the API base URL including `/v1`
 - Run `npx expo start` for the Metro bundler, then use `npx expo run:android` or `npx expo run:ios` to create a native development build
