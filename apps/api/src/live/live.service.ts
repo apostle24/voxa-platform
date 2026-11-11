@@ -145,25 +145,27 @@ export class LiveService {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the current primary host can transfer room ownership');
-    if (newHostUserId === hostId) throw new ConflictException('You are already the primary host');
+    const targetId = newHostUserId?.trim();
+    if (!targetId) throw new BadRequestException('Select an appointed co-host');
+    if (targetId === hostId) throw new ConflictException('You are already the primary host');
     const target = await this.prisma.liveRoomCoHost.findUnique({
-      where: { roomId_userId: { roomId, userId: newHostUserId } }, select: { userId: true },
+      where: { roomId_userId: { roomId, userId: targetId } }, select: { userId: true },
     });
     if (!target) throw new ConflictException('You can transfer ownership only to an appointed co-host');
     const updated = await this.prisma.$transaction(async (tx) => {
       const claimedCoHost = await tx.liveRoomCoHost.deleteMany({ where: { roomId, userId: newHostUserId } });
       if (claimedCoHost.count !== 1) throw new ConflictException('The selected co-host is no longer assigned to this room');
-      const claimed = await tx.liveRoom.updateMany({ where: { id: roomId, hostId }, data: { hostId: newHostUserId } });
+      const claimed = await tx.liveRoom.updateMany({ where: { id: roomId, hostId }, data: { hostId: targetId } });
       if (claimed.count !== 1) throw new ConflictException('Room ownership changed; refresh and try again');
       await tx.liveRoomCoHost.upsert({
         where: { roomId_userId: { roomId, userId: hostId } },
-        create: { roomId, userId: hostId, assignedById: newHostUserId },
+        create: { roomId, userId: hostId, assignedById: targetId },
         update: { assignedById: newHostUserId, assignedAt: new Date() },
       });
-      await tx.liveRoomModerator.deleteMany({ where: { roomId, userId: { in: [hostId, newHostUserId] } } });
+      await tx.liveRoomModerator.deleteMany({ where: { roomId, userId: { in: [hostId, targetId] } } });
       return tx.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true } });
     });
-    return { ...updated, previousHostId: hostId, newHostId: newHostUserId, transferred: true };
+    return { ...updated, previousHostId: hostId, newHostId: targetId, transferred: true };
   }
 
   async getChatMessages(userId: string, roomId: string) {
