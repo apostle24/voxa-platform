@@ -24,6 +24,7 @@ describe('MediaService upload safeguards', () => {
       mediaAsset: {
         upsert: jest.fn().mockResolvedValue({ id: 'asset-1', status: 'QUEUED' }),
         findFirst: jest.fn(),
+        updateMany: jest.fn(),
       },
     };
     config = {
@@ -48,6 +49,39 @@ describe('MediaService upload safeguards', () => {
   });
 
   afterEach(() => sendSpy.mockRestore());
+
+  it('requeues only the failed media asset attached to the creator-owned draft', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', mediaKey: 'users/user-1/episodes/episode-1/source.mp3',
+    });
+    prisma.mediaAsset.updateMany.mockResolvedValue({ count: 1 });
+
+    await expect(service.retryFailedProcessing('user-1', 'show-1', 'episode-1'))
+      .resolves.toEqual({ queued: true, episodeId: 'episode-1', processingStatus: 'QUEUED' });
+    expect(prisma.mediaAsset.updateMany).toHaveBeenCalledWith({
+      where: { episodeId: 'episode-1', objectKey: 'users/user-1/episodes/episode-1/source.mp3', status: 'FAILED' },
+      data: {
+        status: 'QUEUED', failureReason: null, processingStartedAt: null,
+        processedAt: null, playbackKey: null,
+      },
+    });
+  });
+
+  it('does not allow another creator to retry a draft media asset', async () => {
+    prisma.episode.findFirst.mockResolvedValue(null);
+    await expect(service.retryFailedProcessing('user-2', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.mediaAsset.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not requeue media that is not failed', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', mediaKey: 'users/user-1/episodes/episode-1/source.mp3',
+    });
+    prisma.mediaAsset.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.retryFailedProcessing('user-1', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(ConflictException);
+  });
 
   it('issues a short-lived preview URL only for the creator owner of a READY draft', async () => {
     prisma.episode.findFirst.mockResolvedValue({
