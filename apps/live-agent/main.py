@@ -7,6 +7,10 @@ web clients receive RoomEvent.TranscriptionReceived.
 import asyncio
 import logging
 import os
+import json
+import urllib.request
+import urllib.error
+from uuid import uuid5, NAMESPACE_URL
 
 from dotenv import load_dotenv
 from livekit import rtc
@@ -19,6 +23,8 @@ load_dotenv()
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("voxa-live-captions")
 config = AgentConfig.from_env()
+transcript_api_url = os.getenv('VOXA_LIVE_CAPTIONS_API_URL', '').rstrip('/')
+transcript_api_secret = os.getenv('VOXA_LIVE_CAPTIONS_INGEST_SECRET', '')
 
 
 class CaptionTranscriber(Agent):
@@ -48,6 +54,8 @@ class RoomTranscriber:
         self.sessions: dict[str, AgentSession] = {}
         self.starting: dict[str, asyncio.Task] = {}
         self.tasks: set[asyncio.Task] = set()
+        self.pending_segments: list[dict] = []
+        self.flush_lock = asyncio.Lock()
 
     def start(self) -> None:
         self.ctx.room.on("participant_connected", self._on_participant_connected)
@@ -80,6 +88,7 @@ class RoomTranscriber:
     async def _start_participant(self, participant: rtc.RemoteParticipant) -> None:
         identity = participant.identity
         session = AgentSession()
+        session.on('user_input_transcribed', lambda event: self._on_transcription(identity, event))
         try:
             await session.start(
                 agent=CaptionTranscriber(identity),
@@ -106,6 +115,45 @@ class RoomTranscriber:
             if self.starting.get(identity) is asyncio.current_task():
                 self.starting.pop(identity, None)
 
+
+    def _on_transcription(self, identity: str, event) -> None:
+        if not getattr(event, "is_final", False):
+            return
+        text = str(getattr(event, "transcript", "") or "").strip()
+        if not text or not transcript_api_url or not transcript_api_secret:
+            return
+        start = float(getattr(event, "start_time", 0) or 0)
+        end = float(getattr(event, "end_time", start) or start)
+        stable = f"{self.ctx.room.name}:{identity}:{start:.3f}:{end:.3f}:{text}"
+        self.pending_segments.append({
+            "id": str(uuid5(NAMESPACE_URL, stable)),
+            "text": text,
+            "speaker": identity,
+            "startSeconds": max(0, start),
+            "endSeconds": max(max(0, start), end),
+        })
+        if len(self.pending_segments) >= 10:
+            self._track(asyncio.create_task(self._flush_transcript()))
+
+    async def _flush_transcript(self) -> None:
+        async with self.flush_lock:
+            if not self.pending_segments or not transcript_api_url or not transcript_api_secret:
+                return
+            batch = self.pending_segments[:100]
+            del self.pending_segments[:len(batch)]
+            payload = json.dumps({"segments": batch, "language": config.language}).encode()
+            request = urllib.request.Request(
+                f"{transcript_api_url}/live/rooms/{self.ctx.room.name}/transcript",
+                data=payload,
+                headers={"Content-Type": "application/json", "x-voxa-live-agent-secret": transcript_api_secret},
+                method="POST",
+            )
+            try:
+                await asyncio.to_thread(lambda: urllib.request.urlopen(request, timeout=12).read())
+            except (urllib.error.URLError, TimeoutError) as error:
+                logger.warning("Unable to persist live transcript batch: %s", error)
+                self.pending_segments = batch + self.pending_segments
+
     def _on_participant_disconnected(self, participant: rtc.RemoteParticipant) -> None:
         identity = participant.identity
         pending = self.starting.pop(identity, None)
@@ -130,6 +178,7 @@ class RoomTranscriber:
         await asyncio.gather(*list(self.tasks), return_exceptions=True)
         sessions, self.sessions = list(self.sessions.values()), {}
         await asyncio.gather(*(self._close_session(session) for session in sessions), return_exceptions=True)
+        await self._flush_transcript()
 
 
 server = AgentServer()
