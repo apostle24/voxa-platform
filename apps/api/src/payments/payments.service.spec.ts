@@ -240,12 +240,13 @@ describe('PaymentsService safety boundaries', () => {
     }]);
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ locked: true }]),
+      paymentAttempt: { findMany: prisma.paymentAttempt.findMany },
+      ledgerTransaction: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'settlement-1' }) },
       ledgerAccount: {
         upsert: jest.fn()
           .mockResolvedValueOnce({ id: 'pending-account' })
           .mockResolvedValueOnce({ id: 'available-account' }),
       },
-      ledgerTransaction: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'settlement-1' }) },
     };
     prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => callback(tx));
 
