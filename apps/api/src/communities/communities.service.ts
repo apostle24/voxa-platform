@@ -1,4 +1,3 @@
-import { createUserNotification } from '../notifications/notification-writer';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
