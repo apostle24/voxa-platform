@@ -15,6 +15,7 @@ type StageState = {
   moderators: { userId: string; assignedAt: string }[];
   coHosts: { userId: string; assignedAt: string; user?: { displayName: string } }[];
   hostTransfers: { previousHostId: string; newHostId: string; transferredAt: string; previousHost?: { displayName: string }; newHost?: { displayName: string } }[];
+  guestInvitations: { id: string; inviteeId: string; inviterId: string; status: string; slotStartsAt: string; slotEndsAt: string; message?: string | null; invitee?: { displayName: string }; inviter?: { displayName: string } }[];
   requests: { id: string; userId: string; requestedAt: string }[];
   speakers: { userId: string; role: string; joinedAt: string }[];
   ownRequest: { status: string; requestedAt: string } | null;
@@ -38,6 +39,10 @@ export default function LiveRoomPage() {
   const [moderatorUserId, setModeratorUserId] = useState('');
   const [coHostUserId, setCoHostUserId] = useState('');
   const [newHostUserId, setNewHostUserId] = useState('');
+  const [guestUserId, setGuestUserId] = useState('');
+  const [guestSlotStart, setGuestSlotStart] = useState('');
+  const [guestSlotEnd, setGuestSlotEnd] = useState('');
+  const [guestMessage, setGuestMessage] = useState('');
   const [mic, setMic] = useState(false);
   const [canPublish, setCanPublish] = useState(false);
   const [camera, setCamera] = useState(false);
@@ -461,6 +466,36 @@ export default function LiveRoomPage() {
     finally { setBusy(''); }
   }
 
+  async function inviteGuest(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!guestUserId.trim() || !guestSlotStart || !guestSlotEnd) return;
+    setBusy('guest-invite'); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/guest-invitations', 'POST', {
+        userId: guestUserId.trim(),
+        slotStartsAt: new Date(guestSlotStart).toISOString(),
+        slotEndsAt: new Date(guestSlotEnd).toISOString(),
+        message: guestMessage.trim() || undefined,
+      });
+      setGuestUserId(''); setGuestSlotStart(''); setGuestSlotEnd(''); setGuestMessage('');
+      await refreshStage();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to invite guest'); }
+    finally { setBusy(''); }
+  }
+
+  async function respondGuestInvitation(invitationId: string, decision: 'ACCEPTED' | 'DECLINED') {
+    setBusy('guest-response-' + invitationId); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/guest-invitations/' + encodeURIComponent(invitationId) + '/respond', 'POST', { decision });
+      await refreshStage();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to respond to guest invitation'); }
+    finally { setBusy(''); }
+  }
+
+  async function cancelGuestInvitation(invitationId: string) {
+    await action('guest-cancel-' + invitationId, '/live/rooms/' + roomId + '/guest-invitations/' + encodeURIComponent(invitationId) + '/cancel');
+  }
+
   async function addModerator(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const userId = moderatorUserId.trim();
@@ -602,6 +637,29 @@ export default function LiveRoomPage() {
           </div>
         </section>}
 
+        {!!stage?.guestInvitations?.length && <section className="moderationPanel" style={{ marginTop: 24 }}>
+          <div className="sectionTitle"><div><span className="eyebrow">SCHEDULED GUESTS</span><h2>Speaker invitations</h2></div><span className="countBadge">{stage.guestInvitations.length}</span></div>
+          <div className="moderationList">
+            {stage.guestInvitations.map(invitation => <div className="moderationRow" key={invitation.id}>
+              <div><b>{isHost || isCoHost ? (invitation.invitee?.displayName || invitation.inviteeId) : 'Your guest invitation'}</b><small>{new Date(invitation.slotStartsAt).toLocaleString()} – {new Date(invitation.slotEndsAt).toLocaleTimeString()} · {invitation.status}</small>{invitation.message && <small>{invitation.message}</small>}</div>
+              <div className="moderationActions">
+                {!isHost && !isCoHost && invitation.status === 'PENDING' && <><button type="button" className="approveButton" disabled={!!busy} onClick={() => void respondGuestInvitation(invitation.id, 'ACCEPTED')}>Accept</button><button type="button" className="rejectButton" disabled={!!busy} onClick={() => void respondGuestInvitation(invitation.id, 'DECLINED')}>Decline</button></>}
+                {(isHost || isCoHost) && ['PENDING', 'ACCEPTED'].includes(invitation.status) && <button type="button" className="rejectButton" disabled={!!busy} onClick={() => void cancelGuestInvitation(invitation.id)}>Cancel booking</button>}
+              </div>
+            </div>)}
+          </div>
+        </section>}
+        {(isHost || isCoHost) && <section className="moderationPanel" style={{ marginTop: 24 }}>
+          <div className="sectionTitle"><div><span className="eyebrow">GUEST BOOKING</span><h2>Invite a scheduled speaker</h2></div></div>
+          <p className="helperText">Book a VOXA member into a speaking slot. They must accept before they can join the stage at the booked time.</p>
+          <form onSubmit={inviteGuest} style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 10 }}>
+            <input value={guestUserId} onChange={event => setGuestUserId(event.target.value)} placeholder="Guest VOXA user ID" aria-label="Guest VOXA user ID" required style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+            <label className="helperText">Slot starts<input type="datetime-local" value={guestSlotStart} onChange={event => setGuestSlotStart(event.target.value)} required style={{ display: 'block', width: '100%', padding: 10, marginTop: 5, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} /></label>
+            <label className="helperText">Slot ends<input type="datetime-local" value={guestSlotEnd} onChange={event => setGuestSlotEnd(event.target.value)} required style={{ display: 'block', width: '100%', padding: 10, marginTop: 5, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} /></label>
+            <input value={guestMessage} onChange={event => setGuestMessage(event.target.value)} placeholder="Optional invitation note" aria-label="Invitation note" maxLength={500} style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+            <button className="button" disabled={!!busy || !guestUserId.trim() || !guestSlotStart || !guestSlotEnd}>{busy === 'guest-invite' ? 'Sending invitation…' : 'Send guest invitation'}</button>
+          </form>
+        </section>}
         {(isHost || isCoHost) && <section className="moderationPanel" style={{ marginTop: 24 }}>
           <div className="sectionTitle"><div><span className="eyebrow">ROOM LEADERSHIP</span><h2>{isHost ? 'Primary host & co-hosts' : 'Room leadership'}</h2></div><span className="countBadge">{stage?.coHosts?.length || 0} co-hosts</span></div>
           <p className="helperText">Co-hosts can manage stage requests, audience moderation, the session agenda and speaker handoffs. Only the primary host can end the room, control recording, appoint leaders or transfer ownership.</p>
