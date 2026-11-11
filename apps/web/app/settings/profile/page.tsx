@@ -26,6 +26,10 @@ export default function ProfileSettingsPage() {
   const [sessions, setSessions] = useState<AccountSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
   const [revokingSessionId, setRevokingSessionId] = useState('');
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [changingPassword, setChangingPassword] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -106,6 +110,29 @@ export default function ProfileSettingsPage() {
     }
   }
 
+  async function changePassword(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) { setError('The new passwords do not match.'); return; }
+    if (newPassword.length < 12) { setError('Use at least 12 characters for your new password.'); return; }
+    const token = sessionStorage.getItem('voxa_access_token') || '';
+    setChangingPassword(true); setError(''); setMessage('');
+    try {
+      const response = await apiFetch(API + '/auth/password', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.message || 'Unable to change password');
+      sessionStorage.removeItem('voxa_access_token');
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
+      window.location.assign('/login?passwordChanged=1');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to change password');
+      setChangingPassword(false);
+    }
+  }
+
   async function signOutEverywhere() {
     const token = sessionStorage.getItem('voxa_access_token') || '';
     if (!token) { window.location.assign('/login'); return; }
@@ -169,6 +196,21 @@ export default function ProfileSettingsPage() {
               </div>)}
             </div>}
             <button className="ghostButton" style={{ marginTop: 12 }} disabled={loadingSessions} onClick={() => void loadSessions()}>Refresh sessions</button>
+          </section>
+          <section className="membershipCard" style={{ marginTop: 22 }}>
+            <h2 style={{ marginTop: 0 }}>Change password</h2>
+            <p style={{ color: 'var(--muted)' }}>Confirm your current password and choose a new password with at least 12 characters. Changing it signs out all active sessions.</p>
+            <form onSubmit={changePassword} style={{ display: 'grid', gap: 12 }}>
+              <label htmlFor="current-password">Current password</label>
+              <input id="current-password" type="password" autoComplete="current-password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} required maxLength={128} />
+              <label htmlFor="new-password">New password</label>
+              <input id="new-password" type="password" autoComplete="new-password" value={newPassword} onChange={event => setNewPassword(event.target.value)} required minLength={12} maxLength={128} />
+              <label htmlFor="confirm-new-password">Confirm new password</label>
+              <input id="confirm-new-password" type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} required minLength={12} maxLength={128} />
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button className="button small" disabled={changingPassword || !currentPassword || newPassword.length < 12 || newPassword !== confirmPassword}>{changingPassword ? 'Changing password…' : 'Change password'}</button>
+              </div>
+            </form>
           </section>
           <section className="membershipCard" style={{ marginTop: 22 }}>
             <h2 style={{ marginTop: 0 }}>Security</h2>
