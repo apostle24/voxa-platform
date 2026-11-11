@@ -56,7 +56,7 @@ describe('LiveService access boundaries', () => {
     prisma.liveStageMember.findMany.mockResolvedValue([{ userId: 'speaker-1', role: 'SPEAKER', joinedAt: new Date('2026-11-11T10:05:00.000Z'), leftAt: null }]);
     prisma.stageRequest.groupBy.mockResolvedValue([{ status: 'APPROVED', _count: { _all: 1 } }, { status: 'PENDING', _count: { _all: 2 } }]);
     prisma.liveChatMessage.count.mockResolvedValueOnce(8).mockResolvedValueOnce(1);
-    prisma.liveViewerSession.groupBy.mockResolvedValue([{ userId: 'viewer-1' }, { userId: 'viewer-2' }, { userId: 'viewer-3' }]);
+    prisma.liveViewerSession.groupBy.mockResolvedValue([{ userId: 'viewer-1' }, { userId: 'viewer-2' }, { userId: 'viewer-3' }, { userId: 'speaker-1' }, { userId: 'host-1' }]);
     const result = await service.getRoomAnalytics('host-1', 'room-1');
     expect(result.stage.totalSpeakerSessions).toBe(1);
     expect(result.stage.activeSpeakers).toBe(1);
