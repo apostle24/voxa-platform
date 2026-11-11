@@ -85,6 +85,12 @@ export class LiveService {
   }
 
   async createRoom(userId: string, input: CreateLiveRoomDto) {
+    if (input.scheduledAt) {
+      const scheduledAt = new Date(input.scheduledAt);
+      if (!Number.isFinite(scheduledAt.getTime()) || scheduledAt.getTime() < Date.now() + 60_000) {
+        throw new BadRequestException('Choose a live room start time at least one minute in the future');
+      }
+    }
     const room = await this.prisma.liveRoom.create({
       data: {
         hostId: userId,
@@ -92,9 +98,10 @@ export class LiveService {
         description: input.description?.trim(),
         isAudioOnly: input.isAudioOnly ?? false,
         visibility: (input.visibility ?? 'PUBLIC') as LiveRoomVisibility,
-        status: LiveRoomStatus.DRAFT,
+        status: input.scheduledAt ? LiveRoomStatus.SCHEDULED : LiveRoomStatus.DRAFT,
+        scheduledAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
       },
-      select: { id: true, title: true, description: true, visibility: true, isAudioOnly: true, status: true, createdAt: true },
+      select: { id: true, title: true, description: true, visibility: true, isAudioOnly: true, status: true, scheduledAt: true, createdAt: true },
     });
     return room;
   }
@@ -467,8 +474,14 @@ export class LiveService {
     if (!isHost && room.visibility !== LiveRoomVisibility.PUBLIC) {
       throw new ForbiddenException('This room is not publicly accessible; membership and invite entitlements are not enabled yet');
     }
-    if (room.status === LiveRoomStatus.DRAFT && !isHost) {
-      throw new ConflictException('This live room has not started');
+    if (!isHost && room.status !== LiveRoomStatus.LIVE) {
+      throw new ConflictException(room.status === LiveRoomStatus.SCHEDULED
+        ? 'This room is scheduled. Join when the host starts it.'
+        : 'This live room has not started');
+    }
+    if (isHost && room.status === LiveRoomStatus.SCHEDULED &&
+        room.scheduledAt && room.scheduledAt.getTime() > Date.now()) {
+      throw new ConflictException('This room is scheduled for ' + room.scheduledAt.toISOString());
     }
 
     const token = new AccessToken(apiKey, apiSecret, {
@@ -484,7 +497,7 @@ export class LiveService {
       canPublishData: true,
     });
 
-    if (isHost && room.status === LiveRoomStatus.DRAFT) {
+    if (isHost && [LiveRoomStatus.DRAFT, LiveRoomStatus.SCHEDULED].includes(room.status)) {
       await this.prisma.liveRoom.update({
         where: { id: roomId },
         data: { status: LiveRoomStatus.LIVE, startedAt: new Date() },
