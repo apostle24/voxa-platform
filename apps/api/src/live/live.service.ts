@@ -1,4 +1,5 @@
 import { createUserNotification } from '../notifications/notification-writer';
+import { timingSafeEqual } from 'crypto';
 import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccessToken, AgentDispatchClient, EgressClient, EncodedFileOutput, RoomServiceClient, S3Upload, WebhookReceiver } from 'livekit-server-sdk';
@@ -422,13 +423,79 @@ export class LiveService {
     }
   }
 
+
+  async ingestLiveTranscript(roomId: string, suppliedSecret: string | undefined, input: { segments?: Array<{ id: string; text: string; speaker: string; startSeconds: number; endSeconds: number }>; language?: string }) {
+    const expectedSecret = this.config.get<string>('LIVEKIT_CAPTIONS_INGEST_SECRET');
+    if (!expectedSecret) throw new ServiceUnavailableException('Live transcript ingestion is not configured');
+    const supplied = Buffer.from(suppliedSecret || '');
+    const expected = Buffer.from(expectedSecret);
+    if (supplied.length !== expected.length || !timingSafeEqual(supplied, expected)) {
+      throw new UnauthorizedException('Live transcript ingestion authentication failed');
+    }
+    if (!Array.isArray(input?.segments) || input.segments.length < 1 || input.segments.length > 100) {
+      throw new BadRequestException('Submit between 1 and 100 transcript segments');
+    }
+    const normalized = input.segments.map((segment) => ({
+      id: String(segment?.id || '').slice(0, 128),
+      text: String(segment?.text || '').trim().slice(0, 5000),
+      speaker: String(segment?.speaker || 'Speaker').trim().slice(0, 120) || 'Speaker',
+      startSeconds: Number(segment?.startSeconds),
+      endSeconds: Number(segment?.endSeconds),
+    }));
+    if (normalized.some((segment) => !segment.id || !segment.text || !Number.isFinite(segment.startSeconds) ||
+      !Number.isFinite(segment.endSeconds) || segment.startSeconds < 0 || segment.endSeconds < segment.startSeconds)) {
+      throw new BadRequestException('Transcript segments contain invalid IDs, text, speakers, or timestamps');
+    }
+    const room = await this.prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true, recordingStatus: true, recordingTranscript: true, recordingObjectKey: true },
+    });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (!['RECORDING', 'STOPPING', 'COMPLETED'].includes(room.recordingStatus)) {
+      throw new ConflictException('Transcript capture is available only for an active or completed recording');
+    }
+    const current = room.recordingTranscript && typeof room.recordingTranscript === 'object'
+      ? room.recordingTranscript as { language?: string; segments?: typeof normalized }
+      : { language: 'en', segments: [] as typeof normalized };
+    const byId = new Map((Array.isArray(current.segments) ? current.segments : []).map((segment) => [segment.id, segment]));
+    for (const segment of normalized) byId.set(segment.id, segment);
+    const segments = [...byId.values()].sort((a, b) => a.startSeconds - b.startSeconds).slice(-10000);
+    const language = (input.language || current.language || 'en').slice(0, 12);
+    await this.prisma.liveRoom.update({ where: { id: roomId }, data: { recordingTranscript: { language, segments } } });
+    let replayTranscriptUpdated = false;
+    if (room.recordingObjectKey) {
+      const bucket = this.config.get<string>('S3_BUCKET', '');
+      let objectKey = room.recordingObjectKey;
+      if (objectKey.startsWith('s3://')) {
+        const location = objectKey.slice(5);
+        const slash = location.indexOf('/');
+        if (slash > 0 && location.slice(0, slash) === bucket) objectKey = location.slice(slash + 1);
+      }
+      const asset = await this.prisma.mediaAsset.findUnique({ where: { objectKey }, select: { id: true, episodeId: true } });
+      if (asset) {
+        const content = segments.map((segment) => {
+          const minutes = Math.floor(segment.startSeconds / 60);
+          const seconds = Math.floor(segment.startSeconds % 60).toString().padStart(2, '0');
+          return `[${minutes}:${seconds}] ${segment.speaker}: ${segment.text}`;
+        }).join('\n');
+        await this.prisma.episodeTranscript.upsert({
+          where: { episodeId: asset.episodeId },
+          create: { episodeId: asset.episodeId, content, language, segments },
+          update: { content, language, segments },
+        });
+        replayTranscriptUpdated = true;
+      }
+    }
+    return { roomId, segmentCount: segments.length, replayTranscriptUpdated };
+  }
+
   async createRecordingEpisodeDraft(hostId: string, roomId: string) {
     if (this.config.get<string>('LIVEKIT_RECORDING_ENABLED') !== 'true') {
       throw new ServiceUnavailableException('Live room recording is disabled by configuration');
     }
     const room = await this.prisma.liveRoom.findUnique({
       where: { id: roomId },
-      select: { id: true, hostId: true, title: true, isAudioOnly: true, recordingStatus: true, recordingObjectKey: true },
+      select: { id: true, hostId: true, title: true, isAudioOnly: true, recordingStatus: true, recordingObjectKey: true, recordingTranscript: true },
     });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can create a replay');
@@ -508,7 +575,21 @@ export class LiveService {
           data: { episodeId: episode.id, objectKey, contentType, sizeBytes: BigInt(sizeBytes), status: 'QUEUED' },
           select: { id: true, status: true },
         });
-        return { episodeId: episode.id, mediaAssetId: asset.id, processingStatus: asset.status };
+        const captured = room.recordingTranscript && typeof room.recordingTranscript === 'object'
+          ? room.recordingTranscript as { language?: string; segments?: Array<{ id: string; text: string; speaker: string; startSeconds: number; endSeconds: number }> }
+          : null;
+        const segments = Array.isArray(captured?.segments) ? captured!.segments! : [];
+        if (segments.length) {
+          const content = segments.map((segment) => {
+            const minutes = Math.floor(segment.startSeconds / 60);
+            const seconds = Math.floor(segment.startSeconds % 60).toString().padStart(2, '0');
+            return `[${minutes}:${seconds}] ${segment.speaker}: ${segment.text}`;
+          }).join('\n');
+          await tx.episodeTranscript.create({
+            data: { episodeId: episode.id, content, language: captured?.language || 'en', segments },
+          });
+        }
+        return { episodeId: episode.id, mediaAssetId: asset.id, processingStatus: asset.status, transcriptSegments: segments.length };
       });
       return { roomId, ...created, alreadyCreated: false };
     } catch (error) {
