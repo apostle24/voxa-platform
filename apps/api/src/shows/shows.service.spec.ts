@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShowsService } from './shows.service';
 
@@ -397,5 +397,41 @@ describe('ShowsService AI topic discovery', () => {
     await expect(service.discoverTopicEpisodes('  ')).resolves.toEqual({ items: [] });
     await expect(service.discoverTopicEpisodes('x'.repeat(61))).resolves.toEqual({ items: [] });
     expect(prisma.episodeIntelligence.findMany).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('ShowsService semantic podcast search', () => {
+  let service: ShowsService;
+  let prisma: any;
+  const originalKey = process.env.OPENAI_API_KEY;
+
+  beforeEach(() => {
+    prisma = { episode: { findMany: jest.fn() }, episodeEmbedding: { upsert: jest.fn() } };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  });
+
+  it('rejects short queries before calling the embedding provider', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    await expect(service.semanticSearch('hi')).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.episode.findMany).not.toHaveBeenCalled();
+  });
+
+  it('fails clearly when semantic search has no server-side provider key', async () => {
+    delete process.env.OPENAI_API_KEY;
+    await expect(service.semanticSearch('episodes about courage')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(prisma.episode.findMany).not.toHaveBeenCalled();
+  });
+
+  it('ranks vectors by cosine similarity and handles mismatched dimensions safely', () => {
+    expect((service as any).cosineSimilarity([1, 0], [0.9, 0.1])).toBeGreaterThan(
+      (service as any).cosineSimilarity([1, 0], [0, 1]),
+    );
+    expect((service as any).cosineSimilarity([1, 0], [1])).toBe(0);
   });
 });
