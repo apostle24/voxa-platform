@@ -14,6 +14,7 @@ type StageState = {
   hostId: string;
   moderators: { userId: string; assignedAt: string }[];
   coHosts: { userId: string; assignedAt: string; user?: { displayName: string } }[];
+  hostTransfers: { previousHostId: string; newHostId: string; transferredAt: string; previousHost?: { displayName: string }; newHost?: { displayName: string } }[];
   requests: { id: string; userId: string; requestedAt: string }[];
   speakers: { userId: string; role: string; joinedAt: string }[];
   ownRequest: { status: string; requestedAt: string } | null;
@@ -608,6 +609,10 @@ export default function LiveRoomPage() {
             <div className="moderationRow"><div><b>Primary host</b><small>{stage?.hostId}</small></div><span className="countBadge">Owner</span></div>
             {stage?.coHosts?.map(coHost => <div className="moderationRow" key={coHost.userId}><div><b>{coHost.user?.displayName || 'Co-host'}</b><small>{coHost.userId}</small></div><div className="moderationActions">{isHost && <><button type="button" className="controlButton" onClick={() => setNewHostUserId(coHost.userId)}>Transfer ownership</button><button type="button" className="rejectButton" disabled={!!busy} onClick={() => void removeCoHost(coHost.userId)}>Remove</button></>}</div></div>)}
           </div>
+          {!!stage?.hostTransfers?.length && <div style={{ marginTop: 16 }}>
+            <h3 style={{ margin: '0 0 8px' }}>Ownership history</h3>
+            <div className="moderationList">{stage.hostTransfers.map((transfer, index) => <div className="moderationRow" key={transfer.transferredAt + transfer.previousHostId + index}><div><b>{transfer.previousHost?.displayName || transfer.previousHostId} → {transfer.newHost?.displayName || transfer.newHostId}</b><small>{new Date(transfer.transferredAt).toLocaleString()}</small></div></div>)}</div>
+          </div>}
           {isHost && <form onSubmit={addCoHost} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
             <input value={coHostUserId} onChange={event => setCoHostUserId(event.target.value)} placeholder="VOXA user ID" aria-label="Co-host VOXA user ID" required style={{ flex: 1, minWidth: 190, padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
             <button className="button" disabled={!!busy || !coHostUserId.trim()}>{busy === 'cohost-add' ? 'Appointing…' : 'Appoint co-host'}</button>
