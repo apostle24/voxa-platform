@@ -446,6 +446,16 @@ export class LiveService {
       !Number.isFinite(segment.endSeconds) || segment.startSeconds < 0 || segment.endSeconds < segment.startSeconds)) {
       throw new BadRequestException('Transcript segments contain invalid IDs, text, speakers, or timestamps');
     }
+    const speakerUsers = await this.prisma.user.findMany({
+      where: { id: { in: [...new Set(normalized.map((segment) => segment.speaker))] } },
+      select: { id: true, displayName: true },
+    });
+    const speakerNames = new Map(speakerUsers.map((user) => [user.id, user.displayName]));
+    const attributed = normalized.map((segment) => ({
+      ...segment,
+      speakerId: segment.speaker,
+      speaker: speakerNames.get(segment.speaker) || segment.speaker,
+    }));
     const room = await this.prisma.liveRoom.findUnique({
       where: { id: roomId },
       select: { id: true, recordingStatus: true, recordingTranscript: true, recordingObjectKey: true },
@@ -455,10 +465,10 @@ export class LiveService {
       throw new ConflictException('Transcript capture is available only for an active or completed recording');
     }
     const current = room.recordingTranscript && typeof room.recordingTranscript === 'object'
-      ? room.recordingTranscript as { language?: string; segments?: typeof normalized }
-      : { language: 'en', segments: [] as typeof normalized };
+      ? room.recordingTranscript as { language?: string; segments?: typeof attributed }
+      : { language: 'en', segments: [] as typeof attributed };
     const byId = new Map((Array.isArray(current.segments) ? current.segments : []).map((segment) => [segment.id, segment]));
-    for (const segment of normalized) byId.set(segment.id, segment);
+    for (const segment of attributed) byId.set(segment.id, segment);
     const segments = [...byId.values()].sort((a, b) => a.startSeconds - b.startSeconds).slice(-10000);
     const language = (input.language || current.language || 'en').slice(0, 12);
     await this.prisma.liveRoom.update({ where: { id: roomId }, data: { recordingTranscript: { language, segments } } });
