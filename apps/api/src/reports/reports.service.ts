@@ -134,7 +134,7 @@ export class ReportsService {
   }
 
   async applyContentAction(userId: string, reportId: string, input: {
-    action: 'HIDE_EPISODE' | 'RESTORE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_MOMENT';
+    action: 'HIDE_EPISODE' | 'RESTORE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_MOMENT' | 'HIDE_COMMUNITY_POST' | 'RESTORE_COMMUNITY_POST';
     reason: string;
   }) {
     await this.requireModerator(userId);
@@ -151,7 +151,7 @@ export class ReportsService {
       const previous = await this.prisma.moderationAction.findFirst({ where: { reportId, action: { startsWith: 'HIDE_' } }, orderBy: { createdAt: 'desc' }, select: { id: true } });
       if (!previous) throw new BadRequestException('There is no recorded hide action to reverse');
     }
-    const expectedType = input.action.endsWith('EPISODE') ? 'EPISODE' : 'MOMENT';
+    const expectedType = input.action.endsWith('EPISODE') ? 'EPISODE' : input.action.endsWith('MOMENT') ? 'MOMENT' : 'COMMUNITY_POST';
     if (report.targetType !== expectedType) throw new BadRequestException('The moderation action does not match this report target');
     const hide = input.action.startsWith('HIDE_');
     const result = await this.prisma.$transaction(async (tx) => {
@@ -161,12 +161,18 @@ export class ReportsService {
         if (hide && target.status !== 'PUBLISHED') throw new BadRequestException('Only a published episode can be hidden');
         if (!hide && target.status !== 'ARCHIVED') throw new BadRequestException('Only an archived episode can be restored');
         await tx.episode.update({ where: { id: target.id }, data: { status: hide ? 'ARCHIVED' : 'PUBLISHED' } });
-      } else {
+      } else if (expectedType === 'MOMENT') {
         const target = await tx.moment.findUnique({ where: { id: report.targetId }, select: { id: true, status: true } });
         if (!target) throw new NotFoundException('Reported Moment no longer exists');
         if (hide && target.status !== 'PUBLISHED') throw new BadRequestException('Only a published Moment can be hidden');
         if (!hide && target.status !== 'ARCHIVED') throw new BadRequestException('Only an archived Moment can be restored');
         await tx.moment.update({ where: { id: target.id }, data: { status: hide ? 'ARCHIVED' : 'PUBLISHED' } });
+      } else {
+        const target = await tx.communityPost.findUnique({ where: { id: report.targetId }, select: { id: true, deletedAt: true } });
+        if (!target) throw new NotFoundException('Reported community post no longer exists');
+        if (hide && target.deletedAt) throw new BadRequestException('This community post is already hidden');
+        if (!hide && !target.deletedAt) throw new BadRequestException('This community post is not hidden');
+        await tx.communityPost.update({ where: { id: target.id }, data: { deletedAt: hide ? new Date() : null } });
       }
       await tx.moderationAction.create({ data: {
         actorId: userId, reportId, targetType: report.targetType, targetId: report.targetId,
