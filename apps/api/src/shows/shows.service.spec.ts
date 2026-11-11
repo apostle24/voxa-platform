@@ -532,3 +532,53 @@ describe('ShowsService creator production assistant', () => {
       .rejects.toBeInstanceOf(ConflictException);
   });
 });
+
+
+describe('ShowsService creator content repurposing', () => {
+  let service: ShowsService;
+  let prisma: any;
+  const originalKey = process.env.OPENAI_API_KEY;
+
+  beforeEach(() => {
+    prisma = {
+      show: { findFirst: jest.fn() },
+      episode: { findFirst: jest.fn() },
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  });
+
+  it('requires ownership before reading an episode for repurposing', async () => {
+    prisma.show.findFirst.mockResolvedValue(null);
+    await expect(service.generateEpisodeContentPack('intruder', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.episode.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('requires transcript or episode description as source material', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', title: 'Episode', description: null, durationSeconds: 600,
+      show: { title: 'My show', category: 'Culture', description: null },
+      transcript: null, chapters: [],
+    });
+    await expect(service.generateEpisodeContentPack('owner-1', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('returns a clear configuration error when the AI key is missing', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', title: 'Episode', description: 'A grounded episode description', durationSeconds: 600,
+      show: { title: 'My show', category: 'Culture', description: null },
+      transcript: null, chapters: [],
+    });
+    await expect(service.generateEpisodeContentPack('owner-1', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+});
