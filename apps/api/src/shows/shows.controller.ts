@@ -16,6 +16,11 @@ class SaveChaptersDto {
   chapters!: Array<{ title: string; startSeconds: number }>;
 }
 
+class EpisodeProductionAdviceDto {
+  @IsString() @MinLength(1) @MaxLength(80)
+  intent!: string;
+}
+
 class SaveTranscriptDto {
   @IsString() @MinLength(1) @MaxLength(200000)
   content!: string;
@@ -238,6 +243,12 @@ export class ShowsController {
   @UseGuards(JwtAuthGuard)
   getCreatorEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
     return this.shows.getCreatorEpisodeTranscript(req.user.id, showId, episodeId);
+  }
+
+  @Post('shows/:showId/episodes/:episodeId/production-assist')
+  @UseGuards(JwtAuthGuard)
+  generateEpisodeProductionAdvice(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.shows.generateEpisodeProductionAdvice(req.user.id, showId, episodeId);
   }
 
   @Put('shows/:showId/episodes/:episodeId/transcript')
