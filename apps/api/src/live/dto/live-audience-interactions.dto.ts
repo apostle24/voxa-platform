@@ -1,4 +1,4 @@
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, Length, MaxLength } from 'class-validator';
 
 export class CreateLivePollDto {
   @IsString()
@@ -28,10 +28,11 @@ export class CreateLiveQuestionDto {
 export class ModerateLiveQuestionDto {
   @IsOptional()
   @IsString()
-  @Length(1, 20)
+  @IsIn(['APPROVED', 'REJECTED', 'CLOSED'])
   status?: 'APPROVED' | 'REJECTED' | 'CLOSED';
 
   @IsOptional()
+  @IsBoolean()
   pinned?: boolean;
 
   @IsOptional()
