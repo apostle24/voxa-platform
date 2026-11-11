@@ -30,9 +30,21 @@ export class CreatorsController {
     return this.creators.updateMyProfile(request.user.id, input.bio);
   }
 
+  @Get('me/following')
+  @UseGuards(JwtAuthGuard)
+  getFollowing(@Req() request: AuthenticatedRequest) {
+    return this.creators.getFollowing(request.user.id);
+  }
+
   @Get(':handle')
   getByHandle(@Param('handle') handle: string) {
     return this.creators.getByHandle(handle);
+  }
+
+  @Get(':handle/follow-status')
+  @UseGuards(JwtAuthGuard)
+  followStatus(@Req() request: AuthenticatedRequest, @Param('handle') handle: string) {
+    return this.creators.getFollowStatus(request.user.id, handle);
   }
 
   @Post(':handle/follow')

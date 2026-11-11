@@ -46,6 +46,47 @@ export class CreatorsService {
     });
   }
 
+  async getFollowing(userId: string) {
+    const follows = await this.prisma.follow.findMany({
+      where: { followerId: userId },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        createdAt: true,
+        creator: {
+          select: {
+            id: true,
+            handle: true,
+            bio: true,
+            verifiedAt: true,
+            user: {
+              select: {
+                displayName: true,
+                liveRooms: {
+                  where: { status: 'LIVE', visibility: 'PUBLIC' },
+                  orderBy: { startedAt: 'desc' },
+                  take: 1,
+                  select: { id: true, title: true },
+                },
+              },
+            },
+            _count: { select: { followers: true, shows: true } },
+          },
+        },
+      },
+    });
+    return follows.map(({ createdAt, creator }) => ({
+      followedAt: createdAt,
+      id: creator.id,
+      handle: creator.handle,
+      bio: creator.bio,
+      verifiedAt: creator.verifiedAt,
+      displayName: creator.user.displayName,
+      liveRoom: creator.user.liveRooms[0] || null,
+      followerCount: creator._count.followers,
+      showCount: creator._count.shows,
+    }));
+  }
+
   async getByHandle(handle: string) {
     const creator = await this.prisma.creator.findUnique({
       where: { handle: handle.toLowerCase() },
@@ -77,6 +118,20 @@ export class CreatorsService {
       showCount: creator._count.shows,
       _count: undefined,
     };
+  }
+
+  async getFollowStatus(userId: string, handle: string) {
+    const creator = await this.prisma.creator.findUnique({
+      where: { handle: handle.toLowerCase() },
+      select: { id: true, userId: true },
+    });
+    if (!creator) throw new NotFoundException('Creator not found');
+    if (creator.userId === userId) return { following: false, isOwnProfile: true };
+    const follow = await this.prisma.follow.findUnique({
+      where: { followerId_creatorId: { followerId: userId, creatorId: creator.id } },
+      select: { followerId: true },
+    });
+    return { following: Boolean(follow), isOwnProfile: false };
   }
 
   async follow(userId: string, handle: string) {
