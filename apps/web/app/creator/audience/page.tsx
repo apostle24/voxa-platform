@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { apiFetch } from '../../../lib/api';
 
-const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\\/$/, '');
+const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
 type Follower = { id: string; displayName: string; createdAt: string; followedAt: string };
 type Community = { id: string; name: string; slug: string; description?: string | null; category?: string | null; _count: { members: number; posts: number } };
@@ -83,7 +83,7 @@ export default function CreatorAudiencePage() {
     finally { setBusyId(''); }
   }
 
-  async function searchFollowers(event: React.FormEvent<HTMLFormElement>) {
+  async function searchFollowers(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError('');
     try { await loadAudience(followerQuery); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to search followers'); }
@@ -95,7 +95,7 @@ export default function CreatorAudiencePage() {
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to search members'); }
   }
 
-  return <main className="pageShell">
+  return <main className="appShell"><nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/creator/studio">Creator Studio</Link><Link href="/discover">Discover</Link></div></nav><section className="communityPage" style={{ maxWidth: 1120 }}>
     <div className="pageHeader">
       <div><div className="eyebrow">CREATOR WORKSPACE</div><h1>Audience & communities</h1><p>See who follows your creator profile and manage membership in communities you own.</p></div>
       <Link className="ghostButton" href="/creator/studio">Back to Creator Studio</Link>
@@ -139,5 +139,5 @@ export default function CreatorAudiencePage() {
         {memberTotal > members.length && <p className="mutedText">Showing {members.length} of {memberTotal}. Refine your search to find other members.</p>}
       </>}
     </section>
-  </main>;
+  </section></main>;
 }
