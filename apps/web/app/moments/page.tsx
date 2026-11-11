@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../../lib/api';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/[/]$/, '');
 
@@ -17,6 +18,73 @@ type Moment = {
   episode: { id: string; title: string; artworkUrl: string | null; durationSeconds: number | null };
 };
 
+
+function MomentCommunity({ momentId, token }: { momentId: string; token: string }) {
+  const [community, setCommunity] = useState<{ likeCount: number; commentCount: number; comments: any[] } | null>(null);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [token, setToken] = useState('');
+
+  async function load() {
+    try {
+      const response = await apiFetch(API + '/moments/' + encodeURIComponent(momentId) + '/community');
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to load Moment conversation');
+      setCommunity(data);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to load conversation');
+    }
+  }
+
+  useEffect(() => { void load(); }, [momentId]);
+
+  async function like() {
+    if (!token) { setError('Sign in to like or comment on Moments.'); return; }
+    setBusy(true);
+    try {
+      const response = await apiFetch(API + '/moments/' + encodeURIComponent(momentId) + '/like', {
+        method: 'PUT', headers: { Authorization: 'Bearer ' + token },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to like Moment');
+      setCommunity(current => current ? { ...current, likeCount: result.likeCount } : current);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to like Moment'); }
+    finally { setBusy(false); }
+  }
+
+  async function comment() {
+    if (!token) { setError('Sign in to join the conversation.'); return; }
+    if (!draft.trim()) return;
+    setBusy(true); setError('');
+    try {
+      const response = await apiFetch(API + '/moments/' + encodeURIComponent(momentId) + '/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ content: draft.trim() }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to post comment');
+      setDraft('');
+      await load();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to post comment'); }
+    finally { setBusy(false); }
+  }
+
+  return <section style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
+    <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
+      <button className="ghostButton" disabled={busy} onClick={() => void like()}>♡ Like · {community?.likeCount ?? 0}</button>
+      <small style={{ color: 'var(--muted)' }}>{community?.commentCount ?? 0} comments</small>
+    </div>
+    {token && <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+      <input value={draft} onChange={event => setDraft(event.target.value)} maxLength={2000} placeholder="Add a comment…" style={{ minWidth: 0, flex: 1, padding: 9, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+      <button className="button small" disabled={busy || !draft.trim()} onClick={() => void comment()}>Post</button>
+    </div>}
+    {error && <p className="errorText" role="alert">{error}</p>}
+    {community?.comments?.slice(0, 3).map(item => <p key={item.id} style={{ fontSize: 12, lineHeight: 1.5 }}><b>{item.author.displayName}:</b> {item.content}</p>)}
+  </section>;
+}
+
 export default function MomentsPage() {
   const [moments, setMoments] = useState<Moment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -24,6 +92,7 @@ export default function MomentsPage() {
 
   useEffect(() => {
     let active = true;
+    setToken(sessionStorage.getItem('voxa_access_token') || '');
     async function load() {
       try {
         const response = await fetch(API + '/discovery/moments');
@@ -65,6 +134,7 @@ export default function MomentsPage() {
             <p style={{ fontSize: 14, lineHeight: 1.6 }}>{moment.caption}</p>
             <small>By {moment.creator.user.displayName} · @{moment.creator.handle}</small>
             <p style={{ marginBottom: 0 }}><Link className="textLink" href={'/episodes/' + moment.episodeId}>From: {moment.episode.title} ↗</Link></p>
+            <MomentCommunity momentId={moment.id} token={token} />
           </article>)}
         </div>
       </section>
