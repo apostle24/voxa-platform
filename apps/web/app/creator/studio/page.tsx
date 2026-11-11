@@ -3,6 +3,7 @@
 import { apiFetch } from '../../../lib/api';
 import EpisodeDraftEditor from '../../../components/episode-draft-editor';
 import EpisodeTranscriptEditor from '../../../components/episode-transcript-editor';
+import EpisodeChaptersEditor from '../../../components/episode-chapters-editor';
 import Link from 'next/link';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 
@@ -358,6 +359,7 @@ export default function CreatorStudioPage() {
                 </div>
                 {episode.status !== 'PUBLISHED' && <EpisodeDraftEditor showId={show.id} episode={episode} onSaved={() => { void loadShows(); setNotice('Episode draft details saved.'); }} />}
                 <EpisodeTranscriptEditor showId={show.id} episodeId={episode.id} />
+                <EpisodeChaptersEditor showId={show.id} episodeId={episode.id} durationSeconds={episode.durationSeconds} />
               </div>)}
               {!show.episodes.length && <p style={{ color: 'var(--muted)', fontSize: 12 }}>No episodes yet. Use the episode form above to add your first one.</p>}
             </div>
