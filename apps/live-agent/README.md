@@ -28,7 +28,7 @@ export LIVEKIT_URL=... LIVEKIT_API_KEY=... LIVEKIT_API_SECRET=... OPENAI_API_KEY
 python apps/live-agent/main.py start
 ```
 
-Run the agent as a separate, always-available process. It must be registered with the same LiveKit project as the API and room clients. LiveKit must dispatch a captions-agent job for each room that needs captions; this PR supplies the worker entrypoint, not automatic dispatch from the VOXA API. The agent handles all existing and subsequently connected participants in the room while its job is active.
+Run the agent as a separate, always-available process. It must be registered with the same LiveKit project as the API and room clients. Set `LIVEKIT_CAPTIONS_AGENT_ENABLED=true` and `LIVEKIT_CAPTIONS_AGENT_NAME=voxa-live-captions` in the API environment after deploying the worker. When the host starts a room, the API creates one explicit LiveKit agent dispatch (and checks for an existing dispatch first). The agent handles all existing and subsequently connected participants in the room while its job is active.
 
 ## Docker Compose
 
