@@ -22,7 +22,7 @@ describe('LiveService access boundaries', () => {
       notificationDevice: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
       livePoll: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn().mockResolvedValue(null), updateMany: jest.fn() },
       livePollOption: { findFirst: jest.fn() },
-      livePollVote: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
+      livePollVote: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn(), upsert: jest.fn() },
       liveQuestion: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       liveAgendaItem: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
       liveSpeakerTurn: { findFirst: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
@@ -156,7 +156,7 @@ describe('LiveService access boundaries', () => {
     prisma.liveRoom.findMany.mockResolvedValue([{ id: 'room-1', hostId: 'host-1', status: 'SCHEDULED' }]);
     await expect(service.listMyLiveRooms('host-1')).resolves.toEqual([{ id: 'room-1', hostId: 'host-1', status: 'SCHEDULED' }]);
     expect(prisma.liveRoom.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { hostId: 'host-1' }, take: 30,
+      where: { OR: [{ hostId: 'host-1' }, { coHosts: { some: { userId: 'host-1' } } }] }, take: 30,
     }));
   });
 
