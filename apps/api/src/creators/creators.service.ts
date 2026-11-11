@@ -140,11 +140,12 @@ export class CreatorsService {
     if (!creator) throw new NotFoundException('Create a creator profile first');
     const now = new Date();
     const since = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-    const [followers, publishedShows, publishedEpisodes, totalProgress, recentProgress, completedProgress,
+    const [followers, publishedShows, publishedEpisodes, publishedLiveReplays, totalProgress, recentProgress, completedProgress,
       activeMembers, publishedMoments, momentLikes, momentComments] = await Promise.all([
       this.prisma.follow.count({ where: { creatorId: creator.id } }),
       this.prisma.show.count({ where: { creatorId: creator.id, status: 'PUBLISHED' } }),
       this.prisma.episode.count({ where: { show: { creatorId: creator.id }, status: 'PUBLISHED' } }),
+      this.prisma.episode.count({ where: { show: { creatorId: creator.id }, status: 'PUBLISHED', isLiveReplay: true } }),
       this.prisma.playbackProgress.count({ where: { episode: { show: { creatorId: creator.id } } } }),
       this.prisma.playbackProgress.count({ where: { episode: { show: { creatorId: creator.id } }, updatedAt: { gte: since } } }),
       this.prisma.playbackProgress.count({ where: { episode: { show: { creatorId: creator.id } }, completed: true } }),
@@ -157,7 +158,7 @@ export class CreatorsService {
       creator,
       period: { since: since.toISOString(), until: now.toISOString(), days: 30 },
       audience: { followers, activeMembers },
-      publishing: { publishedShows, publishedEpisodes, publishedMoments },
+      publishing: { publishedShows, publishedEpisodes, publishedLiveReplays, publishedMoments },
       listening: {
         recordedEpisodeProgressEntries: totalProgress,
         progressEntriesUpdatedLast30Days: recentProgress,
