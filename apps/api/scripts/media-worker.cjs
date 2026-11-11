@@ -230,6 +230,15 @@ async function processAsset(asset) {
 
 
 async function claimMomentRender() {
+  const staleBefore = new Date(Date.now() - staleMs);
+  await prisma.momentRender.updateMany({
+    where: { status: 'PROCESSING', startedAt: { lt: staleBefore }, attempts: { lt: maxAttempts } },
+    data: { status: 'QUEUED', startedAt: null, failureReason: 'Recovered stale render worker lease' },
+  });
+  await prisma.momentRender.updateMany({
+    where: { status: 'PROCESSING', startedAt: { lt: staleBefore }, attempts: { gte: maxAttempts } },
+    data: { status: 'FAILED', startedAt: null, failureReason: 'Render worker lease expired too many times' },
+  });
   const candidate = await prisma.momentRender.findFirst({
     where: { status: 'QUEUED', attempts: { lt: maxAttempts } },
     orderBy: { createdAt: 'asc' }, select: { id: true },
