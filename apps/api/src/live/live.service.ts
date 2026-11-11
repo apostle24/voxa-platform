@@ -70,20 +70,17 @@ export class LiveService {
 
     // DeleteRoom forcibly disconnects all participants and prevents further joins.
     await this.roomServiceClient().deleteRoom(room.id);
-    const ended = await this.prisma.liveRoom.update({
-      where: { id: roomId },
-      data: { status: LiveRoomStatus.ENDED, endedAt: new Date() },
-      select: { id: true, status: true, endedAt: true },
+    return this.prisma.$transaction(async (tx) => {
+      const ended = await tx.liveRoom.update({
+        where: { id: roomId },
+        data: { status: LiveRoomStatus.ENDED, endedAt: new Date() },
+        select: { id: true, status: true, endedAt: true },
+      });
+      const leftAt = ended.endedAt ?? new Date();
+      await tx.liveStageMember.updateMany({ where: { roomId, leftAt: null }, data: { leftAt } });
+      await tx.liveViewerSession.updateMany({ where: { roomId, leftAt: null }, data: { leftAt } });
+      return ended;
     });
-    await this.prisma.liveStageMember.updateMany({
-      where: { roomId, leftAt: null },
-      data: { leftAt: ended.endedAt ?? new Date() },
-    });
-    await this.prisma.liveViewerSession.updateMany({
-      where: { roomId, leftAt: null },
-      data: { leftAt: ended.endedAt ?? new Date() },
-    });
-    return ended;
   }
 
   async createRoom(userId: string, input: CreateLiveRoomDto) {
@@ -292,12 +289,13 @@ export class LiveService {
     // LiveKit removes the participant and revokes the current token on LiveKit Cloud.
     await this.roomServiceClient().removeParticipant(roomId, speakerId);
     const leftAt = new Date();
-    await this.prisma.liveStageMember.update({
-      where: { roomId_userId: { roomId, userId: speakerId } },
-      data: { leftAt },
-    });
-    await this.prisma.liveViewerSession.updateMany({
-      where: { roomId, userId: speakerId, leftAt: null }, data: { leftAt },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.liveStageMember.update({
+        where: { roomId_userId: { roomId, userId: speakerId } }, data: { leftAt },
+      });
+      await tx.liveViewerSession.updateMany({
+        where: { roomId, userId: speakerId, leftAt: null }, data: { leftAt },
+      });
     });
     return { roomId, userId: speakerId, removedFromStage: true };
   }
