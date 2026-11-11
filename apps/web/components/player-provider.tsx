@@ -26,6 +26,7 @@ type PlayerContextValue = {
   duration: number;
   playTrack: (track: VoxaTrack) => void;
   enqueueTrack: (track: VoxaTrack) => void;
+  playTrackNext: (track: VoxaTrack) => void;
   togglePlayback: () => void;
   playNext: () => void;
   playPrevious: () => void;
@@ -52,6 +53,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const restored = useRef(false);
@@ -144,9 +146,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [currentTrack]);
 
   const enqueueTrack = useCallback((track: VoxaTrack) => {
+    if (track.episodeId === currentTrack?.episodeId) return;
     setQueue(items => items.some(item => item.episodeId === track.episodeId) ? items : [...items, track]);
     setQueueOpen(true);
-  }, []);
+  }, [currentTrack]);
+
+  const playTrackNext = useCallback((track: VoxaTrack) => {
+    if (track.episodeId === currentTrack?.episodeId) return;
+    setQueue(items => [track, ...items.filter(item => item.episodeId !== track.episodeId)]);
+    setQueueOpen(true);
+  }, [currentTrack]);
 
   const playNext = useCallback(() => {
     if (!queue.length) return;
@@ -192,6 +201,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (audio.paused) void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     else { audio.pause(); setIsPlaying(false); }
   }, [currentTrack]);
+
+  const changePlaybackRate = useCallback((rate: number) => {
+    const safeRate = Math.min(2, Math.max(0.5, rate));
+    if (audioRef.current) audioRef.current.playbackRate = safeRate;
+    setPlaybackRate(safeRate);
+  }, []);
 
   const seek = useCallback((seconds: number) => {
     const audio = audioRef.current;
@@ -286,7 +301,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [currentTrack, isPlaying, currentTime, duration, togglePlayback, playNext, playPrevious, seek]);
 
-  return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, togglePlayback, playNext, playPrevious, removeFromQueue, moveInQueue, seek, playerError, retryPlayback }}>
+  return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, playTrackNext, togglePlayback, playNext, playPrevious, removeFromQueue, moveInQueue, seek, playerError, retryPlayback }}>
     {children}
     <audio ref={audioRef} preload="metadata" aria-hidden="true" style={{ display: 'none' }} />
     {currentTrack && <aside className="voxaPlayer" aria-label="VOXA audio player">
@@ -300,11 +315,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       {playerError && <div role="alert" className="voxaPlayerError"><span>{playerError}</span><button onClick={retryPlayback}>Retry</button></div>}
       <div className="voxaPlayerControls">
         <div className="voxaPlayerButtons">
+          <button aria-label="Back 15 seconds" onClick={() => seek(Math.max(0, currentTime - 15))}>−15</button>
           <button aria-label="Play previous episode" onClick={playPrevious} disabled={!history.length}>↶</button>
           <button aria-label="Play or pause" onClick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
           <button aria-label="Play next" onClick={playNext} disabled={!queue.length}>↠</button>
+          <button aria-label="Forward 15 seconds" onClick={() => seek(Math.min(duration || currentTime + 15, currentTime + 15))}>+15</button>
           <button aria-label="Show queue" onClick={() => setQueueOpen(value => !value)}>Queue ({queue.length})</button>
         </div>
+        <label className="voxaPlayerSpeed" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          Speed <select aria-label="Playback speed" value={playbackRate} onChange={event => changePlaybackRate(Number(event.target.value))}>
+            {[0.75, 1, 1.25, 1.5, 1.75, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+          </select>
+        </label>
         <div className="voxaPlayerTimeline">
           <span>{clock(currentTime)}</span>
           <input aria-label="Seek audio" type="range" min="0" max={Math.max(duration, 1)} value={Math.min(currentTime, duration || 0)} onChange={event => seek(Number(event.target.value))} />
