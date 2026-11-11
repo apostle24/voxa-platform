@@ -630,6 +630,25 @@ export class LiveService {
   }
 
 
+
+  private async applySpeakerPublishPermissions(roomId: string, stageSpeakerIds: string[], activeSpeakerId: string | null) {
+    const client = this.roomServiceClient();
+    const participants = await client.listParticipants(roomId);
+    const connectedIds = stageSpeakerIds.filter(id => participants.some(participant => participant.identity === id));
+    if (activeSpeakerId && !connectedIds.includes(activeSpeakerId)) throw new ConflictException('The selected speaker is no longer connected to VOXA LIVE');
+    try {
+      for (const speakerId of connectedIds) {
+        await client.updateParticipant(roomId, speakerId, undefined, {
+          canPublish: speakerId === activeSpeakerId,
+          canSubscribe: true,
+          canPublishData: true,
+        });
+      }
+    } catch {
+      throw new ServiceUnavailableException('LiveKit could not apply the speaker handoff permissions');
+    }
+  }
+
   async getSessionPlan(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');
@@ -720,21 +739,35 @@ export class LiveService {
     }
     const active = await this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, select: { speakerId: true } });
     if (active?.speakerId === speakerId) throw new ConflictException('This speaker already has the active turn');
-    return this.prisma.$transaction(async (tx) => {
+    const stageMembers = await this.prisma.liveStageMember.findMany({ where: { roomId, leftAt: null }, select: { userId: true } });
+    await this.applySpeakerPublishPermissions(roomId, stageMembers.map(member => member.userId), speakerId);
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       await tx.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt: new Date() } });
       return tx.liveSpeakerTurn.create({
         data: { roomId, speakerId, agendaItemId: agendaItemId || null },
         select: { id: true, roomId: true, speakerId: true, agendaItemId: true, status: true, startedAt: true, speaker: { select: { displayName: true } } },
       });
-    });
+      });
+    } catch (error) {
+      await this.applySpeakerPublishPermissions(roomId, stageMembers.map(member => member.userId), active?.speakerId ?? null).catch(() => undefined);
+      throw error;
+    }
   }
 
   async endSpeakerTurn(hostId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the host can end the active speaker turn');
+    const active = await this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, select: { speakerId: true } });
+    if (!active) throw new NotFoundException('There is no active speaker turn');
+    const stageMembers = await this.prisma.liveStageMember.findMany({ where: { roomId, leftAt: null }, select: { userId: true } });
+    await this.applySpeakerPublishPermissions(roomId, stageMembers.map(member => member.userId), null);
     const result = await this.prisma.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt: new Date() } });
-    if (!result.count) throw new NotFoundException('There is no active speaker turn');
+    if (!result.count) {
+      await this.applySpeakerPublishPermissions(roomId, stageMembers.map(member => member.userId), active.speakerId).catch(() => undefined);
+      throw new NotFoundException('There is no active speaker turn');
+    }
     return { roomId, status: 'COMPLETED' };
   }
 
