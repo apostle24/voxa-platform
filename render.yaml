@@ -9,7 +9,7 @@ projects:
             region: frankfurt
             plan: free
             branch: deploy/voxa-staging-render
-            buildCommand: corepack enable && corepack prepare pnpm@9.15.0 --activate && NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @voxa/api prisma:generate && pnpm --filter @voxa/api build
+            buildCommand: NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @voxa/api prisma:generate && pnpm --filter @voxa/api build
             startCommand: pnpm --filter @voxa/api exec prisma migrate deploy && node apps/api/dist/main.js
             healthCheckPath: /v1/health/ready
             envVars:
@@ -43,7 +43,7 @@ projects:
             region: frankfurt
             plan: free
             branch: deploy/voxa-staging-render
-            buildCommand: corepack enable && corepack prepare pnpm@9.15.0 --activate && NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @voxa/web build
+            buildCommand: NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @voxa/web build
             startCommand: pnpm --filter @voxa/web start
             envVars:
               - key: NEXT_PUBLIC_VOXA_API_URL
