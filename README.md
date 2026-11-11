@@ -2,16 +2,17 @@
 
 VOXA is being built as a global podcast, audio/video, creator, live-conversation and community platform. The product direction includes on-demand shows, live rooms, creator communities, VOXA Moments, memberships, and a global creator economy.
 
-> **Current status: early functional web/API MVP, not production-ready.** The repository now contains real authentication, creator and podcast APIs, a web listening journey, a Creator Studio upload/publish flow, a LiveKit-connected web room client, in-app notifications, and a GHS Paystack membership/ledger/payout foundation. Production identity security, media processing, trust-and-safety operations, mobile apps, several social features, deployment, and real-provider staging verification remain incomplete.
+> **Current status: early functional web/API MVP, not production-ready.** The repository now contains real authentication, creator and podcast APIs, a web listening journey, a Creator Studio upload/publish flow, a LiveKit-connected web room client, in-app notifications, and a GHS Paystack membership/ledger/payout foundation. Production identity security, media processing, trust-and-safety operations, mobile device verification, several social features, deployment, and real-provider staging verification remain incomplete.
 
 ## Repository structure
 
 - `apps/api` — NestJS API, Prisma schema/migrations, auth, creator, show/episode, media, LIVE, notification, membership, ledger and payment modules.
 - `apps/web` — Next.js web application and browser clients.
+- `apps/mobile` — Expo / React Native Android and iOS application.
 - `infra` — local PostgreSQL and Redis development services.
 - `docs` — product, architecture, security, LIVE, financial and operational plans.
 
-There is **no mobile app source tree yet** and no shared contracts package yet. Those are future milestones, not completed foundations.
+The native mobile application is now scaffolded under `apps/mobile` with authentication, discovery, audio playback, communities, creator show creation, and LiveKit room entry. It still needs dependency installation, native device builds, and end-to-end verification.
 
 ## Implemented product journeys
 
@@ -141,7 +142,7 @@ A successful CI run verifies schema/build/typecheck/tests; it does **not** repla
 - Notifications are persisted in the inbox; push and email delivery are not implemented.
 - No automated end-to-end tests, load tests, penetration tests, backup/restore drills, incident alerting or production observability are included yet.
 - Report/block/mute/ban/appeal workflows, copyright takedowns, age controls, community discussions, VOXA Moments, gifts, tips, wallets, ticketing, ads, sponsorships, and AI recommendations remain future work.
-- There is no mobile application yet.
+- The mobile app is a first native foundation; push notifications, background audio validation, app-store signing, offline caching, and full-device QA remain outstanding.
 
 Do not commit provider credentials, production database URLs, signing secrets, or other secrets to Git. Store them only in the hosting provider's encrypted secret/environment settings.
 
@@ -157,3 +158,7 @@ Do not commit provider credentials, production database URLs, signing secrets, o
 - [Roadmap](docs/ROADMAP.md)
 
 VOXA is being developed in deliberate stages: stabilize and test the foundation, complete the podcast journey, harden LIVE, build community/mobile, expand creator commerce, then scale and prepare for a controlled launch.
+
+## Mobile application
+
+The Expo app lives in `apps/mobile`. See [Mobile README](apps/mobile/README.md) for setup. It is an independent npm-installed native workspace; install its dependencies from that directory, configure `EXPO_PUBLIC_VOXA_API_URL`, then run Expo. LiveKit requires a native development build and cannot run inside Expo Go.
