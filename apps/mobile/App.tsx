@@ -6,7 +6,7 @@ import {
 import { Audio } from 'expo-av';
 import * as SecureStore from 'expo-secure-store';
 import { LiveKitRoom, registerGlobals } from '@livekit/react-native';
-import { api, clearSession, getSavedUser, imageFor, saveSession, signIn, signOut, User, ApiRecord, verifyMfa } from './src/api';
+import { api, clearSession, getSavedUser, imageFor, saveSession, signIn, signOut, User, ApiRecord, verifyMfa, registerAccount } from './src/api';
 import { colors } from './src/theme';
 
 registerGlobals();
@@ -35,6 +35,9 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('Discover');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [registerMode, setRegisterMode] = useState(false);
+  const [authNotice, setAuthNotice] = useState('');
   const [authError, setAuthError] = useState('');
   const [busy, setBusy] = useState(false);
   const [mfa, setMfa] = useState('');
@@ -64,13 +67,19 @@ export default function App() {
   async function authenticate() {
     setBusy(true); setAuthError('');
     try {
+      if (registerMode && !mfa) {
+        await registerAccount(displayName.trim(), email.trim(), password);
+        setRegisterMode(false); setPassword('');
+        setAuthNotice('Account created. Check your email and verify your address before signing in.');
+        return;
+      }
       const result = mfa ? await verifyMfa(mfa, mfaCode) : await signIn(email.trim(), password);
       if (result.mfaRequired && result.challengeToken) {
         setMfa(result.challengeToken); setAuthError('Enter your authenticator or backup code.'); return;
       }
       await saveSession(result);
       setUser(result.user);
-      setPassword(''); setMfa(''); setMfaCode('');
+      setPassword(''); setMfa(''); setMfaCode(''); setAuthNotice('');
     } catch (e) { setAuthError(e instanceof Error ? e.message : 'Sign in failed'); }
     finally { setBusy(false); }
   }
@@ -107,14 +116,16 @@ export default function App() {
       <Text style={styles.hero}>Your voice{ '\n' }has a place.</Text>
       <Text style={styles.muted}>Listen, host, and connect with a global community.</Text>
       <View style={styles.authCard}>
-        <SectionTitle>{mfa ? 'Verify your sign-in' : 'Welcome back'}</SectionTitle>
+        <SectionTitle>{mfa ? 'Verify your sign-in' : registerMode ? 'Create your account' : 'Welcome back'}</SectionTitle>
         {!mfa && <>
+          {registerMode && <Field value={displayName} onChangeText={setDisplayName} placeholder="Your name" maxLength={60} />}
           <Field value={email} onChangeText={setEmail} placeholder="Email address" autoCapitalize="none" keyboardType="email-address" />
           <Field value={password} onChangeText={setPassword} placeholder="Password" secureTextEntry />
         </>}
         {!!mfa && <Field value={mfaCode} onChangeText={setMfaCode} placeholder="Authenticator or backup code" keyboardType="number-pad" />}
-        {!!authError && <Text style={styles.error}>{authError}</Text>}
-        <Button title={busy ? 'Please wait…' : mfa ? 'Verify and sign in' : 'Sign in'} onPress={authenticate} disabled={busy || (!mfa && (!email || !password)) || (!!mfa && !mfaCode)} />
+        {!!authNotice && <Text style={styles.notice}>{authNotice}</Text>}{!!authError && <Text style={styles.error}>{authError}</Text>}
+        <Button title={busy ? 'Please wait…' : mfa ? 'Verify and sign in' : registerMode ? 'Create account' : 'Sign in'} onPress={authenticate} disabled={busy || (!mfa && (!email || !password || (registerMode && !displayName.trim()))) || (!!mfa && !mfaCode)} />
+        {!mfa && <Pressable onPress={() => { setRegisterMode(v => !v); setAuthError(''); setAuthNotice(''); }}><Text style={styles.switchAuth}>{registerMode ? 'Already registered? Sign in' : 'New to VOXA? Create an account'}</Text></Pressable>}
         <Text style={styles.hint}>New accounts can be created on VOXA web. Verify your email before signing in.</Text>
       </View>
     </KeyboardAvoidingView>
@@ -290,7 +301,7 @@ const styles = StyleSheet.create({
   playerTitle: { color: colors.text, fontSize: 12, fontWeight: '800' }, playerMessage: { color: colors.danger, paddingHorizontal: 14, paddingVertical: 5, fontSize: 11 },
   authWrap: { flex: 1, justifyContent: 'center', padding: 24 }, hero: { color: colors.text, fontSize: 44, lineHeight: 49, fontWeight: '900', marginTop: 26, marginBottom: 12 },
   authCard: { backgroundColor: colors.panel, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: 18, marginTop: 26 },
-  hint: { color: colors.muted, fontSize: 11, lineHeight: 17, marginTop: 14 }, error: { color: colors.danger, fontSize: 12, marginBottom: 10 },
+  hint: { color: colors.muted, fontSize: 11, lineHeight: 17, marginTop: 14 }, notice: { color: colors.accent2, fontSize: 12, lineHeight: 18, marginBottom: 10 }, switchAuth: { color: colors.accent2, textAlign: 'center', fontWeight: '700', marginTop: 16 }, error: { color: colors.danger, fontSize: 12, marginBottom: 10 },
   liveCard: { backgroundColor: colors.panel, borderRadius: 16, borderColor: colors.border, borderWidth: 1, padding: 16, marginBottom: 12 },
   livePill: { color: colors.live, fontSize: 10, fontWeight: '900', letterSpacing: 1.2, marginBottom: 10 }, liveRoom: { flex: 1, padding: 18 },
   roomPanel: { backgroundColor: colors.panel, borderRadius: 16, padding: 20, marginVertical: 18, minHeight: 120 },
