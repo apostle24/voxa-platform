@@ -33,11 +33,6 @@ export class UpdateLiveAgendaItemDto {
   @Max(14400)
   durationSeconds?: number;
 
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(100)
-  position?: number;
 }
 
 export class HandoffLiveSpeakerDto {
