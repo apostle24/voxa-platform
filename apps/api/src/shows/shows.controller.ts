@@ -161,6 +161,12 @@ export class ShowsController {
     return this.shows.getEpisodeTranscript(episodeId, req.user.id);
   }
 
+  @Get('shows/:showId/episodes/:episodeId/transcript')
+  @UseGuards(JwtAuthGuard)
+  getCreatorEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.shows.getCreatorEpisodeTranscript(req.user.id, showId, episodeId);
+  }
+
   @Put('shows/:showId/episodes/:episodeId/transcript')
   @UseGuards(JwtAuthGuard)
   saveEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: SaveTranscriptDto) {
