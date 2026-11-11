@@ -128,9 +128,10 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack, currentTime } = useVoxaPlayer();
+  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack, currentTime, playbackRate, changePlaybackRate } = useVoxaPlayer();
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
+  const latestVideoTime = useRef(0);
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
   const [mediaType, setMediaType] = useState('audio/mpeg');
@@ -141,6 +142,8 @@ export default function EpisodePage() {
   const [saving, setSaving] = useState(false);
   const [resumeAt, setResumeAt] = useState(0);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoPlaybackRate, setVideoPlaybackRate] = useState(1);
   const [token, setToken] = useState('');
   const [transcript, setTranscript] = useState<{ content: string; language: string; segments?: Array<{ startSeconds: number; endSeconds: number; text: string; speaker: string }> | null } | null>(null);
   const [intelligence, setIntelligence] = useState<{ summary: string; topics: string[]; generatedAt: string } | null>(null);
@@ -244,6 +247,53 @@ export default function EpisodePage() {
     return () => { active = false; };
   }, [episodeId]);
 
+  useEffect(() => {
+    if (!audioUrl || !mediaType.startsWith('video/')) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const applyResume = () => {
+      if (resumeAt > 0 && Number.isFinite(video.duration)) {
+        const position = Math.min(resumeAt, Math.max(0, video.duration - 0.25));
+        video.currentTime = position;
+        latestVideoTime.current = position;
+        setVideoCurrentTime(position);
+      }
+      setVideoDuration(Number.isFinite(video.duration) ? video.duration : 0);
+    };
+    if (video.readyState >= 1) applyResume();
+    else video.addEventListener('loadedmetadata', applyResume, { once: true });
+    return () => video.removeEventListener('loadedmetadata', applyResume);
+  }, [audioUrl, mediaType, resumeAt]);
+
+  useEffect(() => {
+    const persistPosition = () => {
+      if (mediaType.startsWith('video/')) void saveProgress(latestVideoTime.current, true);
+    };
+    window.addEventListener('pagehide', persistPosition);
+    return () => {
+      window.removeEventListener('pagehide', persistPosition);
+      if (mediaType.startsWith('video/')) void saveProgress(latestVideoTime.current, true);
+    };
+  }, [mediaType, saveProgress]);
+
+  function seekReplay(seconds: number, shouldPlay = true) {
+    const safeSeconds = Math.max(0, Math.min(seconds, episode?.durationSeconds || videoDuration || Number.MAX_SAFE_INTEGER));
+    if (mediaType.startsWith('video/') && videoRef.current) {
+      videoRef.current.currentTime = safeSeconds;
+      latestVideoTime.current = safeSeconds;
+      setVideoCurrentTime(safeSeconds);
+      if (shouldPlay) void videoRef.current.play().catch(() => undefined);
+      return;
+    }
+    if (currentTrack?.episodeId === episode?.id) {
+      seek(safeSeconds);
+      return;
+    }
+    if (episode && audioUrl) {
+      playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: safeSeconds });
+    }
+  }
+
   async function toggleBookmark() {
     if (!token) { setError('Sign in to save episodes to your library.'); return; }
     try {
@@ -317,16 +367,7 @@ export default function EpisodePage() {
             <div className="eyebrow">EPISODE GUIDE</div>
             <h2 style={{ margin: '8px 0 14px' }}>Jump to a chapter.</h2>
             <div style={{ display: 'grid', gap: 8 }}>
-              {chapters.map((chapter, index) => <button key={chapter.id} type="button" className="ghostButton" onClick={() => {
-                if (mediaType.startsWith('video/') && videoRef.current) {
-                  videoRef.current.currentTime = chapter.startSeconds;
-                  void videoRef.current.play();
-                } else if (currentTrack?.episodeId === episode.id) {
-                  seek(chapter.startSeconds);
-                } else if (audioUrl) {
-                  playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: chapter.startSeconds });
-                }
-              }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '12px 14px' }}>
+              {chapters.map(chapter => <button key={chapter.id} type="button" className="ghostButton" onClick={() => seekReplay(chapter.startSeconds)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '12px 14px' }}>
                 <span><small style={{ color: 'var(--muted)', marginRight: 12 }}>{String(Math.floor(chapter.startSeconds / 60)).padStart(2, '0')}:{String(chapter.startSeconds % 60).padStart(2, '0')}</small><b>{chapter.title}</b></span><span style={{ color: 'var(--muted)' }}>▶</span>
               </button>)}
             </div>
@@ -345,17 +386,7 @@ export default function EpisodePage() {
             content={transcript.content}
             segments={transcript.segments}
             currentTime={mediaType.startsWith('video/') ? videoCurrentTime : currentTrack?.episodeId === episode.id ? currentTime : -1}
-            onSeek={seconds => {
-              if (mediaType.startsWith('video/') && videoRef.current) {
-                videoRef.current.currentTime = seconds;
-                setVideoCurrentTime(seconds);
-                void videoRef.current.play();
-              } else if (currentTrack?.episodeId === episode.id) {
-                seek(seconds);
-              } else if (audioUrl) {
-                playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: seconds });
-              }
-            }}
+            onSeek={seconds => seekReplay(seconds)}
           /> : <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
             <div className="eyebrow">EPISODE TRANSCRIPT · {transcript.language.toUpperCase()}</div>
             <h2 style={{ margin: '8px 0 14px' }}>Read along.</h2>
@@ -372,15 +403,15 @@ export default function EpisodePage() {
                   src={audioUrl}
                   style={{ width: '100%', maxHeight: 560, borderRadius: 12, background: '#000' }}
                   onLoadedMetadata={() => {
-                    if (resumeAt > 0 && videoRef.current) videoRef.current.currentTime = resumeAt;
+                    if (videoRef.current) setVideoDuration(Number.isFinite(videoRef.current.duration) ? videoRef.current.duration : 0);
                   }}
                   onTimeUpdate={() => {
-                    if (videoRef.current) { setVideoCurrentTime(videoRef.current.currentTime); void saveProgress(videoRef.current.currentTime); }
+                    if (videoRef.current) { latestVideoTime.current = videoRef.current.currentTime; setVideoCurrentTime(videoRef.current.currentTime); void saveProgress(videoRef.current.currentTime); }
                   }}
                   onPause={() => {
                     if (videoRef.current) void saveProgress(videoRef.current.currentTime, true);
                   }}
-                  onEnded={() => void saveProgress(videoRef.current?.duration || 0, true)}
+                  onEnded={() => { const end = videoRef.current?.duration || 0; latestVideoTime.current = end; void saveProgress(end, true); }}
                 />
               : <div className="episodePlayerActions">
                   <button className="button" onClick={() => playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>▶ Play episode</button>
