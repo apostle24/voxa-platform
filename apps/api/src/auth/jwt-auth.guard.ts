@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
 
 export type AuthenticatedRequest = {
   user: { id: string; email: string; role: string };
@@ -13,7 +14,7 @@ export type AuthenticatedRequest = {
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
-  constructor(private readonly jwt: JwtService) {}
+  constructor(private readonly jwt: JwtService, private readonly prisma: PrismaService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
@@ -31,9 +32,15 @@ export class JwtAuthGuard implements CanActivate {
         audience: 'voxa-clients',
       });
       if (!payload.sub || !payload.email) throw new Error('Invalid token payload');
-      request.user = { id: payload.sub, email: payload.email, role: payload.role };
+      const account = await this.prisma.user.findUnique({ where: { id: payload.sub }, select: { id: true, suspendedUntil: true, suspensionReason: true, role: true } });
+      if (!account) throw new UnauthorizedException('Account no longer exists');
+      if (account.suspendedUntil && account.suspendedUntil > new Date()) {
+        throw new UnauthorizedException('This account is temporarily suspended. ' + (account.suspensionReason || 'Contact VOXA support for assistance.'));
+      }
+      request.user = { id: payload.sub, email: payload.email, role: account.role };
       return true;
-    } catch {
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Access token is invalid or expired');
     }
   }
