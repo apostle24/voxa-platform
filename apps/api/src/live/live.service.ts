@@ -424,6 +424,8 @@ export class LiveService {
         });
         await tx.liveStageMember.updateMany({ where: { roomId, leftAt: null }, data: { leftAt: endedAt } });
         await tx.liveViewerSession.updateMany({ where: { roomId, leftAt: null }, data: { leftAt: endedAt } });
+        await tx.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt } });
+        await tx.liveAgendaItem.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', completedAt: endedAt } });
       } else if (roomId && participantIdentity &&
         (event.event === 'participant_left' || event.event === 'participant_connection_aborted')) {
         const leftAt = new Date();
@@ -432,6 +434,9 @@ export class LiveService {
         });
         await tx.liveStageMember.updateMany({
           where: { roomId, userId: participantIdentity, leftAt: null }, data: { leftAt },
+        });
+        await tx.liveSpeakerTurn.updateMany({
+          where: { roomId, speakerId: participantIdentity, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt: leftAt },
         });
       }
       return { received: true, duplicate: false, event: event.event };
