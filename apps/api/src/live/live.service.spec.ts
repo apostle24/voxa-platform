@@ -15,6 +15,7 @@ describe('LiveService access boundaries', () => {
       liveRoom: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
       liveRoomModerator: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn(), deleteMany: jest.fn() },
       liveRoomCoHost: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn(), deleteMany: jest.fn() },
+      liveRoomHostTransfer: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
       livePoll: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn() },
       livePollOption: { findFirst: jest.fn() },
       livePollVote: { upsert: jest.fn() },
