@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccessToken, EgressClient, EncodedFileOutput, RoomServiceClient, S3Upload, WebhookReceiver } from 'livekit-server-sdk';
+import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { LiveRoomStatus, LiveRoomVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
@@ -180,6 +181,101 @@ export class LiveService {
         data: { recordingStatus: 'FAILED', recordingFailure: 'Recording service could not start the recording' },
       });
       throw new ServiceUnavailableException('Unable to start live recording; verify LiveKit Egress and recording storage configuration');
+    }
+  }
+
+  async createRecordingEpisodeDraft(hostId: string, roomId: string) {
+    if (this.config.get<string>('LIVEKIT_RECORDING_ENABLED') !== 'true') {
+      throw new ServiceUnavailableException('Live room recording is disabled by configuration');
+    }
+    const room = await this.prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true, hostId: true, title: true, isAudioOnly: true, recordingStatus: true, recordingObjectKey: true },
+    });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can create a replay');
+    if (room.recordingStatus !== 'COMPLETED' || !room.recordingObjectKey) {
+      throw new ConflictException('A successfully completed recording is required before creating a replay');
+    }
+
+    const bucket = this.config.get<string>('S3_BUCKET', '');
+    const recordingBucket = this.config.get<string>('LIVEKIT_RECORDING_S3_BUCKET') || bucket;
+    if (!bucket || recordingBucket !== bucket) {
+      throw new ServiceUnavailableException('Replay import requires LiveKit recordings and VOXA media processing to use the same S3 bucket');
+    }
+    const rawKey = room.recordingObjectKey;
+    let objectKey = rawKey;
+    if (rawKey.startsWith('s3://')) {
+      const location = rawKey.slice(5);
+      const slash = location.indexOf('/');
+      if (slash < 1 || location.slice(0, slash) !== bucket) {
+        throw new ConflictException('Recording storage location does not match the configured media bucket');
+      }
+      objectKey = location.slice(slash + 1);
+    }
+    if (!objectKey || objectKey.startsWith('/') || objectKey.includes('..')) {
+      throw new ConflictException('Recording storage returned an invalid object key');
+    }
+
+    const accessKeyId = this.config.get<string>('S3_ACCESS_KEY_ID');
+    const secretAccessKey = this.config.get<string>('S3_SECRET_ACCESS_KEY');
+    const endpoint = this.config.get<string>('S3_ENDPOINT');
+    const storage = new S3Client({
+      region: this.config.get<string>('S3_REGION', 'auto'),
+      ...(endpoint ? { endpoint } : {}),
+      forcePathStyle: this.config.get<string>('S3_FORCE_PATH_STYLE', 'false') === 'true',
+      ...(accessKeyId && secretAccessKey ? { credentials: { accessKeyId, secretAccessKey } } : {}),
+    });
+    let sizeBytes: number;
+    try {
+      const head = await storage.send(new HeadObjectCommand({ Bucket: bucket, Key: objectKey }));
+      if (!head.ContentLength || head.ContentLength < 1) throw new Error('empty recording');
+      sizeBytes = head.ContentLength;
+    } catch {
+      throw new ServiceUnavailableException('Completed recording is not yet accessible in configured media storage');
+    } finally {
+      storage.destroy();
+    }
+
+    const existing = await this.prisma.mediaAsset.findUnique({
+      where: { objectKey },
+      select: { id: true, episodeId: true, status: true },
+    });
+    if (existing) return { roomId, episodeId: existing.episodeId, mediaAssetId: existing.id, processingStatus: existing.status, alreadyCreated: true };
+
+    const creator = await this.prisma.creator.findUnique({ where: { userId: hostId }, select: { id: true } });
+    if (!creator) throw new ConflictException('Create a creator profile before publishing a live replay');
+    const showTitle = 'VOXA LIVE Replays';
+    let show = await this.prisma.show.findFirst({ where: { creatorId: creator.id, title: showTitle }, select: { id: true } });
+    if (!show) {
+      show = await this.prisma.show.create({
+        data: { creatorId: creator.id, title: showTitle, description: 'Replays from your VOXA LIVE sessions', language: 'en', status: 'PUBLISHED', publishedAt: new Date() },
+        select: { id: true },
+      });
+    }
+    const contentType = room.isAudioOnly ? 'audio/mp4' : 'video/mp4';
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const episode = await tx.episode.create({
+          data: {
+            showId: show!.id,
+            title: room.title.trim().slice(0, 180) || 'Live session replay',
+            description: 'Replay from a VOXA LIVE session. Review this draft before publishing.',
+            mediaKey: objectKey,
+          },
+          select: { id: true },
+        });
+        const asset = await tx.mediaAsset.create({
+          data: { episodeId: episode.id, objectKey, contentType, sizeBytes: BigInt(sizeBytes), status: 'QUEUED' },
+          select: { id: true, status: true },
+        });
+        return { episodeId: episode.id, mediaAssetId: asset.id, processingStatus: asset.status };
+      });
+      return { roomId, ...created, alreadyCreated: false };
+    } catch (error) {
+      const duplicate = await this.prisma.mediaAsset.findUnique({ where: { objectKey }, select: { id: true, episodeId: true, status: true } });
+      if (duplicate) return { roomId, episodeId: duplicate.episodeId, mediaAssetId: duplicate.id, processingStatus: duplicate.status, alreadyCreated: true };
+      throw error;
     }
   }
 
