@@ -153,6 +153,16 @@ export class ShowsController {
     return this.shows.getPersonalizedRecommendations(req.user.id, limit ? Number(limit) : undefined);
   }
 
+  @Get('discovery/topics')
+  discoverTopics() {
+    return this.shows.discoverTopics();
+  }
+
+  @Get('discovery/topic-episodes')
+  discoverTopicEpisodes(@Query('topic') topic?: string) {
+    return this.shows.discoverTopicEpisodes(topic || '');
+  }
+
   @Get('discovery/categories')
   discoveryCategories() {
     return this.shows.discoveryCategories();
