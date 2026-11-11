@@ -1,12 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable,
+  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable,
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from 'react-native';
-import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { requestNotificationPermissionsAsync, setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as SecureStore from 'expo-secure-store';
 import { AudioSession, LiveKitRoom, registerGlobals } from '@livekit/react-native';
-import { api, clearSession, getSavedUser, imageFor, saveSession, signIn, signOut, User, ApiRecord, verifyMfa, registerAccount } from './src/api';
+import { api, clearSession, getSavedUser, saveSession, signIn, signOut, User, ApiRecord, verifyMfa, registerAccount } from './src/api';
 import { colors } from './src/theme';
 
 registerGlobals();
@@ -96,6 +96,7 @@ export default function App() {
       const playback = await api<any>('/episodes/' + encodeURIComponent(item.id) + (member ? '/member-playback-url' : '/playback-url'));
       const title = episode.title || item.title || 'VOXA episode';
       const showTitle = episode.show?.title || item.show?.title || 'Podcast';
+      if (Platform.OS === 'android') await requestNotificationPermissionsAsync();
       audioPlayer.replace(playback.url);
       audioPlayer.setActiveForLockScreen(true, { title, artist: showTitle, albumTitle: 'VOXA' });
       audioPlayer.play();
