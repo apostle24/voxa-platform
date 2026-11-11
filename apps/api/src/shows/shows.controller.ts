@@ -63,6 +63,11 @@ export class ShowsController {
     return this.shows.updateEpisode(req.user.id, showId, episodeId, input);
   }
 
+  @Post('shows/:showId/episodes/:episodeId/unpublish')
+  @UseGuards(JwtAuthGuard)
+  unpublishEpisode(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.shows.unpublishEpisode(req.user.id, showId, episodeId);
+  }
   @Post('shows/:showId/episodes/:episodeId/publish')
   @UseGuards(JwtAuthGuard)
   publishEpisode(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
