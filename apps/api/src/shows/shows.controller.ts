@@ -6,6 +6,7 @@ import { CreateEpisodeDto } from './dto/create-episode.dto';
 import { UpdateEpisodeDto } from './dto/update-episode.dto';
 import { SaveProgressDto } from './dto/save-progress.dto';
 import { SetEpisodeMembershipDto } from './dto/set-episode-membership.dto';
+import { CreateEpisodeCommentDto } from './dto/create-episode-comment.dto';
 import { ShowsService } from './shows.service';
 
 @Controller()
@@ -86,6 +87,36 @@ export class ShowsController {
   @Get('episodes/:episodeId')
   getEpisode(@Param('episodeId') episodeId: string) {
     return this.shows.getEpisode(episodeId);
+  }
+
+  @Get('episodes/:episodeId/community')
+  @UseGuards(JwtAuthGuard)
+  getEpisodeCommunity(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeCommunity(req.user.id, episodeId);
+  }
+
+  @Post('episodes/:episodeId/comments')
+  @UseGuards(JwtAuthGuard)
+  createEpisodeComment(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string, @Body() input: CreateEpisodeCommentDto) {
+    return this.shows.createEpisodeComment(req.user.id, episodeId, input.content, input.parentId);
+  }
+
+  @Delete('episodes/:episodeId/comments/:commentId')
+  @UseGuards(JwtAuthGuard)
+  deleteEpisodeComment(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string, @Param('commentId') commentId: string) {
+    return this.shows.deleteEpisodeComment(req.user.id, episodeId, commentId);
+  }
+
+  @Put('episodes/:episodeId/like')
+  @UseGuards(JwtAuthGuard)
+  likeEpisode(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.setEpisodeLike(req.user.id, episodeId, true);
+  }
+
+  @Delete('episodes/:episodeId/like')
+  @UseGuards(JwtAuthGuard)
+  unlikeEpisode(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.setEpisodeLike(req.user.id, episodeId, false);
   }
 
   @Put('episodes/:episodeId/bookmark')

@@ -241,6 +241,111 @@ export class ShowsService {
     });
   }
 
+  private async requireCommunityAccess(userId: string, episodeId: string) {
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
+      select: {
+        id: true,
+        membershipRequired: true,
+        show: { select: { creator: { select: { id: true, userId: true } } } },
+      },
+    });
+    if (!episode) throw new NotFoundException('Published episode not found');
+    if (!episode.membershipRequired || episode.show.creator.userId === userId) return episode;
+    const subscription = await this.prisma.membershipSubscription.findFirst({
+      where: {
+        subscriberId: userId,
+        creatorId: episode.show.creator.id,
+        status: 'ACTIVE',
+        currentPeriodEnd: { gt: new Date() },
+      },
+      select: { id: true },
+    });
+    if (!subscription) throw new ForbiddenException('An active creator membership is required to access this episode community');
+    return episode;
+  }
+
+  async getEpisodeCommunity(userId: string, episodeId: string) {
+    await this.requireCommunityAccess(userId, episodeId);
+    const [likeCount, commentCount, liked, comments] = await Promise.all([
+      this.prisma.episodeLike.count({ where: { episodeId } }),
+      this.prisma.episodeComment.count({ where: { episodeId, deletedAt: null } }),
+      this.prisma.episodeLike.findUnique({ where: { userId_episodeId: { userId, episodeId } }, select: { userId: true } }),
+      this.prisma.episodeComment.findMany({
+        where: { episodeId, parentId: null },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true, content: true, deletedAt: true, createdAt: true, updatedAt: true,
+          author: { select: { id: true, displayName: true } },
+          replies: {
+            orderBy: { createdAt: 'asc' },
+            take: 30,
+            select: {
+              id: true, content: true, deletedAt: true, createdAt: true, updatedAt: true,
+              author: { select: { id: true, displayName: true } },
+            },
+          },
+        },
+      }),
+    ]);
+    const visible = comments.map(comment => ({
+      ...comment,
+      content: comment.deletedAt ? '[deleted]' : comment.content,
+      replies: comment.replies.map(reply => ({ ...reply, content: reply.deletedAt ? '[deleted]' : reply.content })),
+    }));
+    return { episodeId, likeCount, commentCount, likedByMe: Boolean(liked), comments: visible };
+  }
+
+  async createEpisodeComment(userId: string, episodeId: string, content: string, parentId?: string) {
+    await this.requireCommunityAccess(userId, episodeId);
+    if (parentId) {
+      const parent = await this.prisma.episodeComment.findFirst({
+        where: { id: parentId, episodeId, parentId: null, deletedAt: null },
+        select: { id: true },
+      });
+      if (!parent) throw new NotFoundException('Comment thread not found');
+    }
+    return this.prisma.episodeComment.create({
+      data: { episodeId, authorId: userId, parentId: parentId || null, content: content.trim() },
+      select: {
+        id: true, content: true, createdAt: true, updatedAt: true,
+        author: { select: { id: true, displayName: true } },
+      },
+    });
+  }
+
+  async deleteEpisodeComment(userId: string, episodeId: string, commentId: string) {
+    const comment = await this.prisma.episodeComment.findFirst({
+      where: { id: commentId, episodeId },
+      select: { id: true, authorId: true, episode: { select: { show: { select: { creator: { select: { userId: true } } } } } } },
+    });
+    if (!comment) throw new NotFoundException('Comment not found');
+    if (comment.authorId !== userId && comment.episode.show.creator.userId !== userId) {
+      throw new ForbiddenException('You can only delete your own comment or moderate comments on your show');
+    }
+    await this.prisma.episodeComment.update({
+      where: { id: commentId },
+      data: { content: '[deleted]', deletedAt: new Date() },
+    });
+    return { deleted: true };
+  }
+
+  async setEpisodeLike(userId: string, episodeId: string, liked: boolean) {
+    await this.requireCommunityAccess(userId, episodeId);
+    if (liked) {
+      await this.prisma.episodeLike.upsert({
+        where: { userId_episodeId: { userId, episodeId } },
+        create: { userId, episodeId },
+        update: {},
+      });
+    } else {
+      await this.prisma.episodeLike.deleteMany({ where: { userId, episodeId } });
+    }
+    const likeCount = await this.prisma.episodeLike.count({ where: { episodeId } });
+    return { episodeId, likedByMe: liked, likeCount };
+  }
+
   async discoverShows(params: { q?: string; category?: string; language?: string; cursor?: string; limit?: number }) {
     const limit = Math.max(1, Math.min(50, Number(params.limit) || 20));
     const where: any = { status: PublicationStatus.PUBLISHED };
