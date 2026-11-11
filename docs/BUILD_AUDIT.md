@@ -60,9 +60,9 @@ Compose definitions exist for local PostgreSQL/Redis, the media worker and the L
 2. Known API TypeScript defects discovered in the first Render build were patched on the staging branch.
 3. Frontend API URL trailing-slash regex defects discovered during the build were corrected.
 4. A discovery-page TypeScript model was missing the show category field returned by the API; the type was aligned with the response.
-4. CI path filters now include mobile, LIVE agent, infrastructure, docs, Render configuration and Node version configuration.
-5. CI now includes a separate Expo dependency install and typecheck, Python syntax/unit checks, LIVE agent Docker build, and Compose configuration validation.
-6. Node runtime is pinned to the Node 22 line to avoid Render silently selecting a newer major runtime.
+5. CI path filters now include mobile, LIVE agent, infrastructure, docs, Render configuration and Node version configuration.
+6. CI now includes a separate Expo dependency install and typecheck, Python syntax/unit checks, LIVE agent Docker build, and Compose configuration validation.
+7. Node runtime is pinned to the Node 22 line to avoid Render silently selecting a newer major runtime.
 
 ## CI coverage
 
