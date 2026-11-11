@@ -24,6 +24,8 @@ type PlayerContextValue = {
   isPlaying: boolean;
   currentTime: number;
   duration: number;
+  playbackRate: number;
+  changePlaybackRate: (rate: number) => void;
   playTrack: (track: VoxaTrack) => void;
   enqueueTrack: (track: VoxaTrack) => void;
   playTrackNext: (track: VoxaTrack) => void;
@@ -134,6 +136,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setCurrentTime(track.resumeAt || 0);
     if (audio) {
       audio.src = track.url;
+      audio.playbackRate = playbackRate;
       audio.load();
       const setResumePosition = () => {
         if (track.resumeAt && track.resumeAt > 0) audio.currentTime = track.resumeAt;
@@ -143,7 +146,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // Call play in the original click gesture; playback begins when media data arrives.
       void audio.play().then(() => { setIsPlaying(true); setPlayerError(null); }).catch(() => { setIsPlaying(false); setPlayerError('Playback could not start. Check your connection and try again.'); });
     }
-  }, [currentTrack]);
+  }, [currentTrack, playbackRate]);
 
   const enqueueTrack = useCallback((track: VoxaTrack) => {
     if (track.episodeId === currentTrack?.episodeId) return;
@@ -301,7 +304,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [currentTrack, isPlaying, currentTime, duration, togglePlayback, playNext, playPrevious, seek]);
 
-  return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, playTrackNext, togglePlayback, playNext, playPrevious, removeFromQueue, moveInQueue, seek, playerError, retryPlayback }}>
+  return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playbackRate, changePlaybackRate, playTrack, enqueueTrack, playTrackNext, togglePlayback, playNext, playPrevious, removeFromQueue, moveInQueue, seek, playerError, retryPlayback }}>
     {children}
     <audio ref={audioRef} preload="metadata" aria-hidden="true" style={{ display: 'none' }} />
     {currentTrack && <aside className="voxaPlayer" aria-label="VOXA audio player">

@@ -128,9 +128,11 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack, currentTime } = useVoxaPlayer();
+  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack, currentTime, playbackRate, changePlaybackRate, isPlaying, togglePlayback } = useVoxaPlayer();
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
+  const latestVideoTime = useRef(0);
+  const videoHasStarted = useRef(false);
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
   const [mediaType, setMediaType] = useState('audio/mpeg');
@@ -141,6 +143,8 @@ export default function EpisodePage() {
   const [saving, setSaving] = useState(false);
   const [resumeAt, setResumeAt] = useState(0);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [videoPlaybackRate, setVideoPlaybackRate] = useState(1);
   const [token, setToken] = useState('');
   const [transcript, setTranscript] = useState<{ content: string; language: string; segments?: Array<{ startSeconds: number; endSeconds: number; text: string; speaker: string }> | null } | null>(null);
   const [intelligence, setIntelligence] = useState<{ summary: string; topics: string[]; generatedAt: string } | null>(null);
@@ -244,6 +248,60 @@ export default function EpisodePage() {
     return () => { active = false; };
   }, [episodeId]);
 
+  useEffect(() => {
+    videoHasStarted.current = false;
+    latestVideoTime.current = 0;
+  }, [episodeId]);
+
+  useEffect(() => {
+    if (!audioUrl || !mediaType.startsWith('video/')) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const applyResume = () => {
+      if (!videoHasStarted.current && resumeAt > 0 && Number.isFinite(video.duration)) {
+        const position = Math.min(resumeAt, Math.max(0, video.duration - 0.25));
+        video.currentTime = position;
+        latestVideoTime.current = position;
+        setVideoCurrentTime(position);
+      }
+      setVideoDuration(Number.isFinite(video.duration) ? video.duration : 0);
+    };
+    if (video.readyState >= 1) applyResume();
+    else video.addEventListener('loadedmetadata', applyResume, { once: true });
+    return () => video.removeEventListener('loadedmetadata', applyResume);
+  }, [audioUrl, mediaType, resumeAt]);
+
+  useEffect(() => {
+    const persistPosition = () => {
+      if (mediaType.startsWith('video/')) void saveProgress(latestVideoTime.current, true);
+    };
+    window.addEventListener('pagehide', persistPosition);
+    return () => {
+      window.removeEventListener('pagehide', persistPosition);
+      if (mediaType.startsWith('video/')) void saveProgress(latestVideoTime.current, true);
+    };
+  }, [mediaType, saveProgress]);
+
+  function seekReplay(seconds: number, shouldPlay = true) {
+    const maximum = mediaType.startsWith('video/') ? (videoDuration || episode?.durationSeconds || Number.MAX_SAFE_INTEGER) : (episode?.durationSeconds || Number.MAX_SAFE_INTEGER);
+    const safeSeconds = Math.max(0, Math.min(seconds, maximum));
+    if (mediaType.startsWith('video/') && videoRef.current) {
+      videoRef.current.currentTime = safeSeconds;
+      latestVideoTime.current = safeSeconds;
+      setVideoCurrentTime(safeSeconds);
+      if (shouldPlay) void videoRef.current.play().catch(() => undefined);
+      return;
+    }
+    if (currentTrack?.episodeId === episode?.id) {
+      seek(safeSeconds);
+      if (shouldPlay && !isPlaying) togglePlayback();
+      return;
+    }
+    if (episode && audioUrl) {
+      playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: safeSeconds });
+    }
+  }
+
   async function toggleBookmark() {
     if (!token) { setError('Sign in to save episodes to your library.'); return; }
     try {
@@ -297,7 +355,7 @@ export default function EpisodePage() {
         {error && <p className="errorText">{error}</p>}
         {episode && <>
           <Link href={'/shows/' + episode.show.id} style={{ color: 'var(--muted, #a1a1aa)', textDecoration: 'none' }}>← {episode.show.title}</Link>
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 220px) 1fr', gap: 28, alignItems: 'center', margin: '2rem 0' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 24, alignItems: 'center', margin: '2rem 0' }}>
             {episode.artworkUrl
               ? <img src={episode.artworkUrl} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: 18 }} />
               : <div style={{ width: '100%', aspectRatio: '1', borderRadius: 18, background: 'linear-gradient(135deg,#29234c,#8b5cf6)', display: 'grid', placeItems: 'center', color: 'white', fontSize: 64, fontWeight: 800 }}>▶</div>}
@@ -317,16 +375,7 @@ export default function EpisodePage() {
             <div className="eyebrow">EPISODE GUIDE</div>
             <h2 style={{ margin: '8px 0 14px' }}>Jump to a chapter.</h2>
             <div style={{ display: 'grid', gap: 8 }}>
-              {chapters.map((chapter, index) => <button key={chapter.id} type="button" className="ghostButton" onClick={() => {
-                if (mediaType.startsWith('video/') && videoRef.current) {
-                  videoRef.current.currentTime = chapter.startSeconds;
-                  void videoRef.current.play();
-                } else if (currentTrack?.episodeId === episode.id) {
-                  seek(chapter.startSeconds);
-                } else if (audioUrl) {
-                  playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: chapter.startSeconds });
-                }
-              }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '12px 14px' }}>
+              {chapters.map(chapter => <button key={chapter.id} type="button" className="ghostButton" onClick={() => seekReplay(chapter.startSeconds)} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '12px 14px' }}>
                 <span><small style={{ color: 'var(--muted)', marginRight: 12 }}>{String(Math.floor(chapter.startSeconds / 60)).padStart(2, '0')}:{String(chapter.startSeconds % 60).padStart(2, '0')}</small><b>{chapter.title}</b></span><span style={{ color: 'var(--muted)' }}>▶</span>
               </button>)}
             </div>
@@ -345,17 +394,7 @@ export default function EpisodePage() {
             content={transcript.content}
             segments={transcript.segments}
             currentTime={mediaType.startsWith('video/') ? videoCurrentTime : currentTrack?.episodeId === episode.id ? currentTime : -1}
-            onSeek={seconds => {
-              if (mediaType.startsWith('video/') && videoRef.current) {
-                videoRef.current.currentTime = seconds;
-                setVideoCurrentTime(seconds);
-                void videoRef.current.play();
-              } else if (currentTrack?.episodeId === episode.id) {
-                seek(seconds);
-              } else if (audioUrl) {
-                playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: seconds });
-              }
-            }}
+            onSeek={seconds => seekReplay(seconds)}
           /> : <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
             <div className="eyebrow">EPISODE TRANSCRIPT · {transcript.language.toUpperCase()}</div>
             <h2 style={{ margin: '8px 0 14px' }}>Read along.</h2>
@@ -364,7 +403,7 @@ export default function EpisodePage() {
           {transcriptError && <p style={{ color: 'var(--muted)', fontSize: 12 }}>{transcriptError}</p>}
           {audioUrl && <section style={{ border: '1px solid var(--border, #30303a)', background: 'var(--surface, #15151c)', borderRadius: 18, padding: 22 }}>
             {mediaType.startsWith('video/')
-              ? <video
+              ? <><video
                   ref={videoRef}
                   controls
                   playsInline
@@ -372,23 +411,52 @@ export default function EpisodePage() {
                   src={audioUrl}
                   style={{ width: '100%', maxHeight: 560, borderRadius: 12, background: '#000' }}
                   onLoadedMetadata={() => {
-                    if (resumeAt > 0 && videoRef.current) videoRef.current.currentTime = resumeAt;
+                    if (videoRef.current) { setVideoDuration(Number.isFinite(videoRef.current.duration) ? videoRef.current.duration : 0); videoRef.current.playbackRate = videoPlaybackRate; }
                   }}
+                  onPlay={() => { videoHasStarted.current = true; }}
                   onTimeUpdate={() => {
-                    if (videoRef.current) { setVideoCurrentTime(videoRef.current.currentTime); void saveProgress(videoRef.current.currentTime); }
+                    if (videoRef.current) { latestVideoTime.current = videoRef.current.currentTime; setVideoCurrentTime(videoRef.current.currentTime); void saveProgress(videoRef.current.currentTime); }
                   }}
                   onPause={() => {
                     if (videoRef.current) void saveProgress(videoRef.current.currentTime, true);
                   }}
-                  onEnded={() => void saveProgress(videoRef.current?.duration || 0, true)}
+                  onEnded={() => { const end = videoRef.current?.duration || 0; latestVideoTime.current = end; void saveProgress(end, true); }}
                 />
-              : <div className="episodePlayerActions">
-                  <button className="button" onClick={() => playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>▶ Play episode</button>
-                  <button className="ghostButton" onClick={() => playTrackNext({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>⇥ Play next</button>
-                  <button className="ghostButton" onClick={() => enqueueTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>＋ Add to queue</button>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10, marginTop: 12 }}>
+                  <button type="button" className="ghostButton" aria-label="Rewind 15 seconds" onClick={() => seekReplay(videoCurrentTime - 15, false)}>−15 sec</button>
+                  <button type="button" className="ghostButton" aria-label="Forward 15 seconds" onClick={() => seekReplay(videoCurrentTime + 15, false)}>+15 sec</button>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+                    Speed
+                    <select aria-label="Video playback speed" value={videoPlaybackRate} onChange={event => {
+                      const rate = Number(event.target.value);
+                      setVideoPlaybackRate(rate);
+                      if (videoRef.current) videoRef.current.playbackRate = rate;
+                    }} style={{ background: 'var(--panel)', color: 'inherit', border: '1px solid var(--line)', borderRadius: 7, padding: '6px 8px' }}>
+                      {[0.75, 1, 1.25, 1.5, 1.75, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+                    </select>
+                  </label>
+                  <span style={{ marginLeft: 'auto', color: 'var(--muted)', fontSize: 12, fontVariantNumeric: 'tabular-nums' }}>{formatTime(videoCurrentTime)} / {formatTime(videoDuration)}</span>
+                </div>
+                <input aria-label="Replay video position" type="range" min="0" max={Math.max(videoDuration, 1)} step="1" value={Math.min(videoCurrentTime, videoDuration || 0)} onChange={event => seekReplay(Number(event.target.value), false)} style={{ width: '100%', marginTop: 10, accentColor: 'var(--accent, #8b5cf6)' }} />
+              </>
+              : <div style={{ display: 'grid', gap: 12 }}>
+                  <div className="episodePlayerActions">
+                    <button className="button" onClick={() => playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>▶ Play episode</button>
+                    <button className="ghostButton" onClick={() => playTrackNext({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>⇥ Play next</button>
+                    <button className="ghostButton" onClick={() => enqueueTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>＋ Add to queue</button>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 10 }}>
+                    <button type="button" className="ghostButton" onClick={() => seekReplay((currentTrack?.episodeId === episode.id ? currentTime : resumeAt) - 15, false)}>−15 sec</button>
+                    <button type="button" className="ghostButton" onClick={() => seekReplay((currentTrack?.episodeId === episode.id ? currentTime : resumeAt) + 15, false)}>+15 sec</button>
+                    <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>Speed
+                      <select aria-label="Audio playback speed" value={playbackRate} onChange={event => changePlaybackRate(Number(event.target.value))} style={{ background: 'var(--panel)', color: 'inherit', border: '1px solid var(--line)', borderRadius: 7, padding: '6px 8px' }}>
+                        {[0.75, 1, 1.25, 1.5, 1.75, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+                      </select>
+                    </label>
+                  </div>
                 </div>}
             <p style={{ color: 'var(--muted, #a1a1aa)', fontSize: 13, marginBottom: 0 }}>
-              {resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
+              {mediaType.startsWith('video/') ? 'Replay position: ' + formatTime(videoCurrentTime) : currentTrack?.episodeId === episode.id ? 'Replay position: ' + formatTime(currentTime) : resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
               {saving ? ' · Saving progress…' : ''}
             </p>
           </section>}
