@@ -9,9 +9,12 @@ import { Room, RoomEvent } from 'livekit-client';
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type StageState = {
   isHost: boolean;
+  isCoHost: boolean;
   isModerator: boolean;
   hostId: string;
   moderators: { userId: string; assignedAt: string }[];
+  coHosts: { userId: string; assignedAt: string; user?: { displayName: string } }[];
+  hostTransfers: { previousHostId: string; newHostId: string; transferredAt: string; previousHost?: { displayName: string }; newHost?: { displayName: string } }[];
   requests: { id: string; userId: string; requestedAt: string }[];
   speakers: { userId: string; role: string; joinedAt: string }[];
   ownRequest: { status: string; requestedAt: string } | null;
@@ -25,11 +28,16 @@ export default function LiveRoomPage() {
   const roomRef = useRef<Room | null>(null);
   const viewerSessionId = useRef('');
   const canPublishRef = useRef(false);
+  const isHostRef = useRef(false);
+  const isCoHostRef = useRef(false);
   const [status, setStatus] = useState('Not connected');
   const [error, setError] = useState('');
   const [isHost, setIsHost] = useState(false);
+  const [isCoHost, setIsCoHost] = useState(false);
   const [isModerator, setIsModerator] = useState(false);
   const [moderatorUserId, setModeratorUserId] = useState('');
+  const [coHostUserId, setCoHostUserId] = useState('');
+  const [newHostUserId, setNewHostUserId] = useState('');
   const [mic, setMic] = useState(false);
   const [canPublish, setCanPublish] = useState(false);
   const [camera, setCamera] = useState(false);
@@ -71,7 +79,25 @@ export default function LiveRoomPage() {
   }, []);
 
   const refreshStage = useCallback(async () => {
-    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); setIsModerator(Boolean(data.isModerator)); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
+    try {
+      const data = await api('/live/rooms/' + roomId + '/stage');
+      const wasCoHost = isCoHostRef.current;
+      isHostRef.current = Boolean(data.isHost);
+      isCoHostRef.current = Boolean(data.isCoHost);
+      setStage(data); setIsHost(Boolean(data.isHost)); setIsCoHost(Boolean(data.isCoHost)); setIsModerator(Boolean(data.isModerator));
+      if (data.isHost || data.isCoHost) {
+        canPublishRef.current = true; setCanPublish(true);
+        setStatus(current => current.startsWith('Connected') ? (data.isHost ? 'Connected · Hosting' : 'Connected · Co-hosting') : current);
+      }
+      else if (wasCoHost) {
+        canPublishRef.current = false; setCanPublish(false); setMic(false); setCamera(false);
+        setStatus(current => current.startsWith('Connected') ? 'Connected · Listening' : current);
+        void roomRef.current?.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
+        void roomRef.current?.localParticipant.setCameraEnabled(false).catch(() => undefined);
+      }
+      if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics'));
+      else setAnalytics(null);
+    }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
   }, [api, roomId]);
 
@@ -103,7 +129,10 @@ export default function LiveRoomPage() {
     try {
       const roomState = await api('/live/rooms/' + roomId + '/stage');
       setStage(roomState);
+      isHostRef.current = Boolean(roomState.isHost);
+      isCoHostRef.current = Boolean(roomState.isCoHost);
       setIsHost(Boolean(roomState.isHost));
+      setIsCoHost(Boolean(roomState.isCoHost));
       setIsModerator(Boolean(roomState.isModerator));
       if (roomState.status === 'SCHEDULED' && (!roomState.isHost || (roomState.scheduledAt && new Date(roomState.scheduledAt).getTime() > Date.now()))) {
         setStatus(roomState.scheduledAt ? 'Scheduled · starts ' + new Date(roomState.scheduledAt).toLocaleString() : 'Scheduled · waiting for the host');
@@ -120,17 +149,17 @@ export default function LiveRoomPage() {
       roomRef.current = room;
       canPublishRef.current = Boolean(data.canPublish); setCanPublish(Boolean(data.canPublish));
       const isStageSpeaker = roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity);
-      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening'));
+      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? (isHostRef.current ? 'Connected · Hosting' : isCoHostRef.current ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening'));
       room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting to live media…'));
       room.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
           const packet = JSON.parse(new TextDecoder().decode(payload));
           if (packet?.type === 'VOXA_INTERACTION_UPDATED') { void refreshInteractions(); }
           if (packet?.type === 'VOXA_SESSION_PLAN_UPDATED') {
-            const hasFloor = Boolean(roomState.isHost || (packet.speakerId && packet.speakerId === room.localParticipant.identity));
+            const hasFloor = Boolean(isHostRef.current || isCoHostRef.current || (packet.speakerId && packet.speakerId === room.localParticipant.identity));
             canPublishRef.current = hasFloor; setCanPublish(hasFloor);
             if (!hasFloor) { setMic(false); setCamera(false); }
-            setStatus(hasFloor ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity) ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
+            setStatus(hasFloor ? (isHostRef.current ? 'Connected · Hosting' : isCoHostRef.current ? 'Connected · Co-hosting' : 'Connected · You have the floor') : roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity) ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
             void refreshSessionPlan();
           }
           if (packet?.type === 'VOXA_REACTION' && ['👏', '❤️', '🔥', '😂', '🎉', '🙌'].includes(packet.emoji)) {
@@ -140,7 +169,7 @@ export default function LiveRoomPage() {
       });
       room.on(RoomEvent.Reconnected, () => {
         setError('');
-        setStatus(canPublishRef.current ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
+        setStatus(canPublishRef.current ? (isHostRef.current ? 'Connected · Hosting' : isCoHostRef.current ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
       });
       room.on(RoomEvent.Disconnected, () => {
         setStatus('Disconnected');
@@ -155,7 +184,7 @@ export default function LiveRoomPage() {
       });
       room.on(RoomEvent.TrackUnsubscribed, (track) => track.detach().forEach(element => element.remove()));
       await room.connect(data.serverUrl, data.token);
-      setStatus(data.canPublish ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
+      setStatus(data.canPublish ? (roomState.isHost ? 'Connected · Hosting' : roomState.isCoHost ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
     } catch (e) {
       setStatus('Disconnected');
       setError(e instanceof Error ? e.message : 'Connection failed');
@@ -400,6 +429,38 @@ export default function LiveRoomPage() {
     try { await room.localParticipant.setCameraEnabled(!camera); setCamera(!camera); }
     catch (e) { setError(e instanceof Error ? e.message : 'Camera unavailable'); }
   }
+
+  async function addCoHost(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const userId = coHostUserId.trim();
+    if (!userId) return;
+    setBusy('cohost-add'); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/cohosts', 'POST', { userId });
+      setCoHostUserId('');
+      await refreshStage();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to appoint co-host'); }
+    finally { setBusy(''); }
+  }
+
+  async function removeCoHost(userId: string) {
+    await action('cohost-remove-' + userId, '/live/rooms/' + roomId + '/cohosts/' + encodeURIComponent(userId) + '/remove');
+  }
+
+  async function transferHost() {
+    if (!newHostUserId) return;
+    const selected = stage?.coHosts?.find(item => item.userId === newHostUserId);
+    if (!window.confirm('Transfer primary host ownership to ' + (selected?.user?.displayName || newHostUserId) + '? You will become a co-host and cannot reverse the transfer unless the new host transfers ownership back.')) return;
+    setBusy('host-transfer'); setError('');
+    try {
+      await api('/live/rooms/' + roomId + '/transfer-host', 'POST', { userId: newHostUserId });
+      setNewHostUserId('');
+      await refreshStage();
+      await refreshSessionPlan();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to transfer room ownership'); }
+    finally { setBusy(''); }
+  }
+
   async function addModerator(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const userId = moderatorUserId.trim();
@@ -467,6 +528,8 @@ export default function LiveRoomPage() {
     finally { setBusy(''); }
   }
 
+  const canManageLiveSession = isHost || isCoHost;
+  const canModerateRoom = isHost || isCoHost || isModerator;
   const approved = stage?.ownRequest?.status === 'APPROVED';
   const pending = stage?.ownRequest?.status === 'PENDING';
   const displayedStatus = stage?.status === 'CANCELLED' ? 'This scheduled room was cancelled' : stage?.status === 'LIVE' && status.startsWith('Scheduled') ? 'Room is live · join when ready' : status;
@@ -481,16 +544,16 @@ export default function LiveRoomPage() {
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
           <button className={mic ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleMic()} disabled={!isHost && !canPublish}>{mic ? 'Mic on' : 'Mic off'}</button>
-          <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
-          {!isHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
-          {!isHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
+          <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !isCoHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
+          {!isHost && !isCoHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
+          {!isHost && !isCoHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
           {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button danger" disabled={!!busy} onClick={() => void action('cancel-scheduled', '/live/rooms/' + roomId + '/cancel')}>Cancel scheduled room</button>}
           {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button" disabled={!!busy || (!!stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now())} onClick={()=>void connect()}>{stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now() ? 'Starts at scheduled time' : 'Start live room ↗'}</button>}
           {!stage?.isHost && stage?.status === 'LIVE' && status !== 'Connected · Listening' && status !== 'Connecting to live media…' && <button className="button" onClick={()=>void connect()}>Join live room ↗</button>}
           {status === 'Disconnected' && <button className="button" onClick={()=>void connect()}>Reconnect to live room ↻</button>}
           {isHost && <button className="button danger" disabled={busy==='end'} onClick={()=>void endRoom()}>{busy==='end'?'Ending…':'End room'}</button>}
         </div>
-        {(isHost || isModerator) && <section className="moderationPanel">
+        {canModerateRoom && <section className="moderationPanel">
           <div className="sectionTitle"><div><span className="eyebrow">HOST CONTROLS</span><h2>Stage requests <span className="countBadge">{stage?.requests.length ?? 0}</span></h2></div><button className="ghostButton" onClick={()=>void refreshStage()}>↻ Refresh</button></div>
           {!stage?.requests.length ? <p className="helperText">No pending requests. New requests appear automatically.</p> : <div className="moderationList">{stage.requests.map(request=><div className="moderationRow" key={request.id}><div><b>Listener</b><small>{request.userId}</small></div><div className="moderationActions"><button className="approveButton" disabled={!!busy} onClick={()=>void action('approve-'+request.id,'/live/rooms/'+roomId+'/stage-requests/'+request.id+'/approve')}>Approve</button><button className="rejectButton" disabled={!!busy} onClick={()=>void action('reject-'+request.id,'/live/rooms/'+roomId+'/stage-requests/'+request.id+'/reject')}>Reject</button></div></div>)}</div>}
           <div className="sectionTitle speakerHeading"><div><span className="eyebrow">ON AIR</span><h2>Speakers</h2></div></div>
@@ -512,13 +575,13 @@ export default function LiveRoomPage() {
                 <div className="moderationActions"><button className="approveButton" disabled={!!busy}>Save</button><button type="button" className="rejectButton" onClick={() => setEditingAgendaId('')}>Cancel</button></div>
               </form> : <><b>{index + 1}. {item.title}</b><small>{item.durationSeconds >= 3600 ? Math.floor(item.durationSeconds / 3600) + 'h ' : ''}{Math.floor(item.durationSeconds % 3600 / 60)}m planned · {item.status}</small>{item.description && <p className="helperText" style={{ marginTop: 5 }}>{item.description}</p>}</>}
             </div>
-            {(isHost || isModerator) && editingAgendaId !== item.id && <div className="moderationActions" style={{ flexWrap: 'wrap' }}>
+            {canModerateRoom && editingAgendaId !== item.id && <div className="moderationActions" style={{ flexWrap: 'wrap' }}>
               {item.status === 'PENDING' && <><button type="button" className="controlButton" disabled={!!busy} onClick={() => beginAgendaEdit(item)}>Edit</button><button type="button" className="approveButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'start')}>Start</button><button type="button" className="rejectButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'delete')}>Remove</button></>}
               {item.status === 'ACTIVE' && <button type="button" className="approveButton" disabled={!!busy} onClick={() => void agendaAction(item.id, 'complete')}>Complete</button>}
               {item.status === 'COMPLETED' && <span className="countBadge">Done</span>}
             </div>}
           </div>)}</div> : <p className="helperText">The host has not added any agenda segments yet.</p>}
-          {(isHost || isModerator) && <form onSubmit={createAgendaItem} style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+          {canModerateRoom && <form onSubmit={createAgendaItem} style={{ display: 'grid', gap: 10, marginTop: 16 }}>
             <h3 style={{ margin: 0 }}>Add agenda segment</h3>
             <input value={agendaTitle} onChange={event => setAgendaTitle(event.target.value)} minLength={2} maxLength={120} required placeholder="Segment title" aria-label="Agenda segment title" style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
             <textarea value={agendaDescription} onChange={event => setAgendaDescription(event.target.value)} maxLength={500} rows={2} placeholder="What will this segment cover? (optional)" aria-label="Agenda segment description" style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
@@ -526,7 +589,7 @@ export default function LiveRoomPage() {
             <button className="button small" disabled={!!busy || !agendaTitle.trim()}>{busy === 'agenda-create' ? 'Adding…' : 'Add to agenda'}</button>
           </form>}
         </section>
-        {isHost && <section className="moderationPanel" style={{ marginTop: 24 }}>
+        {canManageLiveSession && <section className="moderationPanel" style={{ marginTop: 24 }}>
           <div className="sectionTitle"><div><span className="eyebrow">HOST FLOOR CONTROL</span><h2>Speaker handoff</h2></div><span className="countBadge">{sessionPlan.speakers?.length || 0} on stage</span></div>
           <p className="helperText">Pass the speaking turn to a participant who has already been admitted to the stage. This does not admit listeners or change their publishing permissions.</p>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
@@ -537,6 +600,28 @@ export default function LiveRoomPage() {
             <button type="button" className="button small" disabled={!!busy || !handoffSpeakerId || handoffSpeakerId === sessionPlan.activeTurn?.speakerId} onClick={() => void handoffSpeaker()}>{busy === 'speaker-handoff' ? 'Handing off…' : 'Hand off turn'}</button>
             {sessionPlan.activeTurn && <button type="button" className="rejectButton" disabled={!!busy} onClick={() => void endSpeakerTurn()}>{busy === 'speaker-turn-end' ? 'Ending…' : 'End turn'}</button>}
           </div>
+        </section>}
+
+        {(isHost || isCoHost) && <section className="moderationPanel" style={{ marginTop: 24 }}>
+          <div className="sectionTitle"><div><span className="eyebrow">ROOM LEADERSHIP</span><h2>{isHost ? 'Primary host & co-hosts' : 'Room leadership'}</h2></div><span className="countBadge">{stage?.coHosts?.length || 0} co-hosts</span></div>
+          <p className="helperText">Co-hosts can manage stage requests, audience moderation, the session agenda and speaker handoffs. Only the primary host can end the room, control recording, appoint leaders or transfer ownership.</p>
+          <div className="moderationList">
+            <div className="moderationRow"><div><b>Primary host</b><small>{stage?.hostId}</small></div><span className="countBadge">Owner</span></div>
+            {stage?.coHosts?.map(coHost => <div className="moderationRow" key={coHost.userId}><div><b>{coHost.user?.displayName || 'Co-host'}</b><small>{coHost.userId}</small></div><div className="moderationActions">{isHost && <><button type="button" className="controlButton" onClick={() => setNewHostUserId(coHost.userId)}>Transfer ownership</button><button type="button" className="rejectButton" disabled={!!busy} onClick={() => void removeCoHost(coHost.userId)}>Remove</button></>}</div></div>)}
+          </div>
+          {!!stage?.hostTransfers?.length && <div style={{ marginTop: 16 }}>
+            <h3 style={{ margin: '0 0 8px' }}>Ownership history</h3>
+            <div className="moderationList">{stage.hostTransfers.map((transfer, index) => <div className="moderationRow" key={transfer.transferredAt + transfer.previousHostId + index}><div><b>{transfer.previousHost?.displayName || transfer.previousHostId} → {transfer.newHost?.displayName || transfer.newHostId}</b><small>{new Date(transfer.transferredAt).toLocaleString()}</small></div></div>)}</div>
+          </div>}
+          {isHost && <form onSubmit={addCoHost} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 14 }}>
+            <input value={coHostUserId} onChange={event => setCoHostUserId(event.target.value)} placeholder="VOXA user ID" aria-label="Co-host VOXA user ID" required style={{ flex: 1, minWidth: 190, padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+            <button className="button" disabled={!!busy || !coHostUserId.trim()}>{busy === 'cohost-add' ? 'Appointing…' : 'Appoint co-host'}</button>
+          </form>}
+          {isHost && newHostUserId && <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginTop: 14 }}>
+            <p className="helperText" style={{ margin: 0 }}>Selected: {stage?.coHosts?.find(item => item.userId === newHostUserId)?.user?.displayName || newHostUserId}</p>
+            <button type="button" className="button danger" disabled={!!busy} onClick={() => void transferHost()}>{busy === 'host-transfer' ? 'Transferring…' : 'Confirm host transfer'}</button>
+            <button type="button" className="controlButton" onClick={() => setNewHostUserId('')}>Cancel</button>
+          </div>}
         </section>}
         {isHost && <section className="moderationPanel" style={{ marginTop: 24 }}>
           <div className="sectionTitle"><div><span className="eyebrow">ROOM TEAM</span><h2>Moderators</h2></div><span className="countBadge">{stage?.moderators?.length || 0}</span></div>

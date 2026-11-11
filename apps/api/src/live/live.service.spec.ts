@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { WebhookReceiver } from 'livekit-server-sdk';
 import { PrismaService } from '../prisma/prisma.service';
@@ -14,6 +14,8 @@ describe('LiveService access boundaries', () => {
       userBlock: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       liveRoom: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
       liveRoomModerator: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn(), deleteMany: jest.fn() },
+      liveRoomCoHost: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn(), deleteMany: jest.fn() },
+      liveRoomHostTransfer: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
       livePoll: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn() },
       livePollOption: { findFirst: jest.fn() },
       livePollVote: { upsert: jest.fn() },
@@ -37,6 +39,8 @@ describe('LiveService access boundaries', () => {
     };
     service = new LiveService(prisma as unknown as PrismaService, config as unknown as ConfigService);
   });
+
+  afterEach(() => { jest.restoreAllMocks(); });
 
   it('lists only the signed-in host live rooms, including scheduled and past rooms', async () => {
     prisma.liveRoom.findMany.mockResolvedValue([{ id: 'room-1', hostId: 'host-1', status: 'SCHEDULED' }]);
@@ -418,6 +422,87 @@ describe('LiveService access boundaries', () => {
   });
 
 
+
+
+  it('grants appointed co-hosts private live-room access and host-level publishing permission', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PRIVATE', stage: [],
+    });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue({ id: 'cohost-assignment' });
+    const token = await service.joinToken('cohost-1', 'room-1');
+    expect(token.canPublish).toBe(true);
+    expect(token.expiresInSeconds).toBe(600);
+  });
+
+  it('allows only the primary host to appoint a co-host', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    prisma.user.findUnique.mockResolvedValue({ id: 'cohost-1', displayName: 'Co Host' });
+    prisma.liveRoomCoHost.upsert.mockResolvedValue({ id: 'assignment-1', userId: 'cohost-1', assignedAt: new Date() });
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ listParticipants: jest.fn().mockResolvedValue([]), updateParticipant: jest.fn() });
+    await expect(service.addRoomCoHost('host-1', 'room-1', 'cohost-1'))
+      .resolves.toMatchObject({ userId: 'cohost-1', displayName: 'Co Host', role: 'CO_HOST' });
+    expect(prisma.liveRoomModerator.deleteMany).toHaveBeenCalledWith({ where: { roomId: 'room-1', userId: 'cohost-1' } });
+  });
+
+  it('rejects co-host appointment by a moderator or another participant', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    await expect(service.addRoomCoHost('moderator-1', 'room-1', 'cohost-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.liveRoomCoHost.upsert).not.toHaveBeenCalled();
+  });
+
+
+  it('removes co-host privileges and closes that participant active speaker turn', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    prisma.liveRoomCoHost.deleteMany.mockResolvedValue({ count: 1 });
+    const liveKitClient = {
+      listParticipants: jest.fn().mockResolvedValue([{ identity: 'cohost-1' }]),
+      updateParticipant: jest.fn().mockResolvedValue({}),
+    };
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue(liveKitClient);
+    await expect(service.removeRoomCoHost('host-1', 'room-1', 'cohost-1'))
+      .resolves.toMatchObject({ removed: true, userId: 'cohost-1' });
+    expect(prisma.liveSpeakerTurn.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { roomId: 'room-1', status: 'ACTIVE', speakerId: 'cohost-1' },
+    }));
+    expect(liveKitClient.updateParticipant).toHaveBeenCalledWith('room-1', 'cohost-1', undefined, expect.objectContaining({ canPublish: false }));
+  });
+
+  it('transfers ownership only to an appointed co-host and preserves the former host as co-host', async () => {
+    prisma.liveRoom.findUnique
+      .mockResolvedValueOnce({ id: 'room-1', hostId: 'host-1', status: 'LIVE' })
+      .mockResolvedValueOnce({ id: 'room-1', hostId: 'cohost-1', title: 'Live show', status: 'LIVE' });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue({ userId: 'cohost-1' });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    prisma.liveRoomCoHost.deleteMany.mockResolvedValue({ count: 1 });
+    prisma.liveRoomCoHost.upsert.mockResolvedValue({ userId: 'host-1' });
+    prisma.liveRoomModerator.deleteMany.mockResolvedValue({ count: 0 });
+    await expect(service.transferRoomHost('host-1', 'room-1', 'cohost-1'))
+      .resolves.toMatchObject({ hostId: 'cohost-1', previousHostId: 'host-1', newHostId: 'cohost-1', transferred: true });
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith({
+      where: { id: 'room-1', hostId: 'host-1' }, data: { hostId: 'cohost-1' },
+    });
+    expect(prisma.liveRoomCoHost.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { roomId_userId: { roomId: 'room-1', userId: 'host-1' } },
+      create: { roomId: 'room-1', userId: 'host-1', assignedById: 'cohost-1' },
+    }));
+  });
+
+  it('does not transfer ownership to someone who is not an appointed co-host', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue(null);
+    await expect(service.transferRoomHost('host-1', 'room-1', 'listener-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.liveRoom.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('allows an appointed co-host to control the session agenda', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue({ id: 'cohost-assignment' });
+    prisma.liveAgendaItem.findFirst.mockResolvedValue({ position: 0 });
+    prisma.liveAgendaItem.create.mockResolvedValue({ id: 'agenda-2', title: 'Panel discussion', position: 1, status: 'PENDING' });
+    await expect(service.createAgendaItem('cohost-1', 'room-1', { title: 'Panel discussion', durationSeconds: 600 }))
+      .resolves.toMatchObject({ id: 'agenda-2', title: 'Panel discussion' });
+  });
+
   it('allows an assigned moderator to add a session agenda item', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
     prisma.liveRoomModerator.findUnique.mockResolvedValue({ id: 'mod-assignment' });
@@ -428,6 +513,22 @@ describe('LiveService access boundaries', () => {
     expect(prisma.liveAgendaItem.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ roomId: 'room-1', title: 'Audience questions', position: 2, durationSeconds: 300 }),
     }));
+  });
+
+
+  it('allows an appointed co-host to hand off the speaking turn without granting that power to moderators', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue({ id: 'cohost-assignment' });
+    prisma.liveStageMember.findUnique.mockResolvedValue({ userId: 'speaker-2', leftAt: null });
+    prisma.liveSpeakerTurn.findFirst.mockResolvedValue(null);
+    prisma.liveStageMember.findMany.mockResolvedValue([{ userId: 'speaker-2' }]);
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({
+      listParticipants: jest.fn().mockResolvedValue([{ identity: 'speaker-2' }]),
+      updateParticipant: jest.fn().mockResolvedValue({}),
+    });
+    prisma.liveSpeakerTurn.create.mockResolvedValue({ id: 'turn-3', speakerId: 'speaker-2', status: 'ACTIVE' });
+    await expect(service.handoffSpeaker('cohost-1', 'room-1', 'speaker-2'))
+      .resolves.toMatchObject({ id: 'turn-3', speakerId: 'speaker-2' });
   });
 
   it('does not allow a moderator to take control of the speaker handoff', async () => {
