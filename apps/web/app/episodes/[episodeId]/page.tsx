@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useVoxaPlayer } from '../../../components/player-provider';
+import LiveReplayTranscript from '../../../components/live-replay-transcript';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
@@ -127,7 +128,7 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack } = useVoxaPlayer();
+  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack, currentTime } = useVoxaPlayer();
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
   const [episode, setEpisode] = useState<Episode | null>(null);
@@ -142,7 +143,6 @@ export default function EpisodePage() {
   const [token, setToken] = useState('');
   const [transcript, setTranscript] = useState<{ content: string; language: string; segments?: Array<{ startSeconds: number; endSeconds: number; text: string; speaker: string }> | null } | null>(null);
   const [intelligence, setIntelligence] = useState<{ summary: string; topics: string[]; generatedAt: string } | null>(null);
-  const [transcriptQuery, setTranscriptQuery] = useState('');
   const [transcriptError, setTranscriptError] = useState('');
   const [chapters, setChapters] = useState<Array<{ id: string; title: string; startSeconds: number }>>([]);
 
@@ -339,28 +339,26 @@ export default function EpisodePage() {
             </div>}
             <small style={{ color: 'var(--muted)', display: 'block', marginTop: 14 }}>AI-generated from this episode's transcript.</small>
           </section>}
-          {transcript && <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+          {transcript && (episode.isLiveReplay ? <LiveReplayTranscript
+            language={transcript.language}
+            content={transcript.content}
+            segments={transcript.segments}
+            currentTime={mediaType.startsWith('video/') ? (videoRef.current?.currentTime || 0) : currentTrack?.episodeId === episode.id ? currentTime : -1}
+            onSeek={seconds => {
+              if (mediaType.startsWith('video/') && videoRef.current) {
+                videoRef.current.currentTime = seconds;
+                void videoRef.current.play();
+              } else if (currentTrack?.episodeId === episode.id) {
+                seek(seconds);
+              } else if (audioUrl) {
+                playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: seconds });
+              }
+            }}
+          /> : <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
             <div className="eyebrow">EPISODE TRANSCRIPT · {transcript.language.toUpperCase()}</div>
             <h2 style={{ margin: '8px 0 14px' }}>Read along.</h2>
-            <input value={transcriptQuery} onChange={event => setTranscriptQuery(event.target.value)} placeholder="Find a word or phrase in this transcript…" aria-label="Search transcript" style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit', marginBottom: 14 }} />
-            {transcript.segments?.length ? <div style={{ maxHeight: 520, overflowY: 'auto', display: 'grid', gap: 10 }}>
-              {transcript.segments.filter(segment => !transcriptQuery.trim() || segment.text.toLowerCase().includes(transcriptQuery.toLowerCase())).map((segment, index) => (
-                <div key={index} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 12, alignItems: 'start', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
-                  <button className="ghostButton" onClick={() => {
-                    const seconds = segment.startSeconds;
-                    if (mediaType.startsWith('video/') && videoRef.current) {
-                      videoRef.current.currentTime = seconds;
-                      void videoRef.current.play();
-                    } else if (episode && audioUrl) {
-                      playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: seconds });
-                    }
-                  }} style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{formatTime(segment.startSeconds)}</button>
-                  <div><small style={{ color: 'var(--muted)', display: 'block', marginBottom: 3 }}>{segment.speaker}</small><span style={{ lineHeight: 1.7, fontSize: 14 }}>{segment.text}</span></div>
-                </div>
-              ))}
-              {transcript.segments.filter(segment => !transcriptQuery.trim() || segment.text.toLowerCase().includes(transcriptQuery.toLowerCase())).length === 0 && <p>No matching transcript segments.</p>}
-            </div> : <div style={{ maxHeight: 420, overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.85, fontSize: 14 }}>{transcriptQuery.trim() ? (transcript.content.split(/\\n+/).filter(line => line.toLowerCase().includes(transcriptQuery.toLowerCase())).join('\\n') || 'No matching transcript lines.') : transcript.content}</div>}
-          </section>}
+            <div style={{ maxHeight: 420, overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.85, fontSize: 14 }}>{transcript.content}</div>
+          </section>)}
           {transcriptError && <p style={{ color: 'var(--muted)', fontSize: 12 }}>{transcriptError}</p>}
           {audioUrl && <section style={{ border: '1px solid var(--border, #30303a)', background: 'var(--surface, #15151c)', borderRadius: 18, padding: 22 }}>
             {mediaType.startsWith('video/')
