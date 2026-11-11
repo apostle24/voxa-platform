@@ -20,7 +20,7 @@ describe('LiveService access boundaries', () => {
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       notification: { create: jest.fn().mockResolvedValue({ id: 'notification-1', recipientId: 'guest-1', type: 'LIVE_GUEST_INVITATION', title: 'You are invited to speak on VOXA LIVE', body: null, resourceType: 'live_room', resourceId: 'room-1' }) },
       notificationDevice: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
-      livePoll: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn() },
+      livePoll: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn().mockResolvedValue(null), updateMany: jest.fn() },
       livePollOption: { findFirst: jest.fn() },
       livePollVote: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
       liveQuestion: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
@@ -77,6 +77,7 @@ describe('LiveService access boundaries', () => {
   });
 
   it('records one poll vote per user and rejects a second vote', async () => {
+    const startsAt = new Date(Date.now() + 60 * 60 * 1000);
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC' });
     prisma.livePoll.findFirst.mockResolvedValue({ id: 'poll-1', status: 'OPEN' });
     prisma.livePollOption.findFirst.mockResolvedValue({ id: 'option-1' });
@@ -93,17 +94,6 @@ describe('LiveService access boundaries', () => {
     await expect(service.voteLivePoll('viewer-1', 'room-1', 'poll-1', 'option-2'))
       .rejects.toThrow('already voted');
     expect(prisma.livePollVote.create).toHaveBeenCalledTimes(1);
-  });
-
-  it('rejects concurrent duplicate poll votes using the database unique constraint', async () => {
-    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC' });
-    prisma.livePoll.findFirst.mockResolvedValue({ id: 'poll-1', status: 'OPEN' });
-    prisma.livePollOption.findFirst.mockResolvedValue({ id: 'option-1' });
-    prisma.livePollVote.findUnique.mockResolvedValue(null);
-    prisma.livePollVote.create.mockRejectedValue({ code: 'P2002' });
-
-    await expect(service.voteLivePoll('viewer-1', 'room-1', 'poll-1', 'option-1'))
-      .rejects.toThrow('already voted');
   });
 
   it('prevents overlapping accepted guest speaker bookings', async () => {
@@ -440,12 +430,29 @@ describe('LiveService access boundaries', () => {
   it('allows an assigned moderator to create a poll with unique options', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
     prisma.liveRoomModerator.findUnique.mockResolvedValue({ id: 'assignment-1' });
+    prisma.livePoll.findFirst.mockResolvedValue(null);
     prisma.livePoll.create.mockResolvedValue({ id: 'poll-1', question: 'Which topic next?', status: 'OPEN', options: [{ id: 'a', text: 'Design' }, { id: 'b', text: 'Technology' }] });
     const result = await service.createLivePoll('moderator-1', 'room-1', 'Which topic next?', ['Design', 'Technology', 'Design']);
     expect(result).toMatchObject({ id: 'poll-1', status: 'OPEN' });
     expect(prisma.livePoll.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ roomId: 'room-1', createdBy: 'moderator-1', options: { create: [{ text: 'Design' }, { text: 'Technology' }] } }),
     }));
+  });
+
+  it('prevents a second open poll in the same live room', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.livePoll.findFirst.mockResolvedValue({ id: 'poll-open' });
+    await expect(service.createLivePoll('host-1', 'room-1', 'Which topic next?', ['One', 'Two']))
+      .rejects.toThrow('Close the current live poll');
+    expect(prisma.livePoll.create).not.toHaveBeenCalled();
+  });
+
+  it('converts a concurrent open-poll unique-index conflict into a clear response', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.livePoll.findFirst.mockResolvedValue(null);
+    prisma.livePoll.create.mockRejectedValue({ code: 'P2002' });
+    await expect(service.createLivePoll('host-1', 'room-1', 'Which topic next?', ['One', 'Two']))
+      .rejects.toThrow('Close the current live poll');
   });
 
   it('prevents an unassigned listener from creating a live poll', async () => {
