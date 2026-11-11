@@ -59,7 +59,7 @@ export class ReportsService {
   }
 
   async create(userId: string, input: {
-    targetType: 'EPISODE' | 'MOMENT' | 'LIVE_ROOM' | 'USER';
+    targetType: 'EPISODE' | 'MOMENT' | 'LIVE_ROOM' | 'USER' | 'COMMUNITY_POST';
     targetId: string;
     reason: string;
     details?: string;
