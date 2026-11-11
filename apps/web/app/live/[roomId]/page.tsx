@@ -28,6 +28,9 @@ export default function LiveRoomPage() {
   const [stage, setStage] = useState<StageState | null>(null);
   const [busy, setBusy] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  const [chatMessages, setChatMessages] = useState<any[]>([]);
+  const [chatDraft, setChatDraft] = useState('');
+  const [chatBusy, setChatBusy] = useState(false);
 
   const api = useCallback(async (path: string, method = 'GET') => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -41,6 +44,13 @@ export default function LiveRoomPage() {
   const refreshStage = useCallback(async () => {
     try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
+  }, [api, roomId]);
+
+  const refreshChat = useCallback(async () => {
+    try {
+      const data = await api('/live/rooms/' + roomId + '/chat');
+      setChatMessages(Array.isArray(data.messages) ? data.messages : []);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to load live chat'); }
   }, [api, roomId]);
 
   const connect = useCallback(async () => {
@@ -71,9 +81,28 @@ export default function LiveRoomPage() {
     if (!token) { setError('Sign in to join this room.'); return; }
     void connect();
     void refreshStage();
-    const poll = window.setInterval(() => { void refreshStage(); }, 5000);
+    void refreshChat();
+    const poll = window.setInterval(() => { void refreshStage(); void refreshChat(); }, 5000);
     return () => { window.clearInterval(poll); void roomRef.current?.disconnect(); roomRef.current = null; };
-  }, [connect, refreshStage]);
+  }, [connect, refreshStage, refreshChat]);
+
+  async function sendChatMessage() {
+    if (!chatDraft.trim() || chatBusy) return;
+    setChatBusy(true);
+    try {
+      const token = sessionStorage.getItem('voxa_access_token') || '';
+      const response = await apiFetch(API + '/live/rooms/' + roomId + '/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ content: chatDraft.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to send message');
+      setChatDraft('');
+      await refreshChat();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to send message'); }
+    finally { setChatBusy(false); }
+  }
 
   async function action(key: string, path: string, method = 'POST') {
     setBusy(key); setError('');
@@ -124,6 +153,19 @@ export default function LiveRoomPage() {
         </section>}
         {!isHost && <p className="helperText">{pending ? 'Your request is waiting for the host.' : approved ? 'The host approved your request. Reconnect to refresh your speaking permissions.' : 'You are listening. Request the stage whenever you are ready to speak.'}</p>}
       </>}
+      {accessToken && <section className="moderationPanel" style={{ marginTop: 24 }}>
+        <div className="sectionTitle"><div><span className="eyebrow">LIVE COMMUNITY</span><h2>Room chat</h2></div><button className="ghostButton" onClick={() => void refreshChat()}>↻ Refresh</button></div>
+        <div style={{ maxHeight: 340, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 0' }}>
+          {chatMessages.length ? chatMessages.map(message => <div key={message.id} style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--surface)' }}>
+            <b style={{ fontSize: 12 }}>{message.author?.displayName || 'VOXA member'}</b><small style={{ marginLeft: 8, color: 'var(--muted)' }}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
+            <p style={{ margin: '5px 0 0', fontSize: 13, whiteSpace: 'pre-wrap' }}>{message.deletedAt ? '[deleted]' : message.content}</p>
+          </div>) : <p className="helperText">No messages yet. Start the conversation.</p>}
+        </div>
+        {status !== 'Room ended' && <form onSubmit={event => { event.preventDefault(); void sendChatMessage(); }} style={{ display: 'flex', gap: 10 }}>
+          <input value={chatDraft} onChange={event => setChatDraft(event.target.value)} maxLength={1000} placeholder="Message everyone in the room…" style={{ flex: 1, minWidth: 0, padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
+          <button className="button small" disabled={chatBusy || !chatDraft.trim()}>{chatBusy ? 'Sending…' : 'Send'}</button>
+        </form>}
+      </section>}
       <div className="stageFoot"><span>Room ID: {roomId}</span><span>Powered by LiveKit WebRTC</span></div>
     </section>
   </main>;
