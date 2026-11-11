@@ -16,6 +16,7 @@ type Episode = {
   id: string; title: string; description?: string | null; artworkUrl?: string | null;
   durationSeconds?: number | null; isExplicit: boolean; isLiveReplay?: boolean;
   membershipRequired: boolean;
+  matchingMoments?: Array<{ startSeconds: number; endSeconds: number; text: string; speaker: string }>;
   show: { id: string; title: string; creator: { handle: string; user: { displayName: string } } };
 };
 
@@ -149,6 +150,12 @@ export default function DiscoverPage() {
                 <button className="button small" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode)}>{preparingEpisode === episode.id ? 'Preparing…' : '▶ Play'}</button>
                 <button className="ghostButton" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode, true)}>＋ Queue</button>
               </div>
+              {query.trim() && episode.matchingMoments?.length ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                <small style={{ color: 'var(--muted)', letterSpacing: '.06em' }}>MATCHING MOMENTS</small>
+                {episode.matchingMoments.map((moment, index) => <Link key={index} href={'/episodes/' + episode.id + '?t=' + Math.floor(moment.startSeconds)} style={{ display: 'block', marginTop: 9, color: 'inherit', textDecoration: 'none', fontSize: 13 }}>
+                  <b style={{ color: 'var(--purple)' }}>{Math.floor(moment.startSeconds / 60)}:{String(Math.floor(moment.startSeconds % 60)).padStart(2, '0')}</b> · {moment.speaker}<br/><span style={{ color: 'var(--muted)' }}>{moment.text}</span>
+                </Link>)}
+              </div> : null}
             </article>)}
           </div> : <div className="emptyState"><p>No episodes match this search yet.</p></div>}
         </>}
