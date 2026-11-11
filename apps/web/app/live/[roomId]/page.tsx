@@ -64,8 +64,8 @@ export default function LiveRoomPage() {
       const roomState = await api('/live/rooms/' + roomId + '/stage');
       setStage(roomState);
       setIsHost(Boolean(roomState.isHost));
-      if (roomState.isHost && roomState.status === 'SCHEDULED' && roomState.scheduledAt && new Date(roomState.scheduledAt).getTime() > Date.now()) {
-        setStatus('Scheduled · starts ' + new Date(roomState.scheduledAt).toLocaleString());
+      if (roomState.status === 'SCHEDULED' && (!roomState.isHost || !roomState.scheduledAt || new Date(roomState.scheduledAt).getTime() > Date.now())) {
+        setStatus(roomState.scheduledAt ? 'Scheduled · starts ' + new Date(roomState.scheduledAt).toLocaleString() : 'Scheduled · waiting for the host');
         setError('');
         return;
       }
@@ -238,7 +238,7 @@ export default function LiveRoomPage() {
     <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> {stage?.status === 'SCHEDULED' ? 'SCHEDULED' : stage?.status === 'LIVE' ? 'LIVE' : 'ROOM'}</span></nav>
     <section className="stagePage">
       <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{status}</p>{stage?.status === 'SCHEDULED' && stage.scheduledAt && <p className="helperText">Scheduled for {new Date(stage.scheduledAt).toLocaleString()}</p>}</div>
-      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />{status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>Your room is ready.</h2><p>Return at the scheduled time and start the conversation.</p></>}<div className="connectionStatus"><i /> {status}</div></div>
+      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />{status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>{stage?.isHost ? 'Your room is ready.' : 'Coming up on VOXA LIVE.'}</h2><p>{stage?.isHost ? 'Return at the scheduled time and start the conversation.' : 'The host will open this room at the scheduled time.'}</p></>}<div className="connectionStatus"><i /> {status}</div></div>
       {error && <p className="errorText">{error}</p>}
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
