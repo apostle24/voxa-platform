@@ -17,7 +17,6 @@ type Episode = {
   isExplicit: boolean;
   membershipRequired: boolean;
   publishedAt?: string | null;
-  membershipRequired: boolean;
 };
 type Show = {
   id: string;
