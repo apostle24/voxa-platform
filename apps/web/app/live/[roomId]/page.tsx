@@ -48,9 +48,9 @@ export default function LiveRoomPage() {
   }, []);
 
   const refreshStage = useCallback(async () => {
-    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); if (data.status === 'LIVE' && status.startsWith('Scheduled')) setStatus('Room is live · join when ready'); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
+    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
-  }, [api, roomId, status]);
+  }, [api, roomId]);
 
   const refreshChat = useCallback(async () => {
     try {
@@ -233,12 +233,13 @@ export default function LiveRoomPage() {
 
   const approved = stage?.ownRequest?.status === 'APPROVED';
   const pending = stage?.ownRequest?.status === 'PENDING';
+  const displayedStatus = stage?.status === 'LIVE' && status.startsWith('Scheduled') ? 'Room is live · join when ready' : status;
 
   return <main className="appShell">
     <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> {stage?.status === 'SCHEDULED' ? 'SCHEDULED' : stage?.status === 'LIVE' ? 'LIVE' : 'ROOM'}</span></nav>
     <section className="stagePage">
-      <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{status}</p>{stage?.status === 'SCHEDULED' && stage.scheduledAt && <p className="helperText">Scheduled for {new Date(stage.scheduledAt).toLocaleString()}</p>}</div>
-      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />{status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>{stage?.isHost ? 'Your room is ready.' : 'Coming up on VOXA LIVE.'}</h2><p>{stage?.isHost ? 'Return at the scheduled time and start the conversation.' : 'The host will open this room at the scheduled time.'}</p></>}<div className="connectionStatus"><i /> {status}</div></div>
+      <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{displayedStatus}</p>{stage?.status === 'SCHEDULED' && stage.scheduledAt && <p className="helperText">Scheduled for {new Date(stage.scheduledAt).toLocaleString()}</p>}</div>
+      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />{stage?.status === 'SCHEDULED' && status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>{stage?.isHost ? 'Your room is ready.' : 'Coming up on VOXA LIVE.'}</h2><p>{stage?.isHost ? 'Return at the scheduled time and start the conversation.' : 'The host will open this room at the scheduled time.'}</p></>}<div className="connectionStatus"><i /> {displayedStatus}</div></div>
       {error && <p className="errorText">{error}</p>}
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
