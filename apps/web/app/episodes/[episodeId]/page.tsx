@@ -140,6 +140,7 @@ export default function EpisodePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resumeAt, setResumeAt] = useState(0);
+  const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [token, setToken] = useState('');
   const [transcript, setTranscript] = useState<{ content: string; language: string; segments?: Array<{ startSeconds: number; endSeconds: number; text: string; speaker: string }> | null } | null>(null);
   const [intelligence, setIntelligence] = useState<{ summary: string; topics: string[]; generatedAt: string } | null>(null);
@@ -343,10 +344,11 @@ export default function EpisodePage() {
             language={transcript.language}
             content={transcript.content}
             segments={transcript.segments}
-            currentTime={mediaType.startsWith('video/') ? (videoRef.current?.currentTime || 0) : currentTrack?.episodeId === episode.id ? currentTime : -1}
+            currentTime={mediaType.startsWith('video/') ? videoCurrentTime : currentTrack?.episodeId === episode.id ? currentTime : -1}
             onSeek={seconds => {
               if (mediaType.startsWith('video/') && videoRef.current) {
                 videoRef.current.currentTime = seconds;
+                setVideoCurrentTime(seconds);
                 void videoRef.current.play();
               } else if (currentTrack?.episodeId === episode.id) {
                 seek(seconds);
@@ -373,7 +375,7 @@ export default function EpisodePage() {
                     if (resumeAt > 0 && videoRef.current) videoRef.current.currentTime = resumeAt;
                   }}
                   onTimeUpdate={() => {
-                    if (videoRef.current) void saveProgress(videoRef.current.currentTime);
+                    if (videoRef.current) { setVideoCurrentTime(videoRef.current.currentTime); void saveProgress(videoRef.current.currentTime); }
                   }}
                   onPause={() => {
                     if (videoRef.current) void saveProgress(videoRef.current.currentTime, true);
