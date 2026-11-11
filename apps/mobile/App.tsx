@@ -228,7 +228,7 @@ export default function App() {
     </View>
     <View style={styles.content}>
       {tab === 'Discover' && <Discover onPlay={playEpisode} targetEpisodeId={deepLinkTarget?.kind === 'episode' ? deepLinkTarget.id : undefined} />}
-      {tab === 'Communities' && <Communities targetCommunityId={deepLinkTarget?.kind === 'community' ? deepLinkTarget.id : undefined} />}
+      {tab === 'Communities' && <Communities userId={user.id} targetCommunityId={deepLinkTarget?.kind === 'community' ? deepLinkTarget.id : undefined} />}
       {tab === 'LIVE' && <Live userId={user.id} targetRoomId={deepLinkTarget?.kind === 'live' ? deepLinkTarget.id : undefined} />}
       {tab === 'Creator' && <Creator />}
       {tab === 'Profile' && (deepLinkTarget?.kind === 'creator' ? <CreatorProfile handle={deepLinkTarget.id} viewerId={user.id} /> : <Profile user={user} onSignOut={async () => { if (pushToken) await api('/notifications/devices', { method: 'DELETE', body: JSON.stringify({ expoPushToken: pushToken }) }).catch(() => undefined); audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setPushToken(''); setUser(null); }} />)}
@@ -306,7 +306,7 @@ function EpisodeCard({ item, onPlay }: { item: ApiRecord; onPlay: () => void }) 
   </View>;
 }
 
-function Communities({ targetCommunityId }: { targetCommunityId?: string }) {
+function Communities({ userId, targetCommunityId }: { userId: string; targetCommunityId?: string }) {
   const { items, loading, error, refresh } = useLoad<ApiRecord>('/communities');
   const [selected, setSelected] = useState<ApiRecord | null>(null);
   const [joined, setJoined] = useState(false);
