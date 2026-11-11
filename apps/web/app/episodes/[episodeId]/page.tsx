@@ -140,6 +140,7 @@ export default function EpisodePage() {
   const [resumeAt, setResumeAt] = useState(0);
   const [token, setToken] = useState('');
   const [transcript, setTranscript] = useState<{ content: string; language: string } | null>(null);
+  const [intelligence, setIntelligence] = useState<{ summary: string; topics: string[]; generatedAt: string } | null>(null);
   const [transcriptQuery, setTranscriptQuery] = useState('');
   const [transcriptError, setTranscriptError] = useState('');
   const [chapters, setChapters] = useState<Array<{ id: string; title: string; startSeconds: number }>>([]);
@@ -181,6 +182,14 @@ export default function EpisodePage() {
             if (active && Array.isArray(chapterData)) setChapters(chapterData);
           }
         } catch { /* Chapter navigation is optional when unavailable. */ }
+        try {
+          const intelligenceResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-intelligence' : '/intelligence'),
+            { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
+          if (intelligenceResponse.ok) {
+            const intelligenceData = await intelligenceResponse.json();
+            if (active && intelligenceData?.summary) setIntelligence(intelligenceData);
+          }
+        } catch { /* Episode intelligence is optional while being generated. */ }
         try {
           const transcriptResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-transcript' : '/transcript'),
             { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
@@ -284,6 +293,15 @@ export default function EpisodePage() {
                 <span><small style={{ color: 'var(--muted)', marginRight: 12 }}>{String(Math.floor(chapter.startSeconds / 60)).padStart(2, '0')}:{String(chapter.startSeconds % 60).padStart(2, '0')}</small><b>{chapter.title}</b></span><span style={{ color: 'var(--muted)' }}>▶</span>
               </button>)}
             </div>
+          </section>}
+          {intelligence && <section style={{ marginTop: 30, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+            <div className="eyebrow">VOXA EPISODE INTELLIGENCE</div>
+            <h2 style={{ margin: '8px 0 12px' }}>The episode, at a glance</h2>
+            <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 14 }}>{intelligence.summary}</p>
+            {!!intelligence.topics?.length && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+              {intelligence.topics.map(topic => <span key={topic} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 12 }}>{topic}</span>)}
+            </div>}
+            <small style={{ color: 'var(--muted)', display: 'block', marginTop: 14 }}>AI-generated from this episode's transcript.</small>
           </section>}
           {transcript && <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
             <div className="eyebrow">EPISODE TRANSCRIPT · {transcript.language.toUpperCase()}</div>
