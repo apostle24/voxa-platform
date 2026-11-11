@@ -127,7 +127,7 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const { playTrack, enqueueTrack, seek, currentTrack } = useVoxaPlayer();
+  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack } = useVoxaPlayer();
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
   const [episode, setEpisode] = useState<Episode | null>(null);
@@ -352,6 +352,7 @@ export default function EpisodePage() {
                 />
               : <div className="episodePlayerActions">
                   <button className="button" onClick={() => playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>▶ Play episode</button>
+                  <button className="ghostButton" onClick={() => playTrackNext({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>⇥ Play next</button>
                   <button className="ghostButton" onClick={() => enqueueTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>＋ Add to queue</button>
                 </div>}
             <p style={{ color: 'var(--muted, #a1a1aa)', fontSize: 13, marginBottom: 0 }}>
