@@ -12,6 +12,7 @@ export default function LivePage() {
   const [title, setTitle] = useState('');
   const [audioOnly, setAudioOnly] = useState(true);
   const [scheduledAt, setScheduledAt] = useState('');
+  const [minimumStart, setMinimumStart] = useState('');
   const [notice, setNotice] = useState('');
   const [loading, setLoading] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
@@ -26,6 +27,9 @@ export default function LivePage() {
   }
   useEffect(() => {
     const token = sessionStorage.getItem('voxa_access_token');
+    const minStart = new Date(Date.now() + 60_000);
+    minStart.setMinutes(minStart.getMinutes() - minStart.getTimezoneOffset());
+    setMinimumStart(minStart.toISOString().slice(0, 16));
     setSignedIn(Boolean(token));
     try { const user = JSON.parse(sessionStorage.getItem('voxa_user') || 'null'); setDisplayName(user?.displayName || ''); } catch {}
     void loadRooms();
@@ -53,7 +57,7 @@ export default function LivePage() {
         {rooms.length === 0 ? <div className="emptyState"><div className="emptyIcon">◉</div><h3>No public rooms just yet</h3><p>Be the first to open a conversation and invite the world in.</p></div> : <div className="roomList">{rooms.map(room=><article className="roomCard" key={room.id}><div className="roomIcon">{room.isAudioOnly ? '♫' : '◉'}</div><div className="roomInfo"><div className="roomMeta"><span className="livePill"><i /> {room.status === 'LIVE' ? 'LIVE NOW' : 'SCHEDULED'}</span><span>{room.isAudioOnly ? 'AUDIO ROOM' : 'VIDEO ROOM'}</span></div><h3>{room.title}</h3><p>Hosted by {room.host?.displayName || room.host?.creator?.handle || 'VOXA creator'} · {room._count?.stage ?? 0} on stage</p>{room.scheduledAt && <p>Starts {new Date(room.scheduledAt).toLocaleString()}</p>}</div><Link className="button small" href={'/live/' + room.id}>{room.status === 'LIVE' ? 'Join room ↗' : 'Room details ↗'}</Link></article>)}</div>}
       </div>
       <aside className="createPanel"><div className="eyebrow">YOUR VOICE MATTERS</div><h2>Start a<br /><em>conversation.</em></h2><p>Create a public room and bring your community together.</p>
-        {signedIn ? <form onSubmit={createRoom}><label>Room title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="What do you want to talk about?" required maxLength={120} /><label className="checkLabel"><input type="checkbox" checked={audioOnly} onChange={e=>setAudioOnly(e.target.checked)} /> Audio-only room</label><label>Start time (optional)<input type="datetime-local" value={scheduledAt} min={new Date(Date.now() + 60000).toISOString().slice(0,16)} onChange={e=>setScheduledAt(e.target.value)} /></label><small>Leave blank to go live immediately. Scheduled rooms become joinable when you start them at the selected time.</small><button className="button full" disabled={loading}>{loading ? 'Creating…' : 'Create your live room ↗'}</button></form> : <Link className="button full" href="/login">Sign in to host a room ↗</Link>}
+        {signedIn ? <form onSubmit={createRoom}><label>Room title</label><input value={title} onChange={e=>setTitle(e.target.value)} placeholder="What do you want to talk about?" required maxLength={120} /><label className="checkLabel"><input type="checkbox" checked={audioOnly} onChange={e=>setAudioOnly(e.target.checked)} /> Audio-only room</label><label>Start time (optional)<input type="datetime-local" value={scheduledAt} min={minimumStart || undefined} onChange={e=>setScheduledAt(e.target.value)} /></label><small>Leave blank to go live immediately. Scheduled rooms become joinable when you start them at the selected time.</small><button className="button full" disabled={loading}>{loading ? 'Creating…' : 'Create your live room ↗'}</button></form> : <Link className="button full" href="/login">Sign in to host a room ↗</Link>}
         <small>{signedIn ? 'Your session is active in this browser tab.' : 'A VOXA account is required to create a live room.'}</small></aside>
     </section>
     {notice && <p className="notice">{notice}</p>}<footer><Link className="brand" href="/">VOXA<span>.</span></Link><small>Listen. Speak. Connect.</small></footer>
