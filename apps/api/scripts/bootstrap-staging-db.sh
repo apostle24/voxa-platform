@@ -25,20 +25,9 @@ if [ "${VOXA_STAGING_DB_BOOTSTRAP:-false}" = "true" ]; then
   # Recreate custom partial unique indexes that Prisma schema DSL cannot express.
   pnpm --filter @voxa/api exec prisma db execute --file prisma/staging-bootstrap.sql
 
-  # The final Prisma schema now represents the complete current schema.
-  # Record the repository's incremental migrations as represented by it.
-  for migration_dir in apps/api/prisma/migrations/*; do
-    [ -d "$migration_dir" ] || continue
-    migration_name=$(basename "$migration_dir")
-    if output=$(pnpm --filter @voxa/api exec prisma migrate resolve --applied "$migration_name" 2>&1); then
-      printf '%s\n' "$output"
-    else
-      printf '%s\n' "$output"
-      # On a restart after a successful bootstrap, already-applied migrations
-      # are expected. Any other failure must stop the service.
-      printf '%s\n' "$output" | grep -q 'P3008' || exit 1
-    fi
-  done
+  # Record all migration checksums in one transaction. The current Prisma
+  # schema and the custom indexes above now represent this fresh database.
+  node apps/api/scripts/mark-staging-migrations-applied.cjs
   echo "VOXA staging database schema bootstrap complete"
 else
   pnpm --filter @voxa/api exec prisma migrate deploy
