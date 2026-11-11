@@ -75,7 +75,7 @@ jobs:
       - run: pnpm --filter @voxa/web build
       - name: Smoke-test critical web routes
         run: |
-          (pnpm --filter @voxa/web start -- --hostname 127.0.0.1 --port 3000 > /tmp/voxa-web.log 2>&1 & echo $! > /tmp/voxa-web.pid)
+          (pnpm --filter @voxa/web exec next start --hostname 127.0.0.1 --port 3000 > /tmp/voxa-web.log 2>&1 & echo $! > /tmp/voxa-web.pid)
           trap 'kill $(cat /tmp/voxa-web.pid) 2>/dev/null || true' EXIT
           node apps/web/scripts/smoke-routes.mjs
       - name: Install mobile app dependencies
