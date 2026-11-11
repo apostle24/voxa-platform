@@ -889,7 +889,7 @@ export class LiveService {
     const isCoHost = !isHost && await this.isRoomCoHost(roomId, userId);
     const isModerator = !isHost && !isCoHost && await this.canModerateRoom(roomId, userId, room.hostId);
     const [requests, speakers, ownRequest, moderators, coHosts] = await Promise.all([
-      isHost || isModerator ? this.prisma.stageRequest.findMany({
+      isHost || isCoHost || isModerator ? this.prisma.stageRequest.findMany({
         where: { roomId, status: 'PENDING' },
         orderBy: { requestedAt: 'asc' },
         select: { id: true, userId: true, status: true, requestedAt: true },
