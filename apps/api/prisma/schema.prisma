@@ -96,6 +96,8 @@ model User {
   role        UserRole   @default(LISTENER)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+  suspendedUntil DateTime?
+  suspensionReason String?
   creator     Creator?
   follows     Follow[]   @relation("Follower")
   liveRooms   LiveRoom[] @relation("RoomHost")

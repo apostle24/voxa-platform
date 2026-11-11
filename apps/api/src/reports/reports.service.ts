@@ -1,9 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { LiveService } from '../live/live.service';
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly live: LiveService) {}
 
   private async requireModerator(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
@@ -72,12 +73,13 @@ export class ReportsService {
     });
     const reportedUserIds = [...new Set(reports.filter(report => report.targetType === 'USER').map(report => report.targetId))];
     const reportedUsers = reportedUserIds.length
-      ? await this.prisma.user.findMany({ where: { id: { in: reportedUserIds } }, select: { id: true, displayName: true } })
+      ? await this.prisma.user.findMany({ where: { id: { in: reportedUserIds } }, select: { id: true, displayName: true, suspendedUntil: true } })
       : [];
     const userNames = new Map(reportedUsers.map(user => [user.id, user.displayName]));
     return reports.map(report => ({
       ...report,
       targetLabel: report.targetType === 'USER' ? (userNames.get(report.targetId) || 'Account no longer available') : null,
+      targetSuspendedUntil: report.targetType === 'USER' ? (reportedUsers.find(user => user.id === report.targetId)?.suspendedUntil || null) : null,
     }));
   }
 
@@ -147,6 +149,88 @@ export class ReportsService {
       }});
       return { reportId, targetType: report.targetType, targetId: report.targetId, action: input.action, status: hide ? 'ACTIONED' : 'REVIEWING' };
     });
+    return result;
+  }
+
+  async applyAccountAction(userId: string, reportId: string, input: {
+    action: 'WARN_USER' | 'SUSPEND_USER' | 'REINSTATE_USER';
+    reason: string;
+    suspensionDays?: number;
+  }) {
+    const actor = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
+    if (!actor || !['ADMIN', 'MODERATOR'].includes(actor.role)) throw new ForbiddenException('Moderator access required');
+    const report = await this.prisma.contentReport.findUnique({
+      where: { id: reportId },
+      select: { id: true, status: true, targetType: true, targetId: true },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+    if (report.targetType !== 'USER') throw new BadRequestException('This report is not for an account');
+    const reinstate = input.action === 'REINSTATE_USER';
+    if (report.status === 'DISMISSED' || (!reinstate && report.status === 'ACTIONED') || (reinstate && report.status !== 'ACTIONED')) {
+      throw new BadRequestException('This report is not in a state that permits this action');
+    }
+    const target = await this.prisma.user.findUnique({
+      where: { id: report.targetId },
+      select: { id: true, role: true, suspendedUntil: true },
+    });
+    if (!target) throw new NotFoundException('Reported account no longer exists');
+    if (target.role === 'ADMIN' || (target.role === 'MODERATOR' && actor.role !== 'ADMIN')) {
+      throw new ForbiddenException('Your role does not permit moderation of this account');
+    }
+    if (input.action === 'SUSPEND_USER') {
+      if (![1, 7, 30].includes(input.suspensionDays || 0)) {
+        throw new BadRequestException('Choose a suspension duration of 1, 7 or 30 days');
+      }
+      if (target.suspendedUntil && target.suspendedUntil > new Date()) {
+        throw new BadRequestException('This account is already suspended');
+      }
+    }
+    if (reinstate) {
+      const previous = await this.prisma.moderationAction.findFirst({
+        where: { reportId, targetType: 'USER', targetId: report.targetId, action: 'SUSPEND_USER' },
+        orderBy: { createdAt: 'desc' }, select: { id: true },
+      });
+      if (!previous || !target.suspendedUntil) throw new BadRequestException('There is no active or recorded suspension to reverse');
+    }
+    const now = new Date();
+    const suspendedUntil = input.action === 'SUSPEND_USER'
+      ? new Date(now.getTime() + (input.suspensionDays as number) * 24 * 60 * 60 * 1000)
+      : null;
+    const result = await this.prisma.$transaction(async (tx) => {
+      if (input.action === 'SUSPEND_USER') {
+        const changed = await tx.user.updateMany({
+          where: { id: target.id, OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: now } }] },
+          data: { suspendedUntil, suspensionReason: input.reason.trim() },
+        });
+        if (changed.count !== 1) throw new BadRequestException('This account is already suspended');
+        await tx.authSession.updateMany({ where: { userId: target.id, revokedAt: null }, data: { revokedAt: now } });
+      } else if (reinstate) {
+        const changed = await tx.user.updateMany({
+          where: { id: target.id, suspendedUntil: { not: null } },
+          data: { suspendedUntil: null, suspensionReason: null },
+        });
+        if (changed.count !== 1) throw new BadRequestException('This account is not currently suspended');
+      }
+      await tx.moderationAction.create({ data: {
+        actorId: userId, reportId, targetType: 'USER', targetId: target.id,
+        action: input.action, reason: input.reason.trim(),
+      }});
+      if (input.action === 'WARN_USER') {
+        await tx.notification.create({ data: {
+          recipientId: target.id, actorId: userId, type: 'MODERATION_WARNING',
+          title: 'Account warning from VOXA', body: input.reason.trim(),
+          resourceType: 'MODERATION_REPORT', resourceId: reportId,
+        }});
+      }
+      await tx.contentReport.update({ where: { id: reportId }, data: {
+        status: 'ACTIONED', reviewerId: userId, moderatorNote: input.reason.trim(), reviewedAt: now,
+      }});
+      return { reportId, targetType: 'USER', targetId: target.id, action: input.action, status: 'ACTIONED', suspendedUntil };
+    });
+    if (input.action === 'SUSPEND_USER') {
+      const liveRoomEnforcement = await this.live.disconnectUserFromLiveRooms(target.id);
+      return { ...result, liveRoomEnforcement };
+    }
     return result;
   }
 }

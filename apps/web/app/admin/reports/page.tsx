@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type Report = {
-  id: string; targetType: string; targetId: string; targetLabel?: string | null; reason: string; details?: string | null;
+  id: string; targetType: string; targetId: string; targetLabel?: string | null; targetSuspendedUntil?: string | null; reason: string; details?: string | null;
   status: string; moderatorNote?: string | null; createdAt: string;
   reporter: { id: string; displayName: string };
   reviewer?: { id: string; displayName: string } | null;
@@ -19,6 +19,7 @@ export default function AdminReportsPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState('');
+  const [suspensionDays, setSuspensionDays] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -51,6 +52,33 @@ export default function AdminReportsPage() {
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to apply moderation action');
+    } finally { setBusy(''); }
+  }
+
+  async function applyAccountAction(report: Report, action: 'WARN_USER' | 'SUSPEND_USER' | 'REINSTATE_USER') {
+    const reason = notes[report.id]?.trim();
+    if (!reason) { setError('Enter a moderator note explaining this account action first.'); return; }
+    const duration = suspensionDays[report.id] ?? 7;
+    if (!window.confirm(action === 'WARN_USER' ? 'Issue a formal warning to this account?' : action === 'SUSPEND_USER' ? 'Temporarily suspend this account and revoke its active sessions?' : 'Reinstate this account?')) return;
+    setBusy(report.id); setError(''); setNotice('');
+    try {
+      const response = await apiFetch(API + '/admin/reports/' + report.id + '/actions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, moderatorNote: reason, ...(action === 'SUSPEND_USER' ? { suspensionDays: duration } : {}) }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to apply account action');
+      const live = result.liveRoomEnforcement;
+      const liveNotice = live?.failedRoomIds?.length
+        ? `LiveKit could not disconnect the account from ${live.failedRoomIds.length} live room(s); check LiveKit connectivity.`
+        : `Disconnected from ${live?.disconnected || 0} live room(s).`;
+      const reconciliationNotice = live?.reconciliationFailedRoomIds?.length
+        ? ` LiveKit disconnected the user, but VOXA could not update session records for ${live.reconciliationFailedRoomIds.length} room(s); reconcile those records.`
+        : '';
+      setNotice(action === 'WARN_USER' ? 'Account warning recorded.' : action === 'SUSPEND_USER' ? `Account suspended and active sessions revoked. ${liveNotice}${reconciliationNotice}` : 'Account reinstated.');
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to apply account action');
     } finally { setBusy(''); }
   }
 
@@ -105,6 +133,15 @@ export default function AdminReportsPage() {
           <div style={{ display: 'grid', gap: 8, minWidth: 240, flex: 1 }}>
             <textarea value={notes[report.id] ?? report.moderatorNote ?? ''} onChange={e => setNotes(v => ({ ...v, [report.id]: e.target.value }))} placeholder="Moderator notes (optional)" rows={3} />
             {report.status === 'ACTIONED' && (report.targetType === 'EPISODE' || report.targetType === 'MOMENT') && <button className="ghostButton" disabled={busy === report.id} onClick={() => applyAction(report, report.targetType === 'EPISODE' ? 'RESTORE_EPISODE' : 'RESTORE_MOMENT')}>Restore content</button>}
+            {report.targetType === 'USER' && report.status === 'ACTIONED' && report.targetSuspendedUntil && <button className="ghostButton" disabled={busy === report.id} onClick={() => void applyAccountAction(report, 'REINSTATE_USER')}>Reinstate account</button>}
+            {report.targetType === 'USER' && report.status !== 'ACTIONED' && report.status !== 'DISMISSED' && <>
+              <button className="ghostButton" disabled={busy === report.id} onClick={() => void applyAccountAction(report, 'WARN_USER')}>Issue account warning</button>
+              <label style={{fontSize:12}}>Temporary suspension duration</label>
+              <select value={suspensionDays[report.id] ?? 7} onChange={e => setSuspensionDays(v => ({...v,[report.id]:Number(e.target.value)}))}>
+                <option value={1}>1 day</option><option value={7}>7 days</option><option value={30}>30 days</option>
+              </select>
+              <button className="primaryButton" disabled={busy === report.id} onClick={() => void applyAccountAction(report, 'SUSPEND_USER')}>Suspend account</button>
+            </>}
             {report.status !== 'ACTIONED' && report.status !== 'DISMISSED' && <>
               {report.status === 'NEW' && <button className="ghostButton" disabled={busy === report.id} onClick={() => review(report, 'REVIEWING')}>Mark under review</button>}
               {(report.targetType === 'EPISODE' || report.targetType === 'MOMENT') && <button className="primaryButton" disabled={busy === report.id} onClick={() => applyAction(report, report.targetType === 'EPISODE' ? 'HIDE_EPISODE' : 'HIDE_MOMENT')}>Hide reported content</button>}

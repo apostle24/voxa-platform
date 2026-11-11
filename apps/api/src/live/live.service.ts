@@ -511,6 +511,49 @@ export class LiveService {
     return { serverUrl: url, roomName: room.id, token: await token.toJwt(), canPublish: isHost || isSpeaker, expiresInSeconds: 600 };
   }
 
+  async disconnectUserFromLiveRooms(userId: string) {
+    const [viewerSessions, stageMemberships] = await Promise.all([
+      this.prisma.liveViewerSession.findMany({ where: { userId, leftAt: null }, select: { roomId: true } }),
+      this.prisma.liveStageMember.findMany({ where: { userId, leftAt: null }, select: { roomId: true } }),
+    ]);
+    const roomIds = [...new Set([...viewerSessions, ...stageMemberships].map((session) => session.roomId))];
+    if (!roomIds.length) return { attempted: 0, disconnected: 0, failedRoomIds: [] as string[], reconciliationFailedRoomIds: [] as string[] };
+
+    let client: RoomServiceClient;
+    try {
+      client = this.roomServiceClient();
+    } catch {
+      return { attempted: roomIds.length, disconnected: 0, failedRoomIds: roomIds, reconciliationFailedRoomIds: [] as string[] };
+    }
+
+    const failedRoomIds: string[] = [];
+    const reconciliationFailedRoomIds: string[] = [];
+    let disconnected = 0;
+    for (const roomId of roomIds) {
+      try {
+        // Removing the participant revokes the currently connected LiveKit session immediately.
+        await client.removeParticipant(roomId, userId);
+      } catch {
+        failedRoomIds.push(roomId);
+        continue;
+      }
+
+      // LiveKit has already disconnected the participant. Keep that fact separate
+      // from a later database reconciliation failure so moderators see the truth.
+      disconnected += 1;
+      const leftAt = new Date();
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          await tx.liveViewerSession.updateMany({ where: { roomId, userId, leftAt: null }, data: { leftAt } });
+          await tx.liveStageMember.updateMany({ where: { roomId, userId, leftAt: null }, data: { leftAt } });
+        });
+      } catch {
+        reconciliationFailedRoomIds.push(roomId);
+      }
+    }
+    return { attempted: roomIds.length, disconnected, failedRoomIds, reconciliationFailedRoomIds };
+  }
+
   async removeSpeaker(hostId: string, roomId: string, speakerId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');

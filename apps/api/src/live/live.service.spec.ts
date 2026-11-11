@@ -13,7 +13,7 @@ describe('LiveService access boundaries', () => {
     prisma = {
       liveRoom: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
-      liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
+      liveViewerSession: { findMany: jest.fn(), upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn() },
       stageRequest: { upsert: jest.fn(), groupBy: jest.fn() },
       liveKitWebhookEvent: { createMany: jest.fn() },
@@ -177,6 +177,66 @@ describe('LiveService access boundaries', () => {
     prisma.liveViewerSession.updateMany.mockResolvedValue({ count: 1 });
     const result = await service.leaveViewer('viewer-1', 'room-1', 'session_1234567890123456');
     expect(result).toEqual({ left: true });
+  });
+
+
+  describe('disconnectUserFromLiveRooms', () => {
+    it('returns cleanly when the user has no active live sessions', async () => {
+      prisma.liveViewerSession.findMany.mockResolvedValue([]);
+      prisma.liveStageMember.findMany.mockResolvedValue([]);
+      await expect(service.disconnectUserFromLiveRooms('user-1')).resolves.toEqual({ attempted: 0, disconnected: 0, failedRoomIds: [], reconciliationFailedRoomIds: [] });
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('closes viewer and stage records after LiveKit removes the participant', async () => {
+      prisma.liveViewerSession.findMany.mockResolvedValue([{ roomId: 'room-1' }]);
+      prisma.liveStageMember.findMany.mockResolvedValue([{ roomId: 'room-1' }, { roomId: 'room-2' }]);
+      const removeParticipant = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ removeParticipant });
+      prisma.liveViewerSession.updateMany.mockResolvedValue({ count: 1 });
+      prisma.liveStageMember.updateMany.mockResolvedValue({ count: 1 });
+      await expect(service.disconnectUserFromLiveRooms('user-1')).resolves.toEqual({ attempted: 2, disconnected: 2, failedRoomIds: [], reconciliationFailedRoomIds: [] });
+      expect(removeParticipant).toHaveBeenCalledTimes(2);
+      expect(removeParticipant).toHaveBeenNthCalledWith(1, 'room-1', 'user-1');
+      expect(prisma.liveViewerSession.updateMany).toHaveBeenCalledWith({
+        where: { roomId: 'room-1', userId: 'user-1', leftAt: null }, data: { leftAt: expect.any(Date) },
+      });
+      expect(prisma.liveStageMember.updateMany).toHaveBeenCalledWith({
+        where: { roomId: 'room-1', userId: 'user-1', leftAt: null }, data: { leftAt: expect.any(Date) },
+      });
+    });
+
+    it('reports unavailable LiveKit configuration without losing the suspension flow', async () => {
+      prisma.liveViewerSession.findMany.mockResolvedValue([{ roomId: 'room-1' }]);
+      prisma.liveStageMember.findMany.mockResolvedValue([]);
+      jest.spyOn(service as any, 'roomServiceClient').mockImplementation(() => { throw new Error('not configured'); });
+      await expect(service.disconnectUserFromLiveRooms('user-1')).resolves.toEqual({ attempted: 1, disconnected: 0, failedRoomIds: ['room-1'], reconciliationFailedRoomIds: [] });
+      expect(prisma.liveViewerSession.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('reports database reconciliation failure separately after LiveKit has disconnected the user', async () => {
+      prisma.liveViewerSession.findMany.mockResolvedValue([{ roomId: 'room-1' }]);
+      prisma.liveStageMember.findMany.mockResolvedValue([]);
+      const removeParticipant = jest.fn().mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ removeParticipant });
+      prisma.$transaction.mockRejectedValueOnce(new Error('database unavailable'));
+      await expect(service.disconnectUserFromLiveRooms('user-1')).resolves.toEqual({
+        attempted: 1, disconnected: 1, failedRoomIds: [], reconciliationFailedRoomIds: ['room-1'],
+      });
+      expect(removeParticipant).toHaveBeenCalledWith('room-1', 'user-1');
+    });
+
+    it('continues attempting other rooms when one LiveKit removal fails', async () => {
+      prisma.liveViewerSession.findMany.mockResolvedValue([{ roomId: 'room-1' }, { roomId: 'room-2' }]);
+      prisma.liveStageMember.findMany.mockResolvedValue([]);
+      const removeParticipant = jest.fn().mockRejectedValueOnce(new Error('room unavailable')).mockResolvedValueOnce(undefined);
+      jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ removeParticipant });
+      prisma.liveViewerSession.updateMany.mockResolvedValue({ count: 1 });
+      prisma.liveStageMember.updateMany.mockResolvedValue({ count: 0 });
+      await expect(service.disconnectUserFromLiveRooms('user-1')).resolves.toEqual({ attempted: 2, disconnected: 1, failedRoomIds: ['room-1'], reconciliationFailedRoomIds: [] });
+      expect(removeParticipant).toHaveBeenCalledTimes(2);
+      expect(prisma.liveViewerSession.updateMany).toHaveBeenCalledTimes(1);
+    });
   });
 
 });

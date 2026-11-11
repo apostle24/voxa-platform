@@ -28,6 +28,7 @@ export class ReportsController {
   @Post('admin/reports/:reportId/actions')
   @UseGuards(JwtAuthGuard)
   applyAction(@Req() req: AuthenticatedRequest, @Param('reportId') reportId: string, @Body() input: ModerationActionDto) {
-    return this.reports.applyContentAction(req.user.id, reportId, { action: input.action, reason: input.moderatorNote });
+    if (input.action.endsWith('_USER')) return this.reports.applyAccountAction(req.user.id, reportId, { action: input.action as 'WARN_USER' | 'SUSPEND_USER' | 'REINSTATE_USER', reason: input.moderatorNote, suspensionDays: input.suspensionDays });
+    return this.reports.applyContentAction(req.user.id, reportId, { action: input.action as 'HIDE_EPISODE' | 'RESTORE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_MOMENT', reason: input.moderatorNote });
   }
 }
