@@ -24,6 +24,7 @@ type Episode = {
   semanticScore?: number;
   semanticExcerpt?: string;
   semanticExcerptStartSeconds?: number | null;
+  semanticExcerptEndSeconds?: number | null;
   semanticExcerptSpeaker?: string | null;
   show: { id: string; title: string; creator: { handle: string; user: { displayName: string } } };
 };
