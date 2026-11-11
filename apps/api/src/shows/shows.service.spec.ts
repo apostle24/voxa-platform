@@ -318,3 +318,33 @@ describe('ShowsService personalized discovery', () => {
     ]));
   });
 });
+
+
+describe('ShowsService episode unpublishing', () => {
+  let service: ShowsService;
+  let prisma: any;
+  beforeEach(() => {
+    prisma = {
+      show: { findFirst: jest.fn() },
+      episode: { findFirst: jest.fn(), updateMany: jest.fn() },
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+  it('returns an owned published episode to draft', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', status: 'PUBLISHED' });
+    prisma.episode.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.unpublishEpisode('creator-1', 'show-1', 'episode-1')).resolves.toEqual({
+      id: 'episode-1', showId: 'show-1', status: 'DRAFT', unpublished: true,
+    });
+    expect(prisma.episode.updateMany).toHaveBeenCalledWith({
+      where: { id: 'episode-1', showId: 'show-1', status: 'PUBLISHED' },
+      data: { status: 'DRAFT', publishedAt: null },
+    });
+  });
+  it('does not unpublish an episode outside the creator account', async () => {
+    prisma.show.findFirst.mockResolvedValue(null);
+    await expect(service.unpublishEpisode('intruder', 'show-1', 'episode-1')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.episode.updateMany).not.toHaveBeenCalled();
+  });
+});

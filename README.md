@@ -162,3 +162,5 @@ VOXA is being developed in deliberate stages: stabilize and test the foundation,
 ## Mobile application
 
 The Expo app lives in `apps/mobile`. See [Mobile README](apps/mobile/README.md) for setup. It is an independent npm-installed native workspace; install its dependencies from that directory, configure `EXPO_PUBLIC_VOXA_API_URL`, then run Expo. LiveKit requires a native development build and cannot run inside Expo Go.
+
+- The native app now includes creator episode drafts, signed media upload, publishing controls, community discussions/replies, and live stage moderation. Apply the `20261111260000_community_post_comments` migration before using community replies.

@@ -59,6 +59,18 @@ export class CommunitiesController {
     return this.communities.leave(req.user.id, id);
   }
 
+  @Get(':communityId/posts')
+  @UseGuards(JwtAuthGuard)
+  listPosts(@Req() req: AuthenticatedRequest, @Param('communityId') id: string) {
+    return this.communities.listPosts(req.user.id, id);
+  }
+
+  @Post(':communityId/posts/:postId/comments')
+  @UseGuards(JwtAuthGuard)
+  comment(@Req() req: AuthenticatedRequest, @Param('communityId') id: string, @Param('postId') postId: string, @Body() input: CreateCommunityPostDto) {
+    return this.communities.createPostComment(req.user.id, id, postId, input.content);
+  }
+
   @Post(':communityId/posts')
   @UseGuards(JwtAuthGuard)
   post(@Req() req: AuthenticatedRequest, @Param('communityId') id: string, @Body() input: CreateCommunityPostDto) {
