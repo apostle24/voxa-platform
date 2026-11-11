@@ -13,6 +13,8 @@ export default function CommunitiesPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
+  const [artworkUrl, setArtworkUrl] = useState('');
+  const [moderator, setModerator] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
@@ -23,7 +25,10 @@ export default function CommunitiesPage() {
     if (!response.ok) throw new Error(data.message || 'Unable to load communities');
     setItems(data);
   }
-  useEffect(() => { void load().catch(e => setError(e.message)); }, []);
+  useEffect(() => {
+    void load().catch(e => setError(e.message));
+    try { const user = JSON.parse(sessionStorage.getItem('voxa_user') || 'null'); setModerator(['ADMIN', 'MODERATOR'].includes(user?.role)); } catch {}
+  }, []);
 
   async function create(event: FormEvent) {
     event.preventDefault();
@@ -31,10 +36,10 @@ export default function CommunitiesPage() {
     if (!token) { setError('Sign in before creating a community.'); return; }
     setBusy(true); setError(''); setNotice('');
     try {
-      const response = await apiFetch(API + '/communities', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, description, category }) });
+      const response = await apiFetch(API + '/communities', { method: 'POST', headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' }, body: JSON.stringify({ name, description, category, artworkUrl }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Unable to create community');
-      setName(''); setDescription(''); setCategory('');
+      setName(''); setDescription(''); setCategory(''); setArtworkUrl('');
       setNotice('Your community has been created.');
       await load(query);
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to create community'); }
@@ -44,7 +49,7 @@ export default function CommunitiesPage() {
   async function search(event: FormEvent) { event.preventDefault(); setError(''); try { await load(query); } catch(e) { setError(e instanceof Error ? e.message : 'Search failed'); } }
 
   return <main className="appShell">
-    <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/discover">Discover</Link><Link href="/following">Following</Link><Link href="/live">Explore LIVE</Link></div></nav>
+    <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/discover">Discover</Link><Link href="/following">Following</Link><Link href="/live">Explore LIVE</Link>{moderator && <Link href="/admin/community-moderation">Moderation</Link>}</div></nav>
     <section className="communityPage" style={{ maxWidth: 1120 }}>
       <div className="eyebrow">VOXA PEOPLE & INTERESTS</div>
       <h1 style={{ fontSize: 'clamp(36px,5vw,56px)', letterSpacing: -2, margin: '12px 0' }}>Find your community.</h1>
@@ -67,6 +72,7 @@ export default function CommunitiesPage() {
         <form onSubmit={create} style={{ display: 'grid', gap: 12 }}>
           <input required minLength={3} maxLength={80} value={name} onChange={e => setName(e.target.value)} placeholder="Community name" />
           <input maxLength={60} value={category} onChange={e => setCategory(e.target.value)} placeholder="Category (optional)" />
+          <input type="url" maxLength={2048} value={artworkUrl} onChange={e => setArtworkUrl(e.target.value)} placeholder="Community artwork URL (optional)" />
           <textarea maxLength={1000} value={description} onChange={e => setDescription(e.target.value)} placeholder="What brings this community together?" rows={4} />
           <button className="button" disabled={busy}>{busy ? 'Creating…' : 'Create community'}</button>
         </form>
