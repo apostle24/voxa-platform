@@ -135,7 +135,7 @@ class RoomTranscriber:
 server = AgentServer()
 
 
-@server.rtc_session()
+@server.rtc_session(agent_name=config.agent_name)
 async def entrypoint(ctx: JobContext) -> None:
     ctx.log_context_fields = {"room": ctx.room.name, "agent": "voxa-live-captions"}
     transcriber = RoomTranscriber(ctx)
