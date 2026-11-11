@@ -214,15 +214,15 @@ export class LiveService {
       });
       if (inserted.count === 0) return { received: true, duplicate: true };
 
-      if (event.egressInfo?.egressId && (event.event === 'egress_ended' || event.event === 'egress_failed')) {
+      if (event.egressInfo?.egressId && event.event === 'egress_ended') {
         const fileLocation = event.egressInfo.fileResults?.[0]?.location || null;
         await tx.liveRoom.updateMany({
           where: { recordingEgressId: event.egressInfo.egressId },
           data: {
-            recordingStatus: event.event === 'egress_ended' ? 'COMPLETED' : 'FAILED',
+            recordingStatus: event.egressInfo.status === 4 ? 'FAILED' : 'COMPLETED',
             recordingEndedAt: new Date(),
             ...(fileLocation ? { recordingObjectKey: fileLocation } : {}),
-            ...(event.event === 'egress_failed' ? { recordingFailure: 'LiveKit Egress reported a recording failure' } : {}),
+            ...(event.egressInfo.status === 4 ? { recordingFailure: 'LiveKit Egress reported a recording failure' } : {}),
           },
         });
       }
