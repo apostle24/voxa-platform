@@ -1,7 +1,9 @@
 import {
   BadRequestException,
+  BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -80,6 +82,73 @@ export class AuthService {
       });
     });
     return { success: true, sessionsRevoked: true };
+  }
+
+
+  async getMyProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, displayName: true, role: true, createdAt: true, creator: { select: { handle: true } } },
+    });
+    if (!user) throw new UnauthorizedException('Account no longer exists');
+    return user;
+  }
+
+  async updateMyProfile(userId: string, displayName: string) {
+    const normalizedName = displayName.trim().replace(/\\s+/g, ' ');
+    if (normalizedName.length < 2 || normalizedName.length > 80) {
+      throw new BadRequestException('Display name must be between 2 and 80 characters');
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { displayName: normalizedName },
+      select: { id: true, email: true, displayName: true, role: true },
+    });
+  }
+
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    if (newPassword.length < 12 || newPassword.length > 128) {
+      throw new BadRequestException('New password must be between 12 and 128 characters');
+    }
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('Choose a new password different from your current password');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, passwordHash: true },
+    });
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+      await tx.authSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+    });
+    return { success: true, sessionsRevoked: true };
+  }
+
+  async listSessions(userId: string) {
+    return this.prisma.authSession.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: { id: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+    });
+  }
+
+  async revokeSession(userId: string, sessionId: string) {
+    const now = new Date();
+    const result = await this.prisma.authSession.updateMany({
+      where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: now } },
+      data: { revokedAt: now },
+    });
+    if (result.count !== 1) throw new NotFoundException('Active session not found');
+    return { success: true, sessionId };
   }
 
   async register(input: RegisterDto) {
