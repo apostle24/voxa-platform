@@ -12,6 +12,7 @@ class AgentConfig:
     stt_model: str = "gpt-4o-mini-transcribe"
     language: str = "en"
     max_participants: int = 24
+    agent_name: str = "voxa-live-captions"
 
     @classmethod
     def from_env(cls, environ: dict[str, str] | None = None) -> "AgentConfig":
@@ -34,4 +35,5 @@ class AgentConfig:
             stt_model=env.get("VOXA_LIVE_STT_MODEL", "gpt-4o-mini-transcribe").strip(),
             language=env.get("VOXA_LIVE_CAPTIONS_LANGUAGE", "en").strip(),
             max_participants=limit,
+            agent_name=env.get("VOXA_LIVE_CAPTIONS_AGENT_NAME", "voxa-live-captions").strip(),
         )
