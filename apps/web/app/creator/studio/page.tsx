@@ -346,7 +346,7 @@ export default function CreatorStudioPage() {
               </div>
             </form>}
             <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-              {show.episodes.map(episode => <div key={episode.id} style={{ padding: 14, borderRadius: 9, border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+              {show.episodes.map(episode => <div id={'episode-' + episode.id} key={episode.id} style={{ padding: 14, borderRadius: 9, border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div><b style={{ fontSize: 13 }}>{episode.title}</b><small style={{ display: 'block', color: 'var(--muted)', fontSize: 10, marginTop: 5 }}>{episode.status} · {episode.durationSeconds ? Math.floor(episode.durationSeconds / 60) + ' min' : 'Duration not set'} · {episode.mediaAssets?.[0]?.status ? 'Media ' + episode.mediaAssets[0].status.toLowerCase() : episode.mediaKey ? 'Media processing status unavailable' : 'Media required'}</small></div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {episode.status !== 'PUBLISHED' && <label className="ghostButton" style={{ cursor: 'pointer' }}>{uploadingId === episode.id ? 'Uploading…' : 'Upload media'}<input type="file" accept="audio/*,video/mp4,video/webm,video/quicktime" disabled={uploadingId === episode.id} onChange={event => void uploadMedia(show.id, episode.id, event)} style={{ display: 'none' }} /></label>}
