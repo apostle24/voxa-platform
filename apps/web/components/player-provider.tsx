@@ -29,6 +29,8 @@ type PlayerContextValue = {
   togglePlayback: () => void;
   playNext: () => void;
   seek: (seconds: number) => void;
+  playerError: string | null;
+  retryPlayback: () => void;
 };
 
 const PlayerContext = createContext<PlayerContextValue | null>(null);
@@ -46,6 +48,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [playerError, setPlayerError] = useState<string | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const restored = useRef(false);
 
@@ -115,6 +118,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const playTrack = useCallback((track: VoxaTrack) => {
     const audio = audioRef.current;
     setCurrentTrack(track);
+    setPlayerError(null);
     setCurrentTime(track.resumeAt || 0);
     if (audio) {
       audio.src = track.url;
@@ -125,7 +129,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       };
       if (track.resumeAt && track.resumeAt > 0) audio.addEventListener('loadedmetadata', setResumePosition);
       // Call play in the original click gesture; playback begins when media data arrives.
-      void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      void audio.play().then(() => { setIsPlaying(true); setPlayerError(null); }).catch(() => { setIsPlaying(false); setPlayerError('Playback could not start. Check your connection and try again.'); });
     }
   }, []);
 
@@ -140,6 +144,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setQueue(rest);
     void refreshTrack(next).then(playTrack).catch(() => setIsPlaying(false));
   }, [queue, playTrack, refreshTrack]);
+
+  const retryPlayback = useCallback(() => {
+    if (!currentTrack) return;
+    setPlayerError(null);
+    void refreshTrack(currentTrack).then(track => playTrack(track)).catch(error => {
+      setIsPlaying(false);
+      setPlayerError(error instanceof Error ? error.message : 'Unable to reload this episode.');
+    });
+  }, [currentTrack, refreshTrack, playTrack]);
 
   const togglePlayback = useCallback(() => {
     const audio = audioRef.current;
@@ -173,6 +186,8 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       }
     };
     const onMetadata = () => setDuration(audio.duration || 0);
+    const onError = () => { setIsPlaying(false); setPlayerError('Audio could not be loaded. Your playback link may have expired.'); };
+    const onPlaying = () => setPlayerError(null);
     const onPlay = () => setIsPlaying(true);
     const onPause = () => {
       setIsPlaying(false);
@@ -187,12 +202,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
     audio.addEventListener('timeupdate', onTime);
     audio.addEventListener('loadedmetadata', onMetadata);
+    audio.addEventListener('error', onError);
+    audio.addEventListener('playing', onPlaying);
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
     audio.addEventListener('ended', playNext);
     return () => {
       audio.removeEventListener('timeupdate', onTime);
       audio.removeEventListener('loadedmetadata', onMetadata);
+      audio.removeEventListener('error', onError);
+      audio.removeEventListener('playing', onPlaying);
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
       audio.removeEventListener('ended', playNext);
@@ -234,7 +253,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     };
   }, [currentTrack, isPlaying, currentTime, duration, togglePlayback, playNext, seek]);
 
-  return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, togglePlayback, playNext, seek }}>
+  return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, togglePlayback, playNext, seek, playerError, retryPlayback }}>
     {children}
     <audio ref={audioRef} preload="metadata" aria-hidden="true" style={{ display: 'none' }} />
     {currentTrack && <aside className="voxaPlayer" aria-label="VOXA audio player">
@@ -245,6 +264,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
           <span>{currentTrack.creatorName} · {currentTrack.showTitle}</span>
         </div>
       </div>
+      {playerError && <div role="alert" className="voxaPlayerError"><span>{playerError}</span><button onClick={retryPlayback}>Retry</button></div>}
       <div className="voxaPlayerControls">
         <div className="voxaPlayerButtons">
           <button aria-label="Play or pause" onClick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
