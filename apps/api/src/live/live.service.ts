@@ -1,7 +1,7 @@
 import { createUserNotification } from '../notifications/notification-writer';
 import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AccessToken, EgressClient, EncodedFileOutput, RoomServiceClient, S3Upload, WebhookReceiver } from 'livekit-server-sdk';
+import { AccessToken, AgentDispatchClient, EgressClient, EncodedFileOutput, RoomServiceClient, S3Upload, WebhookReceiver } from 'livekit-server-sdk';
 import { HeadObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { LiveRoomStatus, LiveRoomVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -25,6 +25,21 @@ export class LiveService {
     const { url, apiKey, apiSecret } = this.liveKitConfig();
     const host = url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
     return new RoomServiceClient(host, apiKey, apiSecret);
+  }
+
+  private async dispatchCaptionsAgent(roomId: string) {
+    if (this.config.get<string>('LIVEKIT_CAPTIONS_AGENT_ENABLED') !== 'true') return;
+    const { url, apiKey, apiSecret } = this.liveKitConfig();
+    const host = url.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:');
+    const agentName = this.config.get<string>('LIVEKIT_CAPTIONS_AGENT_NAME') || 'voxa-live-captions';
+    try {
+      const dispatches = await new AgentDispatchClient(host, apiKey, apiSecret).listDispatch(roomId);
+      if (dispatches.some((dispatch) => dispatch.agentName === agentName)) return;
+      await new AgentDispatchClient(host, apiKey, apiSecret).createDispatch(roomId, agentName);
+    } catch (error) {
+      // Captions are an optional enhancement: a worker outage must not prevent the host joining.
+      console.warn('[VOXA LIVE] Unable to dispatch captions agent for room', roomId, error instanceof Error ? error.message : 'unknown error');
+    }
   }
 
 
@@ -1165,6 +1180,7 @@ export class LiveService {
         where: { id: roomId },
         data: { status: LiveRoomStatus.LIVE, startedAt: new Date() },
       });
+      await this.dispatchCaptionsAgent(roomId);
       const creator = await this.prisma.creator.findUnique({
         where: { userId },
         select: { id: true, followers: { select: { followerId: true } } },
