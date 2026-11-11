@@ -31,6 +31,7 @@ export default function LiveRoomPage() {
   const [isModerator, setIsModerator] = useState(false);
   const [moderatorUserId, setModeratorUserId] = useState('');
   const [mic, setMic] = useState(false);
+  const [canPublish, setCanPublish] = useState(false);
   const [camera, setCamera] = useState(false);
   const [stage, setStage] = useState<StageState | null>(null);
   const [busy, setBusy] = useState('');
@@ -113,14 +114,21 @@ export default function LiveRoomPage() {
       if (old) await old.disconnect();
       const room = new Room({ adaptiveStream: true, dynacast: true });
       roomRef.current = room;
-      canPublishRef.current = Boolean(data.canPublish);
-      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? 'Connected · You are on stage' : 'Connected · Listening'));
+      canPublishRef.current = Boolean(data.canPublish); setCanPublish(Boolean(data.canPublish));
+      const isStageSpeaker = roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity);
+      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening'));
       room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting to live media…'));
       room.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
           const packet = JSON.parse(new TextDecoder().decode(payload));
           if (packet?.type === 'VOXA_INTERACTION_UPDATED') { void refreshInteractions(); }
-          if (packet?.type === 'VOXA_SESSION_PLAN_UPDATED') { void refreshSessionPlan(); }
+          if (packet?.type === 'VOXA_SESSION_PLAN_UPDATED') {
+            const hasFloor = Boolean(roomState.isHost || (packet.speakerId && packet.speakerId === room.localParticipant.identity));
+            canPublishRef.current = hasFloor; setCanPublish(hasFloor);
+            if (!hasFloor) { setMic(false); setCamera(false); }
+            setStatus(hasFloor ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity) ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
+            void refreshSessionPlan();
+          }
           if (packet?.type === 'VOXA_REACTION' && ['👏', '❤️', '🔥', '😂', '🎉', '🙌'].includes(packet.emoji)) {
             setReactions(current => [...current.slice(-19), { id: Date.now() + Math.random(), emoji: packet.emoji, userId: participant?.identity || 'listener' }]);
           }
@@ -128,7 +136,7 @@ export default function LiveRoomPage() {
       });
       room.on(RoomEvent.Reconnected, () => {
         setError('');
-        setStatus(canPublishRef.current ? 'Connected · You are on stage' : 'Connected · Listening');
+        setStatus(canPublishRef.current ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
       });
       room.on(RoomEvent.Disconnected, () => {
         setStatus('Disconnected');
@@ -143,7 +151,7 @@ export default function LiveRoomPage() {
       });
       room.on(RoomEvent.TrackUnsubscribed, (track) => track.detach().forEach(element => element.remove()));
       await room.connect(data.serverUrl, data.token);
-      setStatus(data.canPublish ? 'Connected · You are on stage' : 'Connected · Listening');
+      setStatus(data.canPublish ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
     } catch (e) {
       setStatus('Disconnected');
       setError(e instanceof Error ? e.message : 'Connection failed');
@@ -268,11 +276,11 @@ export default function LiveRoomPage() {
   }
 
 
-  async function publishSessionPlanUpdate() {
+  async function publishSessionPlanUpdate(speakerId?: string | null) {
     const room = roomRef.current;
     if (!room) return;
     try {
-      await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'VOXA_SESSION_PLAN_UPDATED' })), { reliable: true, topic: 'voxa-session-plan' });
+      await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify({ type: 'VOXA_SESSION_PLAN_UPDATED', speakerId: speakerId === undefined ? (sessionPlan.activeTurn?.speakerId || null) : speakerId })), { reliable: true, topic: 'voxa-session-plan' });
     } catch { /* The periodic session-plan refresh remains the fallback. */ }
   }
 
@@ -304,7 +312,7 @@ export default function LiveRoomPage() {
         speakerId: handoffSpeakerId,
         ...(sessionPlan.agenda?.find((item: any) => item.status === 'ACTIVE') ? { agendaItemId: sessionPlan.agenda.find((item: any) => item.status === 'ACTIVE').id } : {}),
       });
-      await refreshSessionPlan(); await publishSessionPlanUpdate();
+      await refreshSessionPlan(); await publishSessionPlanUpdate(handoffSpeakerId);
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to hand off the speaking turn'); }
     finally { setBusy(''); }
   }
@@ -313,7 +321,7 @@ export default function LiveRoomPage() {
     setBusy('speaker-turn-end'); setError('');
     try {
       await api('/live/rooms/' + roomId + '/speaker-turn/end', 'POST');
-      await refreshSessionPlan(); await publishSessionPlanUpdate();
+      await refreshSessionPlan(); await publishSessionPlanUpdate(null);
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to end the speaker turn'); }
     finally { setBusy(''); }
   }
@@ -445,7 +453,7 @@ export default function LiveRoomPage() {
       {error && <p className="errorText">{error}</p>}
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
-          <button className={mic ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleMic()} disabled={!isHost && !approved}>{mic ? 'Mic on' : 'Mic off'}</button>
+          <button className={mic ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleMic()} disabled={!isHost && !canPublish}>{mic ? 'Mic on' : 'Mic off'}</button>
           <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
           {!isHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
           {!isHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
@@ -461,7 +469,7 @@ export default function LiveRoomPage() {
           <div className="sectionTitle speakerHeading"><div><span className="eyebrow">ON AIR</span><h2>Speakers</h2></div></div>
           <div className="moderationList"><div className="moderationRow"><div><b>Host</b><small>{stage?.hostId}</small></div></div>{stage?.speakers.filter(speaker=>speaker.userId!==stage.hostId).map(speaker=><div className="moderationRow" key={speaker.userId}><div><b>Speaker</b><small>{speaker.userId}</small></div><button className="rejectButton" disabled={!!busy} onClick={()=>void removeSpeaker(speaker.userId)}>Remove</button></div>)}</div>
         </section>}
-        {!isHost && <p className="helperText">{pending ? 'Your request is waiting for the host.' : approved ? 'The host approved your request. Reconnect to refresh your speaking permissions.' : 'You are listening. Request the stage whenever you are ready to speak.'}</p>}
+        {!isHost && <p className="helperText">{pending ? 'Your request is waiting for the host.' : approved ? 'You are on stage. Wait for the host to hand you the speaking turn before enabling your microphone or camera.' : 'You are listening. Request the stage whenever you are ready to speak.'}</p>}
       </>}
         
         <section className="moderationPanel" style={{ marginTop: 24 }}>
