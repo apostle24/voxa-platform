@@ -323,6 +323,75 @@ export class ShowsService {
     });
   }
 
+  async generateEpisodeProductionAdvice(userId: string, showId: string, episodeId: string) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, showId },
+      select: { id: true, title: true, description: true, status: true, durationSeconds: true,
+        show: { select: { title: true, category: true, description: true } },
+        transcript: { select: { content: true, language: true } },
+        chapters: { orderBy: { position: 'asc' }, select: { title: true, startSeconds: true } },
+      },
+    });
+    if (!episode) throw new NotFoundException('Episode not found');
+    if (episode.status === PublicationStatus.PUBLISHED) {
+      throw new ConflictException('Production advice is available for draft episodes only');
+    }
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new ServiceUnavailableException('AI production assistance is not configured. Set OPENAI_API_KEY on the API server.');
+    const sourceText = (episode.transcript?.content || '').slice(0, 14000);
+    if (!episode.title.trim() && !sourceText) {
+      throw new ConflictException('Add an episode title or transcript before requesting production advice');
+    }
+    const prompt = {
+      show: episode.show.title,
+      category: episode.show.category,
+      showDescription: episode.show.description,
+      episodeTitle: episode.title,
+      episodeDescription: episode.description,
+      durationSeconds: episode.durationSeconds,
+      transcriptLanguage: episode.transcript?.language,
+      transcript: sourceText,
+      chapters: episode.chapters,
+    };
+    let response: Response;
+    try {
+      response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: process.env.VOXA_CREATOR_ASSISTANT_MODEL || 'gpt-4o-mini',
+          temperature: 0.4,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: 'You are VOXA Creator Production Assistant. Review only the supplied podcast draft. Do not invent facts, guests, claims, quotations, or events. Preserve the creator voice and meaning. Return JSON with keys: titleOptions (array of exactly 3 concise titles), description (a polished 1-2 paragraph episode description), strengths (array of 2-4 specific strengths), improvements (array of 2-5 actionable editorial improvements), readiness (one of READY_TO_REVIEW, NEEDS_WORK, INSUFFICIENT_SOURCE), and sourceNote (brief note about transcript availability/limits). Suggestions are optional editorial assistance, never auto-publish.' },
+            { role: 'user', content: JSON.stringify(prompt) },
+          ],
+        }),
+      });
+    } catch {
+      throw new ServiceUnavailableException('VOXA could not reach the AI production service');
+    }
+    if (!response.ok) throw new ServiceUnavailableException('AI production assistance is temporarily unavailable');
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) throw new ServiceUnavailableException('AI production service returned an empty response');
+    try {
+      const result = JSON.parse(content);
+      return {
+        episodeId,
+        titleOptions: Array.isArray(result.titleOptions) ? result.titleOptions.filter((v: unknown) => typeof v === 'string').slice(0, 3) : [],
+        description: typeof result.description === 'string' ? result.description : '',
+        strengths: Array.isArray(result.strengths) ? result.strengths.filter((v: unknown) => typeof v === 'string').slice(0, 4) : [],
+        improvements: Array.isArray(result.improvements) ? result.improvements.filter((v: unknown) => typeof v === 'string').slice(0, 5) : [],
+        readiness: ['READY_TO_REVIEW', 'NEEDS_WORK', 'INSUFFICIENT_SOURCE'].includes(result.readiness) ? result.readiness : 'NEEDS_WORK',
+        sourceNote: typeof result.sourceNote === 'string' ? result.sourceNote : 'Suggestions are based only on the episode details supplied.',
+      };
+    } catch {
+      throw new ServiceUnavailableException('AI production service returned an invalid review');
+    }
+  }
+
   async saveEpisodeTranscript(userId: string, showId: string, episodeId: string, content: string, language = 'en') {
     await this.requireOwnedShow(userId, showId);
     const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
