@@ -25,6 +25,105 @@ function formatTime(seconds: number) {
   return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
 }
 
+
+function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: string }) {
+  const [data, setData] = useState<{ likeCount: number; commentCount: number; likedByMe: boolean; comments: any[] } | null>(null);
+  const [message, setMessage] = useState('');
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async () => {
+    if (!token) return;
+    try {
+      const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/community', {
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Community is unavailable');
+      setData(result);
+      setError('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to load community');
+    }
+  }, [episodeId, token]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function toggleLike() {
+    if (!token) return;
+    setBusy(true);
+    try {
+      const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/like', {
+        method: data?.likedByMe ? 'DELETE' : 'PUT',
+        headers: { Authorization: 'Bearer ' + token },
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to update like');
+      setData(current => current ? { ...current, likedByMe: result.likedByMe, likeCount: result.likeCount } : current);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to update like');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitComment() {
+    if (!draft.trim() || !token) return;
+    setBusy(true);
+    setError('');
+    try {
+      const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ content: draft.trim(), ...(replyTo ? { parentId: replyTo } : {}) }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to post comment');
+      setDraft('');
+      setReplyTo(null);
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to post comment');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section style={{ marginTop: 42, padding: 24, border: '1px solid var(--line)', borderRadius: 16, background: 'var(--panel)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+        <div><p className="eyebrow">THE CONVERSATION</p><h2 style={{ margin: '5px 0', fontSize: 23 }}>Episode community</h2></div>
+        {data && <button className="ghostButton" disabled={busy} onClick={() => void toggleLike()}>{data.likedByMe ? '♥ Liked' : '♡ Like'} · {data.likeCount}</button>}
+      </div>
+      {!token ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sign in to join the conversation and support this episode.</p> : <>
+        {error && <p className="errorText" role="alert">{error}</p>}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 18 }}>
+          <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={2000} rows={3} placeholder={replyTo ? 'Write a reply…' : 'Share your thoughts about this episode…'} style={{ width: '100%', resize: 'vertical', padding: 13, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit', font: 'inherit' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <button className="button small" disabled={busy || !draft.trim()} onClick={() => void submitComment()}>{busy ? 'Posting…' : replyTo ? 'Post reply' : 'Post comment'}</button>
+            {replyTo && <button className="ghostButton" onClick={() => setReplyTo(null)}>Cancel reply</button>}
+            <small style={{ color: 'var(--muted)' }}>{draft.length}/2000</small>
+          </div>
+        </div>
+        <div style={{ marginTop: 26 }}>
+          <p className="eyebrow">{data?.commentCount ?? '—'} COMMENTS</p>
+          {data?.comments?.length ? data.comments.map((comment: any) => <article key={comment.id} style={{ padding: '16px 0', borderBottom: '1px solid var(--line)' }}>
+            <b style={{ fontSize: 13 }}>{comment.author.displayName}</b><small style={{ color: 'var(--muted)', marginLeft: 9 }}>{new Date(comment.createdAt).toLocaleDateString()}</small>
+            <p style={{ fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{comment.content}</p>
+            {comment.content !== '[deleted]' && <button className="ghostButton" onClick={() => { setReplyTo(comment.id); setDraft(''); }}>Reply</button>}
+            {comment.replies?.map((reply: any) => <div key={reply.id} style={{ margin: '14px 0 0 22px', paddingLeft: 14, borderLeft: '2px solid var(--line)' }}>
+              <b style={{ fontSize: 12 }}>{reply.author.displayName}</b><small style={{ color: 'var(--muted)', marginLeft: 9 }}>{new Date(reply.createdAt).toLocaleDateString()}</small>
+              <p style={{ fontSize: 12, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{reply.content}</p>
+            </div>)}
+          </article>) : <p style={{ color: 'var(--muted)', fontSize: 13 }}>No comments yet. Start the conversation.</p>}
+        </div>
+      </>}
+    </section>
+  );
+}
+
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
   const { playTrack, enqueueTrack } = useVoxaPlayer();
