@@ -521,7 +521,7 @@ export default function LiveRoomPage() {
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
           <button className={mic ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleMic()} disabled={!isHost && !canPublish}>{mic ? 'Mic on' : 'Mic off'}</button>
-          <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
+          <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !isCoHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
           {!isHost && !isCoHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
           {!isHost && !isCoHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
           {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button danger" disabled={!!busy} onClick={() => void action('cancel-scheduled', '/live/rooms/' + roomId + '/cancel')}>Cancel scheduled room</button>}
