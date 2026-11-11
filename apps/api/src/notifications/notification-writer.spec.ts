@@ -8,6 +8,7 @@ describe('createUserNotification', () => {
     prisma = {
       notificationPreference: { findUnique: jest.fn() },
       notification: { create: jest.fn() },
+      notificationDevice: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
     };
   });
 
@@ -35,6 +36,34 @@ describe('createUserNotification', () => {
     }));
     expect(publish).toHaveBeenCalledWith('notification.created', expect.objectContaining({ recipientId: 'creator-1', notification: expect.objectContaining({ id: 'notice-1' }) }));
     publish.mockRestore();
+  });
+
+  it('sends a push payload with a deep link to registered devices', async () => {
+    prisma.notificationPreference.findUnique.mockResolvedValue(null);
+    prisma.notification.create.mockResolvedValue({
+      id: 'notice-episode', recipientId: 'creator-1', type: 'NEW_COMMENT',
+      title: 'New episode comment', body: 'Someone replied', resourceType: 'episode',
+      resourceId: 'episode-7',
+    });
+    prisma.notificationDevice.findMany.mockResolvedValue([
+      { id: 'device-1', expoPushToken: 'ExponentPushToken[test]' },
+    ]);
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true, json: async () => ({ data: [{ status: 'ok', id: 'ticket-1' }] }),
+    } as Response);
+    try {
+      await createUserNotification(prisma as unknown as PrismaService, {
+        recipientId: 'creator-1', actorId: 'listener-1', type: 'NEW_COMMENT',
+        title: 'New episode comment', body: 'Someone replied',
+        resourceType: 'episode', resourceId: 'episode-7', category: 'comments',
+      });
+      expect(fetchMock).toHaveBeenCalledWith('https://exp.host/--/api/v2/push/send', expect.objectContaining({
+        method: 'POST',
+        body: expect.stringContaining('voxa://episodes/episode-7'),
+      }));
+    } finally {
+      fetchMock.mockRestore();
+    }
   });
 
   it('does not create notifications for the actor themselves', async () => {

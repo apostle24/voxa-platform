@@ -1,8 +1,18 @@
-import { Body, Controller, Get, Param, Patch, Query, Req, Sse, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsOptional } from 'class-validator';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Sse, UseGuards } from '@nestjs/common';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
 import { NotificationRealtimeService } from './notification-realtime.service';
+
+class RegisterNotificationDeviceDto {
+  @IsString() @MaxLength(512) expoPushToken!: string;
+  @IsIn(['ios', 'android']) platform!: 'ios' | 'android';
+  @IsOptional() @IsString() @MaxLength(160) deviceName?: string;
+}
+
+class UnregisterNotificationDeviceDto {
+  @IsString() @MaxLength(512) expoPushToken!: string;
+}
 
 class UpdateNotificationPreferencesDto {
   @IsOptional() @IsBoolean() follows?: boolean;
@@ -24,6 +34,16 @@ export class NotificationsController {
   @Get()
   list(@Req() req: AuthenticatedRequest, @Query('unreadOnly') unreadOnly?: string) {
     return this.notifications.list(req.user.id, unreadOnly === 'true');
+  }
+
+  @Post('devices')
+  registerDevice(@Req() req: AuthenticatedRequest, @Body() input: RegisterNotificationDeviceDto) {
+    return this.notifications.registerDevice(req.user.id, input);
+  }
+
+  @Delete('devices')
+  unregisterDevice(@Req() req: AuthenticatedRequest, @Body() input: UnregisterNotificationDeviceDto) {
+    return this.notifications.unregisterDevice(req.user.id, input.expoPushToken);
   }
 
   @Get('preferences')

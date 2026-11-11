@@ -43,7 +43,8 @@
         {
           "microphonePermission": "Allow VOXA to access your microphone for live rooms."
         }
-      ]
+      ],
+      "expo-notifications"
     ]
   }
 }

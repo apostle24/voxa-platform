@@ -20,3 +20,11 @@ Audio playback, discovery, creator show management, communities, and live-room e
 - Communities support joining/leaving, member-only discussion feeds, new posts, and replies.
 - VOXA LIVE includes room chat, stage requests, host approval/rejection, speaker removal, and microphone controls for participants with publish permission.
 - Apply the API migration `20261111260000_community_post_comments` before using community replies.
+
+
+## Push notifications and notification links
+- Native builds use `expo-notifications` to request permission and register an Expo push token after sign-in. The token is sent to authenticated `POST /notifications/devices`; signing out removes that device token with `DELETE /notifications/devices`.
+- Configure an EAS project and ensure its project ID is available as `expo.extra.eas.projectId` (or EAS build metadata). Push token registration is skipped when no project ID is available or the user denies permission.
+- The API sends stored notification events through the Expo Push Service. Set optional `EXPO_ACCESS_TOKEN` on the API for authenticated Expo push requests. Invalid/unregistered device tokens are removed automatically.
+- Notification taps and `voxa://` links route episodes, creator handles, communities, and live rooms into the corresponding mobile screens. Community and live links open the target item; episode links open the episode card with playback; creator links open the public creator profile.
+- Push notifications require an Android/iOS development or production build; they are not available in Expo Go on recent SDKs. Configure credentials and test on physical devices before release.

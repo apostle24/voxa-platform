@@ -33,6 +33,28 @@ export class NotificationsService {
     });
   }
 
+  async registerDevice(userId: string, input: { expoPushToken: string; platform: string; deviceName?: string }) {
+    return this.prisma.notificationDevice.upsert({
+      where: { expoPushToken: input.expoPushToken },
+      create: {
+        userId, expoPushToken: input.expoPushToken, platform: input.platform,
+        deviceName: input.deviceName, enabled: true, lastRegisteredAt: new Date(),
+      },
+      update: {
+        userId, platform: input.platform, deviceName: input.deviceName,
+        enabled: true, lastRegisteredAt: new Date(),
+      },
+      select: { id: true, platform: true, enabled: true, lastRegisteredAt: true },
+    });
+  }
+
+  async unregisterDevice(userId: string, expoPushToken: string) {
+    const result = await this.prisma.notificationDevice.deleteMany({
+      where: { userId, expoPushToken },
+    });
+    return { removed: result.count > 0 };
+  }
+
   async markRead(userId: string, notificationId: string) {
     const result = await this.prisma.notification.updateMany({
       where: { id: notificationId, recipientId: userId, readAt: null },
