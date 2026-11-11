@@ -116,6 +116,33 @@ export class CommunitiesService {
     return { joined: false, communityId };
   }
 
+  async listPosts(userId: string, communityId: string) {
+    const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { id: true } });
+    if (!membership) throw new ForbiddenException('Join this community to view its discussions');
+    return this.prisma.communityPost.findMany({
+      where: { communityId }, orderBy: { createdAt: 'desc' }, take: 100,
+      select: { id: true, content: true, createdAt: true,
+        author: { select: { id: true, displayName: true } },
+        comments: { orderBy: { createdAt: 'asc' }, take: 50, select: {
+          id: true, content: true, createdAt: true, author: { select: { id: true, displayName: true } },
+        } },
+      },
+    });
+  }
+
+  async createPostComment(userId: string, communityId: string, postId: string, content: string) {
+    const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { id: true } });
+    if (!membership) throw new ForbiddenException('Join this community before replying');
+    const post = await this.prisma.communityPost.findFirst({ where: { id: postId, communityId }, select: { id: true } });
+    if (!post) throw new NotFoundException('Community post not found');
+    const value = content.trim();
+    if (!value) throw new ConflictException('Reply cannot be empty');
+    return this.prisma.communityPostComment.create({
+      data: { postId, authorId: userId, content: value },
+      select: { id: true, content: true, createdAt: true, author: { select: { id: true, displayName: true } } },
+    });
+  }
+
   async createPost(userId: string, communityId: string, content: string) {
     const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } } });
     if (!membership) throw new ForbiddenException('Join this community before posting');
