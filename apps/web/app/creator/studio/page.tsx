@@ -2,6 +2,8 @@
 
 import { apiFetch } from '../../../lib/api';
 import EpisodeDraftEditor from '../../../components/episode-draft-editor';
+import EpisodeTranscriptEditor from '../../../components/episode-transcript-editor';
+import EpisodeChaptersEditor from '../../../components/episode-chapters-editor';
 import Link from 'next/link';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 
@@ -9,7 +11,7 @@ const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1')
 
 type Episode = {
   id: string; title: string; description?: string | null; status: string;
-  durationSeconds?: number | null; mediaKey?: string | null; membershipRequired: boolean;
+  durationSeconds?: number | null; mediaKey?: string | null; membershipRequired: boolean; isLiveReplay?: boolean;
   mediaAssets: { id: string; status: string; contentType: string }[];
 };
 type MembershipPlan = { id: string; name: string; description?: string | null; priceMinor: number; currency: string; isActive: boolean };
@@ -40,6 +42,7 @@ export default function CreatorStudioPage() {
   const [uploadingId, setUploadingId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [publishedEpisodeId, setPublishedEpisodeId] = useState('');
   const [draftPreview, setDraftPreview] = useState<{ episodeId: string; url: string; contentType: string } | null>(null);
   const [editingShowId, setEditingShowId] = useState('');
   const [editShowTitle, setEditShowTitle] = useState('');
@@ -258,7 +261,7 @@ export default function CreatorStudioPage() {
 
   async function publishEpisode(showId: string, episodeId: string) {
     setBusy(true); setError(''); setNotice('');
-    try { await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/publish', { method: 'POST' }); await loadShows(); setNotice('Episode published and available to listeners.'); }
+    try { await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/publish', { method: 'POST' }); await loadShows(); setPublishedEpisodeId(episodeId); setNotice('Episode published and available to listeners.'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to publish episode'); }
     finally { setBusy(false); }
   }
@@ -273,7 +276,7 @@ export default function CreatorStudioPage() {
         <h1 style={{ fontSize: 'clamp(34px,5vw,54px)', letterSpacing: -2, margin: '12px 0' }}>Creator Studio.</h1>
         <p style={{ color: 'var(--muted)', fontSize: 13 }}>Create a show, publish episodes and manage your audio or video uploads.</p>
         {error && <p className="errorText">{error}</p>}
-        {notice && <p style={{ color: '#8ee6b7', fontSize: 12 }}>{notice}</p>}
+        {notice && <div style={{ color: '#8ee6b7', fontSize: 12, margin: '12px 0' }}><p>{notice}</p>{publishedEpisodeId && <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}><Link className="textLink" href={'/episodes/' + publishedEpisodeId}>Open published episode ↗</Link><Link className="textLink" href="/discover">View in Discover ↗</Link></div>}</div>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16, margin: '28px 0 40px' }}>
           <form className="createPanel" onSubmit={createShow}>
             <div className="eyebrow">01 · NEW SHOW</div><h2>Create a <em>show.</em></h2>
@@ -344,8 +347,8 @@ export default function CreatorStudioPage() {
               </div>
             </form>}
             <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
-              {show.episodes.map(episode => <div key={episode.id} style={{ padding: 14, borderRadius: 9, border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <div><b style={{ fontSize: 13 }}>{episode.title}</b><small style={{ display: 'block', color: 'var(--muted)', fontSize: 10, marginTop: 5 }}>{episode.status} · {episode.durationSeconds ? Math.floor(episode.durationSeconds / 60) + ' min' : 'Duration not set'} · {episode.mediaAssets?.[0]?.status ? 'Media ' + episode.mediaAssets[0].status.toLowerCase() : episode.mediaKey ? 'Media processing status unavailable' : 'Media required'}</small></div>
+              {show.episodes.map(episode => <div id={'episode-' + episode.id} key={episode.id} style={{ padding: 14, borderRadius: 9, border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div><b style={{ fontSize: 13 }}>{episode.title}</b>{episode.isLiveReplay && <span style={{ display: 'inline-flex', marginLeft: 8, padding: '3px 7px', borderRadius: 5, background: 'rgba(143,105,255,.14)', color: '#b9a5ff', fontSize: 9, fontWeight: 700, letterSpacing: '.08em' }}>LIVE REPLAY</span>}<small style={{ display: 'block', color: 'var(--muted)', fontSize: 10, marginTop: 5 }}>{episode.status} · {episode.durationSeconds ? Math.floor(episode.durationSeconds / 60) + ' min' : 'Duration not set'} · {episode.mediaAssets?.[0]?.status ? 'Media ' + episode.mediaAssets[0].status.toLowerCase() : episode.mediaKey ? 'Media processing status unavailable' : 'Media required'}</small>{episode.isLiveReplay && episode.status !== 'PUBLISHED' && <small style={{ display: 'block', color: 'var(--muted)', fontSize: 11, marginTop: 7 }}>This recording is private until you review its details and publish it. Preview the processed replay before publishing.</small>}</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {episode.status !== 'PUBLISHED' && <label className="ghostButton" style={{ cursor: 'pointer' }}>{uploadingId === episode.id ? 'Uploading…' : 'Upload media'}<input type="file" accept="audio/*,video/mp4,video/webm,video/quicktime" disabled={uploadingId === episode.id} onChange={event => void uploadMedia(show.id, episode.id, event)} style={{ display: 'none' }} /></label>}
                   <button className="ghostButton" disabled={busy || plans.length === 0 || episode.status === 'PUBLISHED'} onClick={() => void toggleEpisodeMembership(show.id, episode.id, episode.membershipRequired)}>{episode.membershipRequired ? 'Members only ✓' : 'Make members only'}</button>
@@ -356,6 +359,8 @@ export default function CreatorStudioPage() {
                   {draftPreview?.episodeId === episode.id && (draftPreview.contentType.startsWith('video/') ? <video controls playsInline preload="metadata" src={draftPreview.url} style={{ width: '100%', maxHeight: 420, borderRadius: 10, background: '#000' }} /> : <audio controls preload="metadata" src={draftPreview.url} style={{ width: '100%' }} />)}
                 </div>
                 {episode.status !== 'PUBLISHED' && <EpisodeDraftEditor showId={show.id} episode={episode} onSaved={() => { void loadShows(); setNotice('Episode draft details saved.'); }} />}
+                <EpisodeTranscriptEditor showId={show.id} episodeId={episode.id} />
+                <EpisodeChaptersEditor showId={show.id} episodeId={episode.id} durationSeconds={episode.durationSeconds} />
               </div>)}
               {!show.episodes.length && <p style={{ color: 'var(--muted)', fontSize: 12 }}>No episodes yet. Use the episode form above to add your first one.</p>}
             </div>

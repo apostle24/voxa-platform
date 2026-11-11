@@ -115,6 +115,9 @@ model User {
   emailActionTokens EmailActionToken[]
   mfaCredential MfaCredential?
   mfaChallenges MfaLoginChallenge[]
+  communitiesOwned Community[]
+  communityMemberships CommunityMember[]
+  communityPosts CommunityPost[]
 }
 
 model Creator {
@@ -172,6 +175,9 @@ model Episode {
   mediaAssets     MediaAsset[]
   moments         Moment[]
   comments        EpisodeComment[]
+  transcript      EpisodeTranscript?
+  intelligence    EpisodeIntelligence?
+  chapters        EpisodeChapter[]
   likes           EpisodeLike[]
 
   @@index([showId, status, publishedAt])
@@ -676,4 +682,85 @@ model MfaLoginChallenge {
   user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, expiresAt, consumedAt])
+}
+
+
+model Community {
+  id          String   @id @default(cuid())
+  ownerId     String
+  name        String
+  slug        String   @unique
+  description String?
+  category    String?
+  artworkUrl  String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members     CommunityMember[]
+  posts       CommunityPost[]
+
+  @@index([category, createdAt])
+  @@index([ownerId, createdAt])
+}
+
+model CommunityMember {
+  communityId String
+  userId      String
+  role        String   @default("MEMBER")
+  joinedAt    DateTime @default(now())
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([communityId, userId])
+  @@index([userId, joinedAt])
+}
+
+model CommunityPost {
+  id          String   @id @default(cuid())
+  communityId String
+  authorId    String
+  content     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
+  author      User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([communityId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+
+model EpisodeTranscript {
+  id        String   @id @default(cuid())
+  episodeId String   @unique
+  content   String   @db.Text
+  language  String   @default("en")
+  segments  Json?
+  updatedAt DateTime @updatedAt
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+}
+
+model EpisodeChapter {
+  id           String   @id @default(cuid())
+  episodeId    String
+  title        String
+  startSeconds Int
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  episode      Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, startSeconds])
+  @@index([episodeId, position])
+}
+
+model EpisodeIntelligence {
+  id          String   @id @default(cuid())
+  episodeId   String   @unique
+  summary     String   @db.Text
+  topics      Json
+  model       String
+  generatedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  episode     Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
 }

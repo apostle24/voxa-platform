@@ -133,7 +133,7 @@ export default function MomentsPage() {
             {moment.playbackUrl ? <video controls playsInline preload="metadata" src={moment.playbackUrl} onLoadedMetadata={event => { event.currentTarget.currentTime = moment.startSeconds; }} onTimeUpdate={event => { if (event.currentTarget.currentTime >= moment.endSeconds) event.currentTarget.pause(); }} style={{ width: '100%', aspectRatio: '9 / 16', maxHeight: 520, objectFit: 'cover', borderRadius: 10, background: '#09090b' }} /> : <div style={{ aspectRatio: '9 / 16', maxHeight: 520, display: 'grid', placeItems: 'center', background: 'var(--surface)', borderRadius: 10 }}>Video unavailable</div>}
             <p style={{ fontSize: 14, lineHeight: 1.6 }}>{moment.caption}</p>
             <small>By {moment.creator.user.displayName} · @{moment.creator.handle}</small>
-            <p style={{ marginBottom: 0 }}><Link className="textLink" href={'/episodes/' + moment.episodeId}>From: {moment.episode.title} ↗</Link></p>
+            <p style={{ marginBottom: 0 }}><Link className="textLink" href={'/episodes/' + moment.episodeId + '?t=' + Math.floor(moment.startSeconds)}>Open full episode at this moment ↗</Link></p>
             <MomentCommunity momentId={moment.id} token={token} />
           </article>)}
         </div>

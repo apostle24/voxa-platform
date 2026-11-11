@@ -127,18 +127,24 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const { playTrack, enqueueTrack } = useVoxaPlayer();
+  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack } = useVoxaPlayer();
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
   const [mediaType, setMediaType] = useState('audio/mpeg');
   const [bookmarked, setBookmarked] = useState(false);
+  const [shareStatus, setShareStatus] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resumeAt, setResumeAt] = useState(0);
   const [token, setToken] = useState('');
+  const [transcript, setTranscript] = useState<{ content: string; language: string; segments?: Array<{ startSeconds: number; endSeconds: number; text: string; speaker: string }> | null } | null>(null);
+  const [intelligence, setIntelligence] = useState<{ summary: string; topics: string[]; generatedAt: string } | null>(null);
+  const [transcriptQuery, setTranscriptQuery] = useState('');
+  const [transcriptError, setTranscriptError] = useState('');
+  const [chapters, setChapters] = useState<Array<{ id: string; title: string; startSeconds: number }>>([]);
 
   const saveProgress = useCallback(async (positionSeconds: number, force = false) => {
     if (!token || !episodeId || (!force && Date.now() - lastSavedAt.current < 15000)) return;
@@ -169,6 +175,37 @@ export default function EpisodePage() {
         const item = data as Episode;
         if (!active) return;
         setEpisode(item);
+        const requestedTimeValue = new URLSearchParams(window.location.search).get('t');
+        const requestedTime = requestedTimeValue === null ? NaN : Number(requestedTimeValue);
+        const hasRequestedTime = Number.isFinite(requestedTime) && requestedTime >= 0;
+        if (hasRequestedTime) setResumeAt(requestedTime);
+        try {
+          const chapterResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-chapters' : '/chapters'),
+            { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
+          if (chapterResponse.ok) {
+            const chapterData = await chapterResponse.json();
+            if (active && Array.isArray(chapterData)) setChapters(chapterData);
+          }
+        } catch { /* Chapter navigation is optional when unavailable. */ }
+        try {
+          const intelligenceResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-intelligence' : '/intelligence'),
+            { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
+          if (intelligenceResponse.ok) {
+            const intelligenceData = await intelligenceResponse.json();
+            if (active && intelligenceData?.summary) setIntelligence(intelligenceData);
+          }
+        } catch { /* Episode intelligence is optional while being generated. */ }
+        try {
+          const transcriptResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-transcript' : '/transcript'),
+            { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
+          if (transcriptResponse.ok) {
+            const transcriptData = await transcriptResponse.json();
+            if (active && transcriptData?.content) setTranscript(transcriptData);
+          } else if (transcriptResponse.status !== 404) {
+            const transcriptData = await transcriptResponse.json().catch(() => ({}));
+            if (active) setTranscriptError(transcriptData.message || 'Transcript unavailable');
+          }
+        } catch { if (active) setTranscriptError('Transcript unavailable'); }
 
         if (item.membershipRequired && !accessToken) {
           throw new Error('This is a members-only episode. Sign in and join the creator membership to listen.');
@@ -188,7 +225,7 @@ export default function EpisodePage() {
           if (progressResponse.ok) {
             const progress = await progressResponse.json();
             const saved = (progress as Array<{ episodeId: string; positionSeconds: number; completed: boolean }>).find(row => row.episodeId === episodeId);
-            if (active && saved && !saved.completed) setResumeAt(saved.positionSeconds);
+            if (active && saved && !saved.completed && !hasRequestedTime) setResumeAt(saved.positionSeconds);
           }
           const bookmarkResponse = await apiFetch(API + '/me/bookmarks', { headers: { Authorization: 'Bearer ' + accessToken } });
           if (bookmarkResponse.ok) {
@@ -221,6 +258,33 @@ export default function EpisodePage() {
     }
   }
 
+  async function shareEpisode() {
+    if (!episode) return;
+    const url = window.location.href;
+    const shareData = {
+      title: episode.title,
+      text: episode.isLiveReplay
+        ? 'Watch or listen to this VOXA live replay.'
+        : 'Listen to this episode on VOXA.',
+      url,
+    };
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share(shareData);
+        setShareStatus('Share sheet opened.');
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setShareStatus('Episode link copied.');
+      } else {
+        setShareStatus('Copy this page address to share the episode.');
+      }
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === 'AbortError') return;
+      setShareStatus('Unable to share right now. Copy the page address instead.');
+    }
+    window.setTimeout(() => setShareStatus(''), 3500);
+  }
+
   return (
     <main className="appShell">
       <nav className="nav">
@@ -241,9 +305,63 @@ export default function EpisodePage() {
               <h1 style={{ fontSize: 'clamp(2rem,5vw,3.25rem)', margin: '0.4rem 0' }}>{episode.title}</h1>
               <p style={{ color: 'var(--muted, #a1a1aa)' }}>From <Link href={'/creator/' + encodeURIComponent(episode.show.creator.handle)}>{episode.show.creator.user.displayName}</Link></p>
               <p style={{ lineHeight: 1.7 }}>{episode.description || 'Press play to listen to this episode.'}</p>
-              <button className="button small" onClick={() => void toggleBookmark()}>{bookmarked ? 'Saved ✓' : '＋ Save episode'}</button>
+              <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="button small" onClick={() => void toggleBookmark()}>{bookmarked ? 'Saved ✓' : '＋ Save episode'}</button>
+                <button className="ghostButton" type="button" onClick={() => void shareEpisode()}>↗ Share {episode.isLiveReplay ? 'replay' : 'episode'}</button>
+                {shareStatus && <small role="status" aria-live="polite" style={{ color: 'var(--muted)' }}>{shareStatus}</small>}
+              </div>
             </div>
           </div>
+          {chapters.length > 0 && <section style={{ marginTop: 26, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+            <div className="eyebrow">EPISODE GUIDE</div>
+            <h2 style={{ margin: '8px 0 14px' }}>Jump to a chapter.</h2>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {chapters.map((chapter, index) => <button key={chapter.id} type="button" className="ghostButton" onClick={() => {
+                if (mediaType.startsWith('video/') && videoRef.current) {
+                  videoRef.current.currentTime = chapter.startSeconds;
+                  void videoRef.current.play();
+                } else if (currentTrack?.episodeId === episode.id) {
+                  seek(chapter.startSeconds);
+                } else if (audioUrl) {
+                  playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: chapter.startSeconds });
+                }
+              }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '12px 14px' }}>
+                <span><small style={{ color: 'var(--muted)', marginRight: 12 }}>{String(Math.floor(chapter.startSeconds / 60)).padStart(2, '0')}:{String(chapter.startSeconds % 60).padStart(2, '0')}</small><b>{chapter.title}</b></span><span style={{ color: 'var(--muted)' }}>▶</span>
+              </button>)}
+            </div>
+          </section>}
+          {intelligence && <section style={{ marginTop: 30, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+            <div className="eyebrow">VOXA EPISODE INTELLIGENCE</div>
+            <h2 style={{ margin: '8px 0 12px' }}>The episode, at a glance</h2>
+            <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 14 }}>{intelligence.summary}</p>
+            {!!intelligence.topics?.length && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 16 }}>
+              {intelligence.topics.map(topic => <span key={topic} style={{ padding: '6px 10px', borderRadius: 999, border: '1px solid var(--line)', fontSize: 12 }}>{topic}</span>)}
+            </div>}
+            <small style={{ color: 'var(--muted)', display: 'block', marginTop: 14 }}>AI-generated from this episode's transcript.</small>
+          </section>}
+          {transcript && <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+            <div className="eyebrow">EPISODE TRANSCRIPT · {transcript.language.toUpperCase()}</div>
+            <h2 style={{ margin: '8px 0 14px' }}>Read along.</h2>
+            <input value={transcriptQuery} onChange={event => setTranscriptQuery(event.target.value)} placeholder="Find a word or phrase in this transcript…" aria-label="Search transcript" style={{ width: '100%', padding: 12, borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit', marginBottom: 14 }} />
+            {transcript.segments?.length ? <div style={{ maxHeight: 520, overflowY: 'auto', display: 'grid', gap: 10 }}>
+              {transcript.segments.filter(segment => !transcriptQuery.trim() || segment.text.toLowerCase().includes(transcriptQuery.toLowerCase())).map((segment, index) => (
+                <div key={index} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 12, alignItems: 'start', padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
+                  <button className="ghostButton" onClick={() => {
+                    const seconds = segment.startSeconds;
+                    if (mediaType.startsWith('video/') && videoRef.current) {
+                      videoRef.current.currentTime = seconds;
+                      void videoRef.current.play();
+                    } else if (episode && audioUrl) {
+                      playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: seconds });
+                    }
+                  }} style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>{formatTime(segment.startSeconds)}</button>
+                  <div><small style={{ color: 'var(--muted)', display: 'block', marginBottom: 3 }}>{segment.speaker}</small><span style={{ lineHeight: 1.7, fontSize: 14 }}>{segment.text}</span></div>
+                </div>
+              ))}
+              {transcript.segments.filter(segment => !transcriptQuery.trim() || segment.text.toLowerCase().includes(transcriptQuery.toLowerCase())).length === 0 && <p>No matching transcript segments.</p>}
+            </div> : <div style={{ maxHeight: 420, overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.85, fontSize: 14 }}>{transcriptQuery.trim() ? (transcript.content.split(/\\n+/).filter(line => line.toLowerCase().includes(transcriptQuery.toLowerCase())).join('\\n') || 'No matching transcript lines.') : transcript.content}</div>}
+          </section>}
+          {transcriptError && <p style={{ color: 'var(--muted)', fontSize: 12 }}>{transcriptError}</p>}
           {audioUrl && <section style={{ border: '1px solid var(--border, #30303a)', background: 'var(--surface, #15151c)', borderRadius: 18, padding: 22 }}>
             {mediaType.startsWith('video/')
               ? <video
@@ -266,6 +384,7 @@ export default function EpisodePage() {
                 />
               : <div className="episodePlayerActions">
                   <button className="button" onClick={() => playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>▶ Play episode</button>
+                  <button className="ghostButton" onClick={() => playTrackNext({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>⇥ Play next</button>
                   <button className="ghostButton" onClick={() => enqueueTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>＋ Add to queue</button>
                 </div>}
             <p style={{ color: 'var(--muted, #a1a1aa)', fontSize: 13, marginBottom: 0 }}>

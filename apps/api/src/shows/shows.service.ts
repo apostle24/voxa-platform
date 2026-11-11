@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PublicationStatus } from '@prisma/client';
+import { Prisma, PublicationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateShowDto } from './dto/create-show.dto';
 import { UpdateShowDto } from './dto/update-show.dto';
@@ -38,7 +38,7 @@ export class ShowsService {
           orderBy: { createdAt: 'desc' },
           select: {
             id: true, title: true, description: true, artworkUrl: true, status: true,
-            durationSeconds: true, mediaKey: true, membershipRequired: true, publishedAt: true,
+            durationSeconds: true, mediaKey: true, membershipRequired: true, isLiveReplay: true, publishedAt: true,
             mediaAssets: {
               orderBy: { createdAt: 'desc' }, take: 1,
               select: { id: true, status: true, contentType: true },
@@ -194,6 +194,135 @@ export class ShowsService {
     });
     if (!episode) throw new NotFoundException('Episode not found');
     return episode;
+  }
+
+  async getEpisodeChapters(episodeId: string, userId?: string) {
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
+      select: { id: true, durationSeconds: true, membershipRequired: true, show: { select: { creator: { select: { id: true, userId: true } } } } },
+    });
+    if (!episode) throw new NotFoundException('Published episode not found');
+    if (episode.membershipRequired && episode.show.creator.userId !== userId) {
+      if (!userId) throw new ForbiddenException('Sign in and join this creator membership to access chapters');
+      const subscription = await this.prisma.membershipSubscription.findFirst({
+        where: { subscriberId: userId, creatorId: episode.show.creator.id, status: 'ACTIVE', currentPeriodEnd: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (!subscription) throw new ForbiddenException('An active creator membership is required to access these chapters');
+    }
+    return this.prisma.episodeChapter.findMany({
+      where: { episodeId }, orderBy: [{ position: 'asc' }, { startSeconds: 'asc' }],
+      select: { id: true, title: true, startSeconds: true, position: true },
+    });
+  }
+
+  async getCreatorEpisodeChapters(userId: string, showId: string, episodeId: string) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
+    if (!episode) throw new NotFoundException('Episode not found');
+    return this.prisma.episodeChapter.findMany({
+      where: { episodeId }, orderBy: [{ position: 'asc' }, { startSeconds: 'asc' }],
+      select: { id: true, title: true, startSeconds: true, position: true },
+    });
+  }
+
+  async saveEpisodeChapters(userId: string, showId: string, episodeId: string, chapters: Array<{ title: string; startSeconds: number }>) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, showId }, select: { id: true, durationSeconds: true },
+    });
+    if (!episode) throw new NotFoundException('Episode not found');
+    if (!Array.isArray(chapters) || chapters.length > 100) throw new ConflictException('An episode can have up to 100 chapters');
+    const normalized = chapters.map((chapter, position) => ({
+      title: typeof chapter?.title === 'string' ? chapter.title.trim() : '',
+      startSeconds: Number(chapter?.startSeconds),
+      position,
+    }));
+    for (const chapter of normalized) {
+      if (!chapter.title || chapter.title.length > 100) throw new ConflictException('Each chapter needs a title of 1–100 characters');
+      if (!Number.isInteger(chapter.startSeconds) || chapter.startSeconds < 0 ||
+          (episode.durationSeconds != null && chapter.startSeconds >= episode.durationSeconds)) {
+        throw new ConflictException('Chapter timestamps must be whole seconds within the episode duration');
+      }
+    }
+    normalized.sort((a, b) => a.startSeconds - b.startSeconds);
+    if (normalized.some((chapter, index) => index > 0 && chapter.startSeconds === normalized[index - 1].startSeconds)) {
+      throw new ConflictException('Chapter timestamps must be unique');
+    }
+    const ordered = normalized.map((chapter, position) => ({ ...chapter, position }));
+    await this.prisma.$transaction([
+      this.prisma.episodeChapter.deleteMany({ where: { episodeId } }),
+      ...(ordered.length ? [this.prisma.episodeChapter.createMany({ data: ordered.map(chapter => ({ ...chapter, episodeId })) })] : []),
+    ]);
+    return this.prisma.episodeChapter.findMany({
+      where: { episodeId }, orderBy: [{ position: 'asc' }],
+      select: { id: true, title: true, startSeconds: true, position: true },
+    });
+  }
+
+  async getEpisodeIntelligence(episodeId: string, userId?: string) {
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
+      select: { id: true, membershipRequired: true, show: { select: { creator: { select: { id: true, userId: true } } } } },
+    });
+    if (!episode) throw new NotFoundException('Published episode not found');
+    if (episode.membershipRequired && episode.show.creator.userId !== userId) {
+      if (!userId) throw new ForbiddenException('Sign in and join this creator membership to access episode intelligence');
+      const subscription = await this.prisma.membershipSubscription.findFirst({
+        where: { subscriberId: userId, creatorId: episode.show.creator.id, status: 'ACTIVE', currentPeriodEnd: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (!subscription) throw new ForbiddenException('An active creator membership is required to access episode intelligence');
+    }
+    return this.prisma.episodeIntelligence.findUnique({
+      where: { episodeId },
+      select: { summary: true, topics: true, model: true, generatedAt: true },
+    });
+  }
+
+  async getEpisodeTranscript(episodeId: string, userId?: string) {
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
+      select: { id: true, membershipRequired: true, show: { select: { creator: { select: { id: true, userId: true } } } } },
+    });
+    if (!episode) throw new NotFoundException('Published episode not found');
+    if (episode.membershipRequired && episode.show.creator.userId !== userId) {
+      if (!userId) throw new ForbiddenException('Sign in and join this creator membership to access the transcript');
+      const subscription = await this.prisma.membershipSubscription.findFirst({
+        where: { subscriberId: userId, creatorId: episode.show.creator.id, status: 'ACTIVE', currentPeriodEnd: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (!subscription) throw new ForbiddenException('An active creator membership is required to access this transcript');
+    }
+    return this.prisma.episodeTranscript.findUnique({
+      where: { episodeId }, select: { episodeId: true, content: true, language: true, segments: true, updatedAt: true },
+    });
+  }
+
+  async getCreatorEpisodeTranscript(userId: string, showId: string, episodeId: string) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
+    if (!episode) throw new NotFoundException('Episode not found');
+    return this.prisma.episodeTranscript.findUnique({
+      where: { episodeId }, select: { episodeId: true, content: true, language: true, updatedAt: true },
+    });
+  }
+
+  async saveEpisodeTranscript(userId: string, showId: string, episodeId: string, content: string, language = 'en') {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
+    if (!episode) throw new NotFoundException('Episode not found');
+    const value = content.trim();
+    if (!value) {
+      await this.prisma.episodeTranscript.deleteMany({ where: { episodeId } });
+      return { episodeId, deleted: true };
+    }
+    return this.prisma.episodeTranscript.upsert({
+      where: { episodeId },
+      create: { episodeId, content: value, language: language.trim() || 'en' },
+      update: { content: value, language: language.trim() || 'en', segments: Prisma.DbNull },
+      select: { episodeId: true, content: true, language: true, updatedAt: true },
+    });
   }
 
   async bookmark(userId: string, episodeId: string) {
@@ -509,6 +638,30 @@ export class ShowsService {
     return { items: page, nextCursor: hasMore ? page[page.length - 1].id : null };
   }
 
+
+  async discoverCreators(q?: string) {
+    const search = q?.trim();
+    const items = await this.prisma.creator.findMany({
+      where: {
+        shows: { some: { status: PublicationStatus.PUBLISHED } },
+        ...(search ? { OR: [
+          { handle: { contains: search, mode: 'insensitive' } },
+          { bio: { contains: search, mode: 'insensitive' } },
+          { user: { displayName: { contains: search, mode: 'insensitive' } } },
+          { shows: { some: { status: PublicationStatus.PUBLISHED, title: { contains: search, mode: 'insensitive' } } } },
+        ] } : {}),
+      },
+      orderBy: [{ followers: { _count: 'desc' } }, { createdAt: 'desc' }],
+      take: 12,
+      select: {
+        id: true, handle: true, bio: true, verifiedAt: true,
+        user: { select: { displayName: true } },
+        _count: { select: { followers: true, shows: { where: { status: PublicationStatus.PUBLISHED } } } },
+      },
+    });
+    return { items };
+  }
+
   async discoverShows(params: { q?: string; category?: string; language?: string; cursor?: string; limit?: number }) {
     const limit = Math.max(1, Math.min(50, Number(params.limit) || 20));
     const where: any = { status: PublicationStatus.PUBLISHED };
@@ -540,16 +693,94 @@ export class ShowsService {
       { title: { contains: params.q, mode: 'insensitive' } },
       { description: { contains: params.q, mode: 'insensitive' } },
       { show: { title: { contains: params.q, mode: 'insensitive' } } },
+      { membershipRequired: false, transcript: { is: { content: { contains: params.q, mode: 'insensitive' } } } },
+      { membershipRequired: false, intelligence: { is: { summary: { contains: params.q, mode: 'insensitive' } } } },
     ];
     const items = await this.prisma.episode.findMany({
       where, take: limit + 1, ...(params.cursor ? { skip: 1, cursor: { id: params.cursor } } : {}),
       orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
-      select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, isLiveReplay: true, publishedAt: true,
+      select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, isLiveReplay: true, membershipRequired: true, publishedAt: true,
+        transcript: { select: { segments: true } },
         show: { select: { id: true, title: true, category: true, language: true, creator: { select: { handle: true, user: { select: { displayName: true } } } } } } },
     });
     const hasMore = items.length > limit;
     const page = hasMore ? items.slice(0, limit) : items;
-    return { items: page, nextCursor: hasMore ? page[page.length - 1].id : null };
+    const term = params.q?.trim().toLocaleLowerCase();
+    const results = page.map(item => {
+      const rawSegments = item.transcript?.segments;
+      const segments = Array.isArray(rawSegments) ? rawSegments as Array<{ startSeconds?: number; endSeconds?: number; text?: string; speaker?: string }> : [];
+      const matchingMoments = !term || item.membershipRequired ? [] : segments
+        .filter(segment => typeof segment.text === 'string' && segment.text.toLocaleLowerCase().includes(term))
+        .slice(0, 5)
+        .map(segment => ({
+          startSeconds: Math.max(0, Number(segment.startSeconds) || 0),
+          endSeconds: Math.max(0, Number(segment.endSeconds) || 0),
+          text: String(segment.text).slice(0, 500),
+          speaker: String(segment.speaker || 'Speaker').slice(0, 40),
+        }));
+      const { transcript, ...episode } = item;
+      return { ...episode, matchingMoments };
+    });
+    return { items: results, nextCursor: hasMore ? page[page.length - 1].id : null };
+  }
+
+
+  async getPersonalizedRecommendations(userId: string, requestedLimit?: number) {
+    const limit = Math.max(1, Math.min(20, Number(requestedLimit) || 12));
+    const [recentProgress, bookmarks, follows] = await Promise.all([
+      this.prisma.playbackProgress.findMany({ where: { userId }, orderBy: { updatedAt: 'desc' }, take: 30,
+        select: { episodeId: true, episode: { select: { show: { select: { category: true, creatorId: true } } } } } }),
+      this.prisma.episodeBookmark.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 30,
+        select: { episodeId: true, episode: { select: { show: { select: { category: true, creatorId: true } } } } } }),
+      this.prisma.follow.findMany({ where: { followerId: userId }, select: { creatorId: true } }),
+    ]);
+    const categoryCounts = new Map<string, number>();
+    const creatorCounts = new Map<string, number>();
+    const excludedIds = new Set<string>();
+    for (const signal of [...recentProgress, ...bookmarks]) {
+      excludedIds.add(signal.episodeId);
+      const category = signal.episode?.show?.category;
+      const creatorId = signal.episode?.show?.creatorId;
+      if (category) categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+      if (creatorId) creatorCounts.set(creatorId, (creatorCounts.get(creatorId) || 0) + 1);
+    }
+    const followedCreatorIds = follows.map(item => item.creatorId);
+    const preferredCategories = [...categoryCounts.entries()].sort((a,b) => b[1]-a[1]).slice(0,5).map(([v])=>v);
+    const listenedCreatorIds = [...creatorCounts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10).map(([v])=>v);
+    const creatorIds = [...new Set([...followedCreatorIds, ...listenedCreatorIds])];
+    const select = {
+      id: true, title: true, description: true, artworkUrl: true, durationSeconds: true,
+      isExplicit: true, isLiveReplay: true, publishedAt: true,
+      show: { select: { id: true, title: true, category: true, creatorId: true,
+        creator: { select: { handle: true, user: { select: { displayName: true } } } } } },
+    };
+    const candidates = await this.prisma.episode.findMany({
+      where: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED },
+        ...(excludedIds.size ? { id: { notIn: [...excludedIds] } } : {}),
+        ...(preferredCategories.length || creatorIds.length ? { OR: [
+          ...(preferredCategories.length ? [{ show: { category: { in: preferredCategories } } }] : []),
+          ...(creatorIds.length ? [{ show: { creatorId: { in: creatorIds } } }] : []),
+        ] } : {}),
+      },
+      take: limit * 3, orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }], select,
+    });
+    const recommendations = candidates.map(episode => {
+      const followed = followedCreatorIds.includes(episode.show.creatorId);
+      const categoryMatch = Boolean(episode.show.category && preferredCategories.includes(episode.show.category));
+      const creatorMatch = creatorIds.includes(episode.show.creatorId);
+      const score = (followed ? 100 : 0) + (categoryMatch ? 20 : 0) + (creatorMatch ? 10 : 0);
+      const reason = followed ? 'From a creator you follow' : categoryMatch ? 'Based on topics you listen to'
+        : creatorMatch ? 'From a creator you have listened to' : 'Popular on VOXA';
+      return { ...episode, score, reason };
+    }).sort((a,b)=>b.score-a.score || new Date(b.publishedAt || 0).getTime()-new Date(a.publishedAt || 0).getTime())
+      .slice(0,limit).map(({score,...episode})=>episode);
+    if (recommendations.length) return { items: recommendations, personalized: true };
+    const fallback = await this.prisma.episode.findMany({
+      where: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED },
+        ...(excludedIds.size ? { id: { notIn: [...excludedIds] } } : {}) },
+      take: limit, orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }], select,
+    });
+    return { items: fallback.map(episode => ({ ...episode, reason: 'Popular on VOXA' })), personalized: false };
   }
 
   async discoveryCategories() {

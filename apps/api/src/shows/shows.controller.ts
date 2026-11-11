@@ -9,6 +9,19 @@ import { SetEpisodeMembershipDto } from './dto/set-episode-membership.dto';
 import { CreateEpisodeCommentDto } from './dto/create-episode-comment.dto';
 import { CreateMomentDto } from './dto/create-moment.dto';
 import { ShowsService } from './shows.service';
+import { IsArray, ArrayMaxSize, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+
+class SaveChaptersDto {
+  @IsArray() @ArrayMaxSize(100)
+  chapters!: Array<{ title: string; startSeconds: number }>;
+}
+
+class SaveTranscriptDto {
+  @IsString() @MinLength(1) @MaxLength(200000)
+  content!: string;
+  @IsOptional() @IsString() @MaxLength(12)
+  language?: string;
+}
 
 @Controller()
 export class ShowsController {
@@ -109,6 +122,12 @@ export class ShowsController {
     return this.shows.deleteMoment(req.user.id, momentId);
   }
 
+
+  @Get('discovery/creators')
+  discoverCreators(@Query('q') q?: string) {
+    return this.shows.discoverCreators(q);
+  }
+
   @Get('discovery/shows')
   discoverShows(@Query('q') q?: string, @Query('category') category?: string, @Query('language') language?: string,
     @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
@@ -119,6 +138,13 @@ export class ShowsController {
   discoverEpisodes(@Query('q') q?: string, @Query('category') category?: string, @Query('language') language?: string,
     @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
     return this.shows.discoverEpisodes({ q, category, language, cursor, limit: limit ? Number(limit) : undefined });
+  }
+
+
+  @Get('discovery/recommended')
+  @UseGuards(JwtAuthGuard)
+  getPersonalizedRecommendations(@Req() req: AuthenticatedRequest, @Query('limit') limit?: string) {
+    return this.shows.getPersonalizedRecommendations(req.user.id, limit ? Number(limit) : undefined);
   }
 
   @Get('discovery/categories')
@@ -140,6 +166,63 @@ export class ShowsController {
   @Get('episodes/:episodeId')
   getEpisode(@Param('episodeId') episodeId: string) {
     return this.shows.getEpisode(episodeId);
+  }
+
+  @Get('episodes/:episodeId/chapters')
+  getEpisodeChapters(@Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeChapters(episodeId);
+  }
+
+  @Get('episodes/:episodeId/member-chapters')
+  @UseGuards(JwtAuthGuard)
+  getMemberEpisodeChapters(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeChapters(episodeId, req.user.id);
+  }
+
+  @Get('shows/:showId/episodes/:episodeId/chapters')
+  @UseGuards(JwtAuthGuard)
+  getCreatorEpisodeChapters(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.shows.getCreatorEpisodeChapters(req.user.id, showId, episodeId);
+  }
+
+  @Put('shows/:showId/episodes/:episodeId/chapters')
+  @UseGuards(JwtAuthGuard)
+  saveEpisodeChapters(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: SaveChaptersDto) {
+    return this.shows.saveEpisodeChapters(req.user.id, showId, episodeId, input.chapters);
+  }
+
+  @Get('episodes/:episodeId/intelligence')
+  getEpisodeIntelligence(@Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeIntelligence(episodeId);
+  }
+
+  @Get('episodes/:episodeId/member-intelligence')
+  @UseGuards(JwtAuthGuard)
+  getMemberEpisodeIntelligence(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeIntelligence(episodeId, req.user.id);
+  }
+
+  @Get('episodes/:episodeId/transcript')
+  getEpisodeTranscript(@Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeTranscript(episodeId);
+  }
+
+  @Get('episodes/:episodeId/member-transcript')
+  @UseGuards(JwtAuthGuard)
+  getMemberEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeTranscript(episodeId, req.user.id);
+  }
+
+  @Get('shows/:showId/episodes/:episodeId/transcript')
+  @UseGuards(JwtAuthGuard)
+  getCreatorEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.shows.getCreatorEpisodeTranscript(req.user.id, showId, episodeId);
+  }
+
+  @Put('shows/:showId/episodes/:episodeId/transcript')
+  @UseGuards(JwtAuthGuard)
+  saveEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: SaveTranscriptDto) {
+    return this.shows.saveEpisodeTranscript(req.user.id, showId, episodeId, input.content, input.language);
   }
 
   @Get('episodes/:episodeId/community')

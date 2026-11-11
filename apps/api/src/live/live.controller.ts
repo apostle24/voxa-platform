@@ -91,6 +91,12 @@ export class LiveController {
     return this.live.getStageState(req.user.id, roomId);
   }
 
+  @Post('rooms/:roomId/cancel')
+  @UseGuards(JwtAuthGuard)
+  cancelScheduledRoom(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.cancelScheduledRoom(req.user.id, roomId);
+  }
+
   @Post('rooms/:roomId/join-token')
   @UseGuards(JwtAuthGuard)
   joinToken(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {

@@ -11,11 +11,11 @@ describe('LiveService access boundaries', () => {
 
   beforeEach(() => {
     prisma = {
-      liveRoom: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+      liveRoom: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn() },
-      stageRequest: { upsert: jest.fn(), groupBy: jest.fn() },
+      stageRequest: { upsert: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), groupBy: jest.fn() },
       liveKitWebhookEvent: { createMany: jest.fn() },
       $transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
     };
@@ -79,6 +79,88 @@ describe('LiveService access boundaries', () => {
       data: expect.objectContaining({ recordingStatus: 'FAILED', recordingFailure: 'LiveKit Egress reported a recording failure' }),
     }));
     receiver.mockRestore();
+  });
+
+
+
+
+  it('allows a host to cancel a scheduled room', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED' });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.cancelScheduledRoom('host-1', 'room-scheduled'))
+      .resolves.toEqual({ id: 'room-scheduled', status: 'CANCELLED' });
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED' },
+      data: expect.objectContaining({ status: 'CANCELLED' }),
+    }));
+  });
+
+  it('prevents non-hosts from cancelling scheduled rooms', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED' });
+    await expect(service.cancelScheduledRoom('listener-1', 'room-scheduled'))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.liveRoom.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('does not cancel a room after it has started', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-scheduled', hostId: 'host-1', status: 'LIVE' });
+    await expect(service.cancelScheduledRoom('host-1', 'room-scheduled'))
+      .rejects.toThrow('Only scheduled rooms can be cancelled');
+    expect(prisma.liveRoom.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('includes the scheduled start time in the public live room listing', async () => {
+    const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
+    prisma.liveRoom.findMany.mockResolvedValue([{
+      id: 'room-scheduled', title: 'Global Creator Roundtable', status: 'SCHEDULED', scheduledAt,
+    }]);
+    const rooms = await service.listLiveRooms();
+    expect(prisma.liveRoom.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: { in: ['LIVE', 'SCHEDULED'] }, visibility: 'PUBLIC' },
+      select: expect.objectContaining({ scheduledAt: true }),
+    }));
+    expect(rooms[0].scheduledAt).toEqual(scheduledAt);
+  });
+
+  it('returns scheduled start time with host stage state', async () => {
+    const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED', scheduledAt,
+    });
+    prisma.stageRequest.findMany.mockResolvedValue([]);
+    prisma.liveStageMember.findMany.mockResolvedValue([]);
+    const state = await service.getStageState('host-1', 'room-scheduled');
+    expect(state).toEqual(expect.objectContaining({ isHost: true, status: 'SCHEDULED', scheduledAt }));
+  });
+
+  it('creates a scheduled room with its requested start time', async () => {
+    const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
+    prisma.liveRoom.create.mockResolvedValue({
+      id: 'room-scheduled', title: 'Global Creator Roundtable', status: 'SCHEDULED', scheduledAt,
+    });
+    const result = await service.createRoom('host-1', {
+      title: 'Global Creator Roundtable', scheduledAt: scheduledAt.toISOString(),
+    } as any);
+    expect(prisma.liveRoom.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ hostId: 'host-1', status: 'SCHEDULED', scheduledAt }),
+    }));
+    expect(result.status).toBe('SCHEDULED');
+  });
+
+  it('rejects scheduled rooms less than one minute in the future', async () => {
+    await expect(service.createRoom('host-1', {
+      title: 'Too soon', scheduledAt: new Date(Date.now() + 10_000).toISOString(),
+    } as any)).rejects.toThrow('at least one minute in the future');
+    expect(prisma.liveRoom.create).not.toHaveBeenCalled();
+  });
+
+  it('prevents listeners entering a scheduled room before it starts', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED',
+      scheduledAt: new Date(Date.now() + 60 * 60 * 1000), visibility: 'PUBLIC', stage: [],
+    });
+    await expect(service.joinToken('listener-1', 'room-scheduled'))
+      .rejects.toThrow('This room is scheduled. Join when the host starts it.');
   });
 
   it('does not issue a join token to a non-host for a restricted room', async () => {

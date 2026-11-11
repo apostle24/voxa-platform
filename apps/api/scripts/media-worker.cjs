@@ -55,6 +55,107 @@ async function claimOne() {
   return prisma.mediaAsset.findUnique({ where: { id: candidate.id } });
 }
 
+
+async function generateTranscript(playbackFile, episodeId) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { status: 'SKIPPED', reason: 'OPENAI_API_KEY is not configured' };
+
+  // OpenAI's transcription upload limit is 25 MB. Produce a compact mono
+  // derivative so ordinary podcast episodes fit without changing playback media.
+  const transcriptFile = playbackFile.replace(/\.[^.]+$/, '-transcription.mp3');
+  try {
+    await run('ffmpeg', [
+      '-nostdin', '-y', '-i', playbackFile, '-vn', '-ac', '1', '-ar', '16000',
+      '-c:a', 'libmp3lame', '-b:a', '32k', transcriptFile,
+    ], { timeout: 7200000, maxBuffer: 2 * 1024 * 1024 });
+    const file = await stat(transcriptFile);
+    if (!file.size || file.size > 24 * 1024 * 1024) {
+      return { status: 'SKIPPED', reason: 'Compressed audio exceeds the supported single-upload size' };
+    }
+
+    // Preserve a creator's manually written transcript; automatic generation
+    // only fills an episode that does not already have one.
+    const existing = await prisma.episodeTranscript.findUnique({ where: { episodeId }, select: { episodeId: true } });
+    if (existing) return { status: 'SKIPPED', reason: 'A transcript already exists' };
+
+    const audio = await require('node:fs/promises').readFile(transcriptFile);
+    const form = new FormData();
+    form.append('file', new Blob([audio], { type: 'audio/mpeg' }), 'episode.mp3');
+    // Diarized output supplies segment timestamps and speaker turns.
+    form.append('model', process.env.OPENAI_DIARIZATION_MODEL || 'gpt-4o-transcribe-diarize');
+    form.append('response_format', 'diarized_json');
+    form.append('chunking_strategy', 'auto');
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + apiKey },
+      body: form,
+      signal: AbortSignal.timeout(7200000),
+    });
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 500);
+      throw new Error('Transcription provider returned ' + response.status + ': ' + detail);
+    }
+    const result = await response.json();
+    const transcript = String(result.text || '').trim();
+    if (!transcript) throw new Error('Transcription provider returned an empty transcript');
+    const language = String(result.language || 'en').slice(0, 12);
+    const segments = Array.isArray(result.segments) ? result.segments.map(segment => ({
+      startSeconds: Math.max(0, Number(segment.start) || 0),
+      endSeconds: Math.max(0, Number(segment.end) || 0),
+      text: String(segment.text || '').trim(),
+      speaker: String(segment.speaker || 'Speaker').slice(0, 40),
+    })).filter(segment => segment.text && segment.endSeconds >= segment.startSeconds) : [];
+    await prisma.episodeTranscript.create({
+      data: { episodeId, content: transcript, language, ...(segments.length ? { segments } : {}) },
+    });
+    return { status: 'READY', language, characters: transcript.length, segments: segments.length, speakers: [...new Set(segments.map(segment => segment.speaker))].length };
+  } finally {
+    await rm(transcriptFile, { force: true });
+  }
+}
+
+
+async function generateEpisodeIntelligence(episodeId) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { status: 'SKIPPED', reason: 'OPENAI_API_KEY is not configured' };
+  const transcript = await prisma.episodeTranscript.findUnique({
+    where: { episodeId }, select: { content: true, language: true },
+  });
+  if (!transcript?.content?.trim()) return { status: 'SKIPPED', reason: 'No transcript is available' };
+  const existing = await prisma.episodeIntelligence.findUnique({ where: { episodeId }, select: { id: true } });
+  if (existing) return { status: 'SKIPPED', reason: 'Episode intelligence already exists' };
+
+  const model = process.env.OPENAI_INTELLIGENCE_MODEL || 'gpt-4o-mini';
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'You create accurate podcast episode intelligence from transcripts. Do not invent facts. Return JSON with summary (a clear 2-3 paragraph summary) and topics (an array of 4-8 concise topic labels). If the transcript is incomplete or unclear, reflect that uncertainty.' },
+        { role: 'user', content: 'Transcript language: ' + transcript.language + '\\n\\nCreate the episode summary and topics from this transcript:\\n' + transcript.content.slice(0, 90000) },
+      ],
+    }),
+    signal: AbortSignal.timeout(180000),
+  });
+  if (!response.ok) throw new Error('Episode intelligence provider returned ' + response.status + ': ' + (await response.text()).slice(0, 500));
+  const payload = await response.json();
+  const raw = payload.choices?.[0]?.message?.content;
+  if (typeof raw !== 'string') throw new Error('Episode intelligence provider returned no content');
+  const parsed = JSON.parse(raw);
+  const summary = String(parsed.summary || '').trim();
+  const topics = Array.isArray(parsed.topics)
+    ? [...new Set(parsed.topics.map(value => String(value).trim()).filter(Boolean))].slice(0, 10)
+    : [];
+  if (!summary || summary.length > 12000 || !topics.length) throw new Error('Episode intelligence response did not meet content requirements');
+  await prisma.episodeIntelligence.create({
+    data: { episodeId, summary, topics, model },
+  });
+  return { status: 'READY', topicCount: topics.length };
+}
+
 async function processAsset(asset) {
   const heartbeat = setInterval(() => {
     prisma.mediaAsset.updateMany({ where: { id: asset.id, status: 'PROCESSING' }, data: { processingStartedAt: new Date() } })
@@ -102,6 +203,17 @@ async function processAsset(asset) {
       data: { status: 'READY', playbackKey, contentType, sizeBytes: BigInt(file.size), durationSeconds: duration, processedAt: new Date(), processingStartedAt: null, failureReason: null },
     });
     await prisma.episode.update({ where: { id: asset.episodeId }, data: { durationSeconds: duration } });
+
+    // Transcription is an optional enhancement: a provider outage must never
+    // turn successfully processed media into a failed upload.
+    try {
+      const transcriptResult = await generateTranscript(output, asset.episodeId);
+      console.log(JSON.stringify({ event: 'episode_transcription', episodeId: asset.episodeId, ...transcriptResult }));
+      const intelligenceResult = await generateEpisodeIntelligence(asset.episodeId);
+      console.log(JSON.stringify({ event: 'episode_intelligence', episodeId: asset.episodeId, ...intelligenceResult }));
+    } catch (transcriptionError) {
+      console.error(JSON.stringify({ event: 'episode_transcription_error', episodeId: asset.episodeId, reason: String(transcriptionError.message || transcriptionError).slice(0, 500) }));
+    }
     console.log(JSON.stringify({ event: 'media_ready', assetId: asset.id, episodeId: asset.episodeId }));
   } catch (error) {
     const reason = String(error && error.message || error).slice(0, 1000);

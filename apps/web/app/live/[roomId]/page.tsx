@@ -14,6 +14,7 @@ type StageState = {
   speakers: { userId: string; role: string; joinedAt: string }[];
   ownRequest: { status: string; requestedAt: string } | null;
   status: string;
+  scheduledAt?: string | null;
 };
 
 export default function LiveRoomPage() {
@@ -60,6 +61,14 @@ export default function LiveRoomPage() {
 
   const connect = useCallback(async () => {
     try {
+      const roomState = await api('/live/rooms/' + roomId + '/stage');
+      setStage(roomState);
+      setIsHost(Boolean(roomState.isHost));
+      if (roomState.status === 'SCHEDULED' && (!roomState.isHost || (roomState.scheduledAt && new Date(roomState.scheduledAt).getTime() > Date.now()))) {
+        setStatus(roomState.scheduledAt ? 'Scheduled · starts ' + new Date(roomState.scheduledAt).toLocaleString() : 'Scheduled · waiting for the host');
+        setError('');
+        return;
+      }
       const data = await api('/live/rooms/' + roomId + '/join-token', 'POST');
       setError('');
       setStatus('Connecting to live media…');
@@ -224,12 +233,13 @@ export default function LiveRoomPage() {
 
   const approved = stage?.ownRequest?.status === 'APPROVED';
   const pending = stage?.ownRequest?.status === 'PENDING';
+  const displayedStatus = stage?.status === 'CANCELLED' ? 'This scheduled room was cancelled' : stage?.status === 'LIVE' && status.startsWith('Scheduled') ? 'Room is live · join when ready' : status;
 
   return <main className="appShell">
-    <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> LIVE</span></nav>
+    <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> {stage?.status === 'SCHEDULED' ? 'SCHEDULED' : stage?.status === 'LIVE' ? 'LIVE' : 'ROOM'}</span></nav>
     <section className="stagePage">
-      <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{status}</p></div>
-      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" /><div className="stageMark">V<span>.</span></div><h2>The room is yours.</h2><p>Live participant audio and video will appear here.</p><div className="connectionStatus"><i /> {status}</div></div>
+      <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{displayedStatus}</p>{stage?.status === 'SCHEDULED' && stage.scheduledAt && <p className="helperText">Scheduled for {new Date(stage.scheduledAt).toLocaleString()}</p>}</div>
+      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />{stage?.status === 'CANCELLED' && <><div className="stageMark">V<span>.</span></div><h2>Room cancelled</h2><p>This live session will not take place.</p></>}{stage?.status === 'SCHEDULED' && status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>{stage?.isHost ? 'Your room is ready.' : 'Coming up on VOXA LIVE.'}</h2><p>{stage?.isHost ? 'Return at the scheduled time and start the conversation.' : 'The host will open this room at the scheduled time.'}</p></>}<div className="connectionStatus"><i /> {displayedStatus}</div></div>
       {error && <p className="errorText">{error}</p>}
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
@@ -237,6 +247,9 @@ export default function LiveRoomPage() {
           <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
           {!isHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
           {!isHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
+          {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button danger" disabled={!!busy} onClick={() => void action('cancel-scheduled', '/live/rooms/' + roomId + '/cancel')}>Cancel scheduled room</button>}
+          {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button" disabled={!!busy || (!!stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now())} onClick={()=>void connect()}>{stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now() ? 'Starts at scheduled time' : 'Start live room ↗'}</button>}
+          {!stage?.isHost && stage?.status === 'LIVE' && status !== 'Connected · Listening' && status !== 'Connecting to live media…' && <button className="button" onClick={()=>void connect()}>Join live room ↗</button>}
           {status === 'Disconnected' && <button className="button" onClick={()=>void connect()}>Reconnect to live room ↻</button>}
           {isHost && <button className="button danger" disabled={busy==='end'} onClick={()=>void endRoom()}>{busy==='end'?'Ending…':'End room'}</button>}
         </div>
@@ -260,7 +273,7 @@ export default function LiveRoomPage() {
         </>}
         {analytics?.room?.recordingStatus === 'RECORDING' && <button className="button danger" disabled={!!busy} onClick={() => void stopRecording()}>{busy === 'recording-stop' ? 'Stopping…' : 'Stop recording'}</button>}
         {['STARTING', 'STOPPING'].includes(analytics?.room?.recordingStatus) && <p className="helperText">Recording service is processing your request. Refresh the room insights in a moment.</p>}
-        {analytics?.room?.recordingStatus === 'COMPLETED' && <><p className="helperText">Recording completed. Create a private draft episode to send it through VOXA's malware scan and media processing.</p><button className="button" disabled={!!busy} onClick={() => void createReplayDraft()}>{busy === 'replay-draft' ? 'Creating replay draft…' : 'Create replay draft'}</button>{replayDraft && <div className="helperText"><p>Draft episode created ({replayDraft.episodeId}). Media processing status: {replayDraft.processingStatus}. The episode stays unpublished until you review and publish it.</p><Link className="button" href="/creator/studio">Open Creator Studio ↗</Link></div>}</>}
+        {analytics?.room?.recordingStatus === 'COMPLETED' && <><p className="helperText">Recording completed. Create a private draft episode to send it through VOXA's malware scan and media processing.</p><button className="button" disabled={!!busy} onClick={() => void createReplayDraft()}>{busy === 'replay-draft' ? 'Creating replay draft…' : 'Create replay draft'}</button>{replayDraft && <div className="helperText"><p>Replay draft created. Media processing: {replayDraft.processingStatus}. Open the draft in Creator Studio to preview it, add details, and publish it when it is ready.</p><Link className="button" href={'/creator/studio#episode-' + replayDraft.episodeId}>Review this replay draft ↗</Link></div>}</>}
         {analytics?.room?.recordingStatus === 'FAILED' && <p className="helperText">The recording failed. Check LiveKit Egress and storage configuration before trying again.</p>}
       </section>}
       {isHost && analytics && <section className="moderationPanel" style={{ marginTop: 24 }}>

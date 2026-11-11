@@ -26,8 +26,12 @@ type PlayerContextValue = {
   duration: number;
   playTrack: (track: VoxaTrack) => void;
   enqueueTrack: (track: VoxaTrack) => void;
+  playTrackNext: (track: VoxaTrack) => void;
   togglePlayback: () => void;
   playNext: () => void;
+  playPrevious: () => void;
+  removeFromQueue: (episodeId: string) => void;
+  moveInQueue: (episodeId: string, direction: -1 | 1) => void;
   seek: (seconds: number) => void;
   playerError: string | null;
   retryPlayback: () => void;
@@ -45,9 +49,11 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const lastSavedAt = useRef(0);
   const [currentTrack, setCurrentTrack] = useState<VoxaTrack | null>(null);
   const [queue, setQueue] = useState<VoxaTrack[]>([]);
+  const [history, setHistory] = useState<VoxaTrack[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [playerError, setPlayerError] = useState<string | null>(null);
   const [queueOpen, setQueueOpen] = useState(false);
   const restored = useRef(false);
@@ -72,13 +78,16 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       try {
         const raw = sessionStorage.getItem('voxa_player_state');
         if (!raw) return;
-        const saved = JSON.parse(raw) as { currentTrack?: VoxaTrack | null; queue?: VoxaTrack[]; currentTime?: number };
+        const saved = JSON.parse(raw) as { currentTrack?: VoxaTrack | null; queue?: VoxaTrack[]; history?: VoxaTrack[]; currentTime?: number };
         const queued = Array.isArray(saved.queue) ? saved.queue : [];
         const restoredQueue = await Promise.all(queued.slice(0, 50).map(async track => {
           try { return await refreshTrack(track); } catch { return null; }
         }));
         if (!active) return;
         setQueue(restoredQueue.filter((track): track is VoxaTrack => track !== null));
+        const restoredHistory = await Promise.all((Array.isArray(saved.history) ? saved.history.slice(0, 30) : []).map(async track => { try { return await refreshTrack(track); } catch { return null; } }));
+        if (!active) return;
+        setHistory(restoredHistory.filter((track): track is VoxaTrack => track !== null));
         if (saved.currentTrack) {
           try {
             const track = await refreshTrack({ ...saved.currentTrack, resumeAt: Math.max(0, Number(saved.currentTime) || saved.currentTrack.resumeAt || 0) });
@@ -112,12 +121,15 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (!restored.current) return;
     const safeTrack = currentTrack ? { ...currentTrack, url: '' } : null;
     const safeQueue = queue.map(({ url: _url, ...track }) => track);
-    sessionStorage.setItem('voxa_player_state', JSON.stringify({ currentTrack: safeTrack, queue: safeQueue, currentTime }));
-  }, [currentTrack, queue, currentTime]);
+    sessionStorage.setItem('voxa_player_state', JSON.stringify({ currentTrack: safeTrack, queue: safeQueue, history: history.map(({ url: _url, ...track }) => track), currentTime }));
+  }, [currentTrack, queue, history, currentTime]);
 
   const playTrack = useCallback((track: VoxaTrack) => {
-    const audio = audioRef.current;
+    if (currentTrack && currentTrack.episodeId !== track.episodeId) {
+      setHistory(items => [currentTrack, ...items.filter(item => item.episodeId !== currentTrack.episodeId)].slice(0, 30));
+    }
     setCurrentTrack(track);
+    const audio = audioRef.current;
     setPlayerError(null);
     setCurrentTime(track.resumeAt || 0);
     if (audio) {
@@ -131,19 +143,48 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // Call play in the original click gesture; playback begins when media data arrives.
       void audio.play().then(() => { setIsPlaying(true); setPlayerError(null); }).catch(() => { setIsPlaying(false); setPlayerError('Playback could not start. Check your connection and try again.'); });
     }
-  }, []);
+  }, [currentTrack]);
 
   const enqueueTrack = useCallback((track: VoxaTrack) => {
+    if (track.episodeId === currentTrack?.episodeId) return;
     setQueue(items => items.some(item => item.episodeId === track.episodeId) ? items : [...items, track]);
     setQueueOpen(true);
-  }, []);
+  }, [currentTrack]);
+
+  const playTrackNext = useCallback((track: VoxaTrack) => {
+    if (track.episodeId === currentTrack?.episodeId) return;
+    setQueue(items => [track, ...items.filter(item => item.episodeId !== track.episodeId)]);
+    setQueueOpen(true);
+  }, [currentTrack]);
 
   const playNext = useCallback(() => {
     if (!queue.length) return;
     const [next, ...rest] = queue;
     setQueue(rest);
-    void refreshTrack(next).then(playTrack).catch(() => setIsPlaying(false));
+    void refreshTrack(next).then(playTrack).catch(error => {
+      setIsPlaying(false);
+      setPlayerError(error instanceof Error ? error.message : 'Unable to load the next episode');
+    });
   }, [queue, playTrack, refreshTrack]);
+
+  const removeFromQueue = useCallback((episodeId: string) => setQueue(items => items.filter(item => item.episodeId !== episodeId)), []);
+
+  const moveInQueue = useCallback((episodeId: string, direction: -1 | 1) => setQueue(items => {
+    const index = items.findIndex(item => item.episodeId === episodeId);
+    const target = index + direction;
+    if (index < 0 || target < 0 || target >= items.length) return items;
+    const next = [...items];
+    [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  }), []);
+
+  const playPrevious = useCallback(() => {
+    if (!history.length) return;
+    const [previous, ...rest] = history;
+    setHistory(rest);
+    if (currentTrack) setQueue(items => [currentTrack, ...items.filter(item => item.episodeId !== currentTrack.episodeId)]);
+    void refreshTrack(previous).then(playTrack).catch(error => setPlayerError(error instanceof Error ? error.message : 'Unable to load the previous episode'));
+  }, [history, currentTrack, refreshTrack, playTrack]);
 
   const retryPlayback = useCallback(() => {
     if (!currentTrack) return;
@@ -160,6 +201,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     if (audio.paused) void audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
     else { audio.pause(); setIsPlaying(false); }
   }, [currentTrack]);
+
+  const changePlaybackRate = useCallback((rate: number) => {
+    const safeRate = Math.min(2, Math.max(0.5, rate));
+    if (audioRef.current) audioRef.current.playbackRate = safeRate;
+    setPlaybackRate(safeRate);
+  }, []);
 
   const seek = useCallback((seconds: number) => {
     const audio = audioRef.current;
@@ -240,6 +287,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     setAction('play', () => togglePlayback());
     setAction('pause', () => togglePlayback());
     setAction('nexttrack', () => playNext());
+    setAction('previoustrack', () => playPrevious());
     setAction('seekbackward', details => seek(Math.max(0, currentTime - (details.seekOffset || 15))));
     setAction('seekforward', details => seek(Math.min(duration || currentTime + 15, currentTime + (details.seekOffset || 15))));
     setAction('seekto', details => { if (typeof details.seekTime === 'number') seek(details.seekTime); });
@@ -247,13 +295,13 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       try { session.setPositionState({ duration, playbackRate: 1, position: Math.min(currentTime, duration) }); } catch { /* Position state is optional */ }
     }
     return () => {
-      for (const action of ['play', 'pause', 'nexttrack', 'seekbackward', 'seekforward', 'seekto'] as MediaSessionAction[]) {
+      for (const action of ['play', 'pause', 'nexttrack', 'previoustrack', 'seekbackward', 'seekforward', 'seekto'] as MediaSessionAction[]) {
         setAction(action, null);
       }
     };
-  }, [currentTrack, isPlaying, currentTime, duration, togglePlayback, playNext, seek]);
+  }, [currentTrack, isPlaying, currentTime, duration, togglePlayback, playNext, playPrevious, seek]);
 
-  return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, togglePlayback, playNext, seek, playerError, retryPlayback }}>
+  return <PlayerContext.Provider value={{ currentTrack, queue, isPlaying, currentTime, duration, playTrack, enqueueTrack, playTrackNext, togglePlayback, playNext, playPrevious, removeFromQueue, moveInQueue, seek, playerError, retryPlayback }}>
     {children}
     <audio ref={audioRef} preload="metadata" aria-hidden="true" style={{ display: 'none' }} />
     {currentTrack && <aside className="voxaPlayer" aria-label="VOXA audio player">
@@ -267,10 +315,18 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       {playerError && <div role="alert" className="voxaPlayerError"><span>{playerError}</span><button onClick={retryPlayback}>Retry</button></div>}
       <div className="voxaPlayerControls">
         <div className="voxaPlayerButtons">
+          <button aria-label="Back 15 seconds" onClick={() => seek(Math.max(0, currentTime - 15))}>−15</button>
+          <button aria-label="Play previous episode" onClick={playPrevious} disabled={!history.length}>↶</button>
           <button aria-label="Play or pause" onClick={togglePlayback}>{isPlaying ? 'Ⅱ' : '▶'}</button>
           <button aria-label="Play next" onClick={playNext} disabled={!queue.length}>↠</button>
+          <button aria-label="Forward 15 seconds" onClick={() => seek(Math.min(duration || currentTime + 15, currentTime + 15))}>+15</button>
           <button aria-label="Show queue" onClick={() => setQueueOpen(value => !value)}>Queue ({queue.length})</button>
         </div>
+        <label className="voxaPlayerSpeed" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+          Speed <select aria-label="Playback speed" value={playbackRate} onChange={event => changePlaybackRate(Number(event.target.value))}>
+            {[0.75, 1, 1.25, 1.5, 1.75, 2].map(rate => <option key={rate} value={rate}>{rate}×</option>)}
+          </select>
+        </label>
         <div className="voxaPlayerTimeline">
           <span>{clock(currentTime)}</span>
           <input aria-label="Seek audio" type="range" min="0" max={Math.max(duration, 1)} value={Math.min(currentTime, duration || 0)} onChange={event => seek(Number(event.target.value))} />
@@ -279,9 +335,12 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       </div>
       {queueOpen && <div className="voxaQueue">
         <div className="voxaQueueHeading"><b>Up next</b><button onClick={() => setQueue([])}>Clear</button></div>
-        {queue.length ? queue.map((item, index) => <button className="voxaQueueItem" key={item.episodeId} onClick={() => { setQueue(items => items.filter((_, i) => i !== index)); void refreshTrack(item).then(playTrack).catch(() => setIsPlaying(false)); }}>
-          <span>{index + 1}. {item.title}</span><small>{item.creatorName}</small>
-        </button>) : <p>Your queue is empty. Add an episode to keep listening.</p>}
+        {queue.length ? queue.map((item, index) => <div className="voxaQueueItem" key={item.episodeId} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button style={{ flex: 1, textAlign: 'left' }} onClick={() => { setQueue(items => items.filter(track => track.episodeId !== item.episodeId)); void refreshTrack(item).then(playTrack).catch(() => setIsPlaying(false)); }}><span>{index + 1}. {item.title}</span><small>{item.creatorName}</small></button>
+          <button aria-label={'Move ' + item.title + ' up'} disabled={index === 0} onClick={() => moveInQueue(item.episodeId, -1)}>↑</button>
+          <button aria-label={'Move ' + item.title + ' down'} disabled={index === queue.length - 1} onClick={() => moveInQueue(item.episodeId, 1)}>↓</button>
+          <button aria-label={'Remove ' + item.title + ' from queue'} onClick={() => removeFromQueue(item.episodeId)}>×</button>
+        </div>) : <p>Your queue is empty. Add an episode to keep listening.</p>}
       </div>}
     </aside>}
   </PlayerContext.Provider>;

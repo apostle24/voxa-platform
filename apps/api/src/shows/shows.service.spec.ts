@@ -148,3 +148,173 @@ describe('ShowsService VOXA Moments', () => {
     expect(prisma.moment.create).not.toHaveBeenCalled();
   });
 });
+
+
+describe('ShowsService episode transcripts', () => {
+  let service: ShowsService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = {
+      show: { findFirst: jest.fn() },
+      episode: { findFirst: jest.fn() },
+      episodeTranscript: { findUnique: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
+      membershipSubscription: { findFirst: jest.fn() },
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  it('returns a transcript for a published public episode', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', membershipRequired: false, show: { creator: { id: 'creator-1', userId: 'owner-1' } },
+    });
+    prisma.episodeTranscript.findUnique.mockResolvedValue({ episodeId: 'episode-1', content: 'Welcome to VOXA.', language: 'en' });
+    await expect(service.getEpisodeTranscript('episode-1')).resolves.toMatchObject({ content: 'Welcome to VOXA.' });
+  });
+
+  it('does not expose a members-only transcript to anonymous listeners', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', membershipRequired: true, show: { creator: { id: 'creator-1', userId: 'owner-1' } },
+    });
+    await expect(service.getEpisodeTranscript('episode-1')).rejects.toThrow('Sign in and join this creator membership');
+    expect(prisma.episodeTranscript.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('allows a creator to save a transcript for an episode they own', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1' });
+    prisma.episodeTranscript.upsert.mockResolvedValue({ episodeId: 'episode-1', content: 'Transcript text', language: 'en' });
+    await service.saveEpisodeTranscript('owner-1', 'show-1', 'episode-1', ' Transcript text ', 'en');
+    expect(prisma.episodeTranscript.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { episodeId: 'episode-1' },
+      create: expect.objectContaining({ content: 'Transcript text', language: 'en' }),
+    }));
+  });
+
+  it('rejects transcript edits for shows the creator does not own', async () => {
+    prisma.show.findFirst.mockResolvedValue(null);
+    await expect(service.saveEpisodeTranscript('intruder', 'show-1', 'episode-1', 'Transcript')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.episodeTranscript.upsert).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('ShowsService episode chapters', () => {
+  let service: ShowsService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = {
+      show: { findFirst: jest.fn() },
+      episode: { findFirst: jest.fn() },
+      episodeChapter: { deleteMany: jest.fn(), createMany: jest.fn(), findMany: jest.fn() },
+      $transaction: jest.fn(async (operations: Promise<unknown>[]) => Promise.all(operations)),
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  it('saves chapters in chronological order with stable positions', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', durationSeconds: 900 });
+    prisma.episodeChapter.deleteMany.mockResolvedValue({ count: 0 });
+    prisma.episodeChapter.createMany.mockResolvedValue({ count: 2 });
+    prisma.episodeChapter.findMany.mockResolvedValue([
+      { id: 'chapter-1', title: 'Opening', startSeconds: 0, position: 0 },
+      { id: 'chapter-2', title: 'Main topic', startSeconds: 120, position: 1 },
+    ]);
+
+    const result = await service.saveEpisodeChapters('owner-1', 'show-1', 'episode-1', [
+      { title: 'Main topic', startSeconds: 120 },
+      { title: 'Opening', startSeconds: 0 },
+    ]);
+
+    expect(prisma.episodeChapter.createMany).toHaveBeenCalledWith({ data: [
+      { title: 'Opening', startSeconds: 0, position: 0, episodeId: 'episode-1' },
+      { title: 'Main topic', startSeconds: 120, position: 1, episodeId: 'episode-1' },
+    ] });
+    expect(result).toHaveLength(2);
+  });
+
+  it('rejects duplicate timestamps and timestamps outside the episode', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', durationSeconds: 100 });
+    await expect(service.saveEpisodeChapters('owner-1', 'show-1', 'episode-1', [
+      { title: 'One', startSeconds: 10 }, { title: 'Two', startSeconds: 10 },
+    ])).rejects.toThrow('Chapter timestamps must be unique');
+    await expect(service.saveEpisodeChapters('owner-1', 'show-1', 'episode-1', [
+      { title: 'Beyond end', startSeconds: 100 },
+    ])).rejects.toThrow('within the episode duration');
+    expect(prisma.episodeChapter.createMany).not.toHaveBeenCalled();
+  });
+
+  it('does not allow a different creator to edit chapter guides', async () => {
+    prisma.show.findFirst.mockResolvedValue(null);
+    await expect(service.saveEpisodeChapters('intruder', 'show-1', 'episode-1', [
+      { title: 'Opening', startSeconds: 0 },
+    ])).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.episodeChapter.createMany).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('ShowsService personalized discovery', () => {
+  let service: ShowsService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = {
+      playbackProgress: { findMany: jest.fn().mockResolvedValue([]) },
+      episodeBookmark: { findMany: jest.fn().mockResolvedValue([]) },
+      follow: { findMany: jest.fn().mockResolvedValue([]) },
+      episode: { findMany: jest.fn() },
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  it('provides recent public episodes to a new listener with no history', async () => {
+    prisma.episode.findMany.mockResolvedValue([{
+      id: 'episode-new', title: 'A fresh start', publishedAt: new Date(),
+      show: { id: 'show-1', title: 'VOXA Daily', category: 'Culture', creatorId: 'creator-1',
+        creator: { handle: 'voxa', user: { displayName: 'VOXA' } } },
+    }]);
+
+    const result = await service.getPersonalizedRecommendations('listener-new', 8);
+
+    expect(result.personalized).toBe(false);
+    expect(result.items[0]).toMatchObject({ id: 'episode-new', reason: 'Popular on VOXA' });
+    expect(prisma.episode.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        status: 'PUBLISHED',
+        membershipRequired: false,
+        show: { status: 'PUBLISHED' },
+      }),
+    }));
+  });
+
+  it('uses listening categories and excludes episodes already heard or saved', async () => {
+    prisma.playbackProgress.findMany.mockResolvedValue([{
+      episodeId: 'already-heard',
+      episode: { show: { category: 'Technology', creatorId: 'creator-tech' } },
+    }]);
+    prisma.episodeBookmark.findMany.mockResolvedValue([{
+      episodeId: 'already-saved',
+      episode: { show: { category: 'Technology', creatorId: 'creator-tech' } },
+    }]);
+    prisma.episode.findMany.mockResolvedValue([{
+      id: 'recommended-1', title: 'Building useful tools', publishedAt: new Date(),
+      show: { id: 'show-2', title: 'Tech Voices', category: 'Technology', creatorId: 'creator-other',
+        creator: { handle: 'techvoices', user: { displayName: 'Tech Voices' } } },
+    }]);
+
+    const result = await service.getPersonalizedRecommendations('listener-1', 8);
+    const candidateQuery = prisma.episode.findMany.mock.calls[0][0];
+
+    expect(result.personalized).toBe(true);
+    expect(result.items[0]).toMatchObject({ id: 'recommended-1', reason: 'Based on topics you listen to' });
+    expect(candidateQuery.where.membershipRequired).toBe(false);
+    expect(candidateQuery.where.id.notIn).toEqual(expect.arrayContaining(['already-heard', 'already-saved']));
+    expect(candidateQuery.where.OR).toEqual(expect.arrayContaining([
+      { show: { category: { in: ['Technology'] } } },
+    ]));
+  });
+});
