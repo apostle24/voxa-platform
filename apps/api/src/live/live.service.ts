@@ -79,6 +79,10 @@ export class LiveService {
       where: { roomId, leftAt: null },
       data: { leftAt: ended.endedAt ?? new Date() },
     });
+    await this.prisma.liveViewerSession.updateMany({
+      where: { roomId, leftAt: null },
+      data: { leftAt: ended.endedAt ?? new Date() },
+    });
     return ended;
   }
 
