@@ -119,6 +119,7 @@ model User {
   communitiesOwned Community[]
   communityMemberships CommunityMember[]
   communityPosts CommunityPost[]
+  communityPostComments CommunityPostComment[]
 }
 
 model Creator {
@@ -737,11 +738,25 @@ model CommunityPost {
   updatedAt   DateTime @updatedAt
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
   author      User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  comments    CommunityPostComment[]
 
   @@index([communityId, createdAt])
   @@index([authorId, createdAt])
 }
 
+
+model CommunityPostComment {
+  id        String   @id @default(cuid())
+  postId    String
+  authorId  String
+  content   String
+  createdAt DateTime @default(now())
+  post      CommunityPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  author    User @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@index([postId, createdAt])
+  @@index([authorId, createdAt])
+}
 
 model EpisodeTranscript {
   id        String   @id @default(cuid())
