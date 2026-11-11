@@ -108,7 +108,7 @@ The tests cover selected service behavior and safety boundaries. There is no web
 
 ### P0 — must be addressed before public production launch
 
-1. **Authentication/session security remains MVP-grade.** Access tokens are returned to the web client and stored in `sessionStorage`. There is no refresh-token rotation, HTTP-only secure cookie session lifecycle, email verification, password recovery, MFA, session/device revocation, or demonstrated rate limiting.
+1. **Authentication/session security remains MVP-grade.** Access tokens are returned to the web client and stored in `sessionStorage`. There is no refresh-token rotation, HTTP-only secure cookie session lifecycle, email verification, password recovery, MFA, or session/device revocation. A process-local limit of 10 authentication attempts per source IP per 15 minutes has now been added to login and registration, with unit tests; production still requires a shared ingress/API-gateway limiter across replicas.
 2. **No full end-to-end product verification.** Automated browser tests and database-backed integration tests are absent. The primary listener, creator, live and payment journeys need repeatable tests.
 3. **External integrations are not production-verified.** Database, S3, LiveKit and Paystack credentials/deployments have not been used for verified staging journeys. Payment and payout flags must remain disabled until provider approval and staging verification.
 4. **Media worker is packaged, not operationally proven.** It has not been deployed and exercised against real files, object storage and production-like worker limits. HLS/DASH, CDN delivery, thumbnails, transcripts, moderation and copyright controls remain absent.
@@ -117,7 +117,7 @@ The tests cover selected service behavior and safety boundaries. There is no web
 
 ### P1 — high priority engineering work
 
-1. Strengthen auth lifecycle and add rate limiting/abuse controls.
+1. Strengthen auth lifecycle with refresh rotation, secure HTTP-only cookies, email verification, recovery, MFA and session revocation; move authentication throttling to a shared ingress/API-gateway store for multi-replica production.
 2. Add payments and payout unit/integration tests for webhook idempotency, provider verification, ledger balance, reserve/release/reversal and ambiguous transfer outcomes.
 3. Add database-backed integration tests for ownership, authorization, media and LIVE stage transitions.
 4. Add browser E2E tests for registration → creator setup → show/episode upload → processing → publication → listener playback/bookmark/resume.
