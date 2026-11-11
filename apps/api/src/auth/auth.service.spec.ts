@@ -45,12 +45,9 @@ describe('AuthService', () => {
     expect(created.email).toBe('person@example.com');
     expect(created.displayName).toBe('Listener One');
     await expect(bcrypt.compare('A-strong-test-password-123', created.passwordHash)).resolves.toBe(true);
-    expect(result).toMatchObject({ accessToken: 'signed-access-token', tokenType: 'Bearer', expiresIn: 900, user: { id: 'user-1' } });
-    expect(prisma.authSession.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ userId: 'user-1', tokenHash: expect.any(String), expiresAt: expect.any(Date) }),
-    });
-    expect(jwt.signAsync).toHaveBeenCalledWith({ sub: 'user-1', email: 'person@example.com', role: 'LISTENER' });
-    expect(result).toHaveProperty('refreshToken', 'signed-refresh-token');
+    expect(result).toMatchObject({ verificationRequired: true, user: { id: 'user-1', email: 'person@example.com' } });
+    expect(prisma.authSession.create).not.toHaveBeenCalled();
+    expect(jwt.signAsync).not.toHaveBeenCalled();
   });
 
   it('rejects registration when the email is already in use', async () => {
@@ -70,7 +67,7 @@ describe('AuthService', () => {
   it('authenticates a valid password and normalizes the login email', async () => {
     const passwordHash = await bcrypt.hash('Correct-password-123', 4);
     prisma.user.findUnique.mockResolvedValue({
-      id: 'user-2', email: 'person@example.com', displayName: 'Listener Two', passwordHash, role: 'LISTENER',
+      id: 'user-2', email: 'person@example.com', displayName: 'Listener Two', passwordHash, role: 'LISTENER', emailVerifiedAt: new Date(),
     });
     const result = await service.login({ email: ' PERSON@EXAMPLE.COM ', password: 'Correct-password-123' });
     expect(prisma.user.findUnique).toHaveBeenCalledWith({ where: { email: 'person@example.com' } });
@@ -78,10 +75,21 @@ describe('AuthService', () => {
     expect(prisma.authSession.create).toHaveBeenCalled();
   });
 
+  it('blocks a correct password until the email address is verified', async () => {
+    const passwordHash = await bcrypt.hash('Correct-password-123', 4);
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-unverified', email: 'new@example.com', displayName: 'New Listener', passwordHash, role: 'LISTENER', emailVerifiedAt: null,
+    });
+    await expect(service.login({ email: 'new@example.com', password: 'Correct-password-123' }))
+      .rejects.toThrow('Please verify your email before signing in');
+    expect(jwt.signAsync).not.toHaveBeenCalled();
+    expect(prisma.authSession.create).not.toHaveBeenCalled();
+  });
+
   it('rejects a wrong password without issuing a token or creating a session', async () => {
     const passwordHash = await bcrypt.hash('Correct-password-123', 4);
     prisma.user.findUnique.mockResolvedValue({
-      id: 'user-3', email: 'person@example.com', displayName: 'Listener Three', passwordHash, role: 'LISTENER',
+      id: 'user-3', email: 'person@example.com', displayName: 'Listener Three', passwordHash, role: 'LISTENER', emailVerifiedAt: new Date(),
     });
     await expect(service.login({ email: 'person@example.com', password: 'incorrect-password' }))
       .rejects.toBeInstanceOf(UnauthorizedException);
