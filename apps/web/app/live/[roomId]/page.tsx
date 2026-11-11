@@ -4,7 +4,7 @@ import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Room, RoomEvent } from 'livekit-client';
+import { Room, RoomEvent, DataPacket_Kind } from 'livekit-client';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type StageState = {
@@ -37,6 +37,9 @@ export default function LiveRoomPage() {
   const [analytics, setAnalytics] = useState<any>(null);
   const [recordingConsent, setRecordingConsent] = useState(false);
   const [replayDraft, setReplayDraft] = useState<{ episodeId: string; processingStatus: string } | null>(null);
+  const [reactions, setReactions] = useState<{ id: number; emoji: string; userId: string }[]>([]);
+  const [reporting, setReporting] = useState(false);
+  const [reported, setReported] = useState(false);
 
   const api = useCallback(async (path: string, method = 'GET') => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -80,6 +83,14 @@ export default function LiveRoomPage() {
       canPublishRef.current = Boolean(data.canPublish);
       room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? 'Connected · You are on stage' : 'Connected · Listening'));
       room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting to live media…'));
+      room.on(RoomEvent.DataReceived, (payload, participant) => {
+        try {
+          const packet = JSON.parse(new TextDecoder().decode(payload));
+          if (packet?.type === 'VOXA_REACTION' && ['👏', '❤️', '🔥', '😂', '🎉', '🙌'].includes(packet.emoji)) {
+            setReactions(current => [...current.slice(-19), { id: Date.now() + Math.random(), emoji: packet.emoji, userId: participant?.identity || 'listener' }]);
+          }
+        } catch { /* Ignore unrelated or malformed room data packets. */ }
+      });
       room.on(RoomEvent.Reconnected, () => {
         setError('');
         setStatus(canPublishRef.current ? 'Connected · You are on stage' : 'Connected · Listening');
@@ -147,6 +158,29 @@ export default function LiveRoomPage() {
       }).catch(() => undefined);
     };
   }, [status, roomId]);
+
+  async function sendReaction(emoji: string) {
+    const room = roomRef.current;
+    if (!room || !room.localParticipant) { setError('Join the live room before reacting.'); return; }
+    try {
+      const payload = new TextEncoder().encode(JSON.stringify({ type: 'VOXA_REACTION', emoji }));
+      await room.localParticipant.publishData(payload, { reliable: true, topic: 'voxa-reactions' });
+      setReactions(current => [...current.slice(-19), { id: Date.now() + Math.random(), emoji, userId: 'You' }]);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to send reaction'); }
+  }
+
+  async function reportRoom() {
+    if (reported || reporting) return;
+    setReporting(true); setError('');
+    try {
+      const token = sessionStorage.getItem('voxa_access_token') || '';
+      const response = await apiFetch(API + '/reports', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify({ targetType: 'LIVE_ROOM', targetId: roomId, reason: 'OTHER' }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to report live room');
+      setReported(true);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to report live room'); }
+    finally { setReporting(false); }
+  }
 
   async function sendChatMessage() {
     if (!chatDraft.trim() || chatBusy) return;
@@ -239,7 +273,8 @@ export default function LiveRoomPage() {
     <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> {stage?.status === 'SCHEDULED' ? 'SCHEDULED' : stage?.status === 'LIVE' ? 'LIVE' : 'ROOM'}</span></nav>
     <section className="stagePage">
       <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{displayedStatus}</p>{stage?.status === 'SCHEDULED' && stage.scheduledAt && <p className="helperText">Scheduled for {new Date(stage.scheduledAt).toLocaleString()}</p>}</div>
-      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />{stage?.status === 'CANCELLED' && <><div className="stageMark">V<span>.</span></div><h2>Room cancelled</h2><p>This live session will not take place.</p></>}{stage?.status === 'SCHEDULED' && status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>{stage?.isHost ? 'Your room is ready.' : 'Coming up on VOXA LIVE.'}</h2><p>{stage?.isHost ? 'Return at the scheduled time and start the conversation.' : 'The host will open this room at the scheduled time.'}</p></>}<div className="connectionStatus"><i /> {displayedStatus}</div></div>
+      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />
+        {reactions.length > 0 && <div aria-live="polite" aria-label="Live audience reactions" style={{ position: 'absolute', top: 16, right: 16, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', maxWidth: '45%' }}>{reactions.slice(-8).map(reaction => <span key={reaction.id} style={{ fontSize: 26, padding: '5px 9px', borderRadius: 20, background: 'rgba(0,0,0,.55)' }}>{reaction.emoji}</span>)}</div>}{stage?.status === 'CANCELLED' && <><div className="stageMark">V<span>.</span></div><h2>Room cancelled</h2><p>This live session will not take place.</p></>}{stage?.status === 'SCHEDULED' && status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>{stage?.isHost ? 'Your room is ready.' : 'Coming up on VOXA LIVE.'}</h2><p>{stage?.isHost ? 'Return at the scheduled time and start the conversation.' : 'The host will open this room at the scheduled time.'}</p></>}<div className="connectionStatus"><i /> {displayedStatus}</div></div>
       {error && <p className="errorText">{error}</p>}
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
@@ -291,6 +326,7 @@ export default function LiveRoomPage() {
       </section>}
       {accessToken && <section className="moderationPanel" style={{ marginTop: 24 }}>
         <div className="sectionTitle"><div><span className="eyebrow">LIVE COMMUNITY</span><h2>Room chat</h2></div><button className="ghostButton" onClick={() => void refreshChat()}>↻ Refresh</button></div>
+        <div aria-label="Send a live reaction" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 16px' }}>{['👏', '❤️', '🔥', '😂', '🎉', '🙌'].map(emoji => <button key={emoji} type="button" className="controlButton" onClick={() => void sendReaction(emoji)} disabled={!status.startsWith('Connected')}>{emoji}</button>)}</div>
         <div style={{ maxHeight: 340, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 0' }}>
           {chatMessages.length ? chatMessages.map(message => <div key={message.id} style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--surface)' }}>
             <b style={{ fontSize: 12 }}>{message.author?.displayName || 'VOXA member'}</b><small style={{ marginLeft: 8, color: 'var(--muted)' }}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
@@ -303,6 +339,7 @@ export default function LiveRoomPage() {
         </form>}
       </section>}
       <div className="stageFoot"><span>Room ID: {roomId}</span><span>Powered by LiveKit WebRTC</span></div>
+      {accessToken && stage?.status === 'LIVE' && !stage.isHost && <button type="button" className="ghostButton" style={{ marginTop: 18 }} disabled={reporting || reported} onClick={() => void reportRoom()}>{reporting ? 'Submitting report…' : reported ? 'Room reported' : 'Report this live room'}</button>}
     </section>
   </main>;
 }
