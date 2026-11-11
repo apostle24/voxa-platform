@@ -108,6 +108,8 @@ model User {
   authSessions AuthSession[]
   emailVerifiedAt DateTime?
   emailActionTokens EmailActionToken[]
+  mfaCredential MfaCredential?
+  mfaChallenges MfaLoginChallenge[]
 }
 
 model Creator {
@@ -495,4 +497,39 @@ model EmailActionToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, purpose, consumedAt, expiresAt])
+}
+
+
+model MfaCredential {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  encryptedSecret   String
+  enabledAt         DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  backupCodes       MfaBackupCode[]
+}
+
+model MfaBackupCode {
+  id           String   @id @default(cuid())
+  credentialId String
+  codeHash     String   @unique
+  consumedAt   DateTime?
+  createdAt    DateTime @default(now())
+  credential   MfaCredential @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+
+  @@index([credentialId, consumedAt])
+}
+
+model MfaLoginChallenge {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt, consumedAt])
 }
