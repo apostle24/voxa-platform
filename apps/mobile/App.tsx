@@ -439,7 +439,7 @@ function Live({ userId, targetRoomId }: { userId: string; targetRoomId?: string 
       <Text style={styles.livePill}>● {item.status || 'LIVE'}</Text><Text style={styles.cardTitle}>{item.title || 'Live conversation'}</Text><Text style={styles.smallMuted}>{item.host?.displayName || item.creator?.user?.displayName || 'VOXA host'}</Text>
       <Text numberOfLines={2} style={styles.cardDesc}>{item.description || 'Join the conversation.'}</Text>
       <Button title={busy === item.id ? 'Joining…' : 'Join room'} onPress={() => join(item)} disabled={!!busy} />
-      <SafetyActions targetType="LIVE_ROOM" targetId={item.id} />
+      {item.status === 'LIVE' && <SafetyActions targetType="LIVE_ROOM" targetId={item.id} />}
       {!!item.host?.id && item.host.id !== userId && <SafetyActions targetType="USER" targetId={item.host.id} allowBlock />}
     </View>)}
     {!loading && !items.length && <Empty text="No public live rooms right now. Check back soon." />}
