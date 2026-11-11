@@ -12,14 +12,14 @@ describe('PaymentsService safety boundaries', () => {
 
   beforeEach(() => {
     prisma = {
-      payoutRequest: { findUnique: jest.fn(), updateMany: jest.fn() },
+      payoutRequest: { findUnique: jest.fn(), findFirst: jest.fn(), findUniqueOrThrow: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       financialAuditLog: { create: jest.fn() },
-      paymentAttempt: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), create: jest.fn(), update: jest.fn() },
+      paymentAttempt: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn(), findMany: jest.fn(), create: jest.fn(), update: jest.fn() },
       paymentWebhookEvent: { create: jest.fn(), update: jest.fn() },
       membershipSubscription: { findUnique: jest.fn(), upsert: jest.fn() },
-      creator: { findUniqueOrThrow: jest.fn() },
-      ledgerAccount: { upsert: jest.fn() },
-      ledgerTransaction: { create: jest.fn() },
+      creator: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn() },
+      ledgerAccount: { findUnique: jest.fn(), upsert: jest.fn() },
+      ledgerTransaction: { findUnique: jest.fn(), create: jest.fn() },
       membershipPlan: { findFirst: jest.fn() },
       user: { findUnique: jest.fn() },
       $transaction: jest.fn(),
