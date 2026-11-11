@@ -125,7 +125,7 @@ export default function CommunityDetailPage() {
         <p style={{ color: 'var(--muted)' }}>{community.description || 'A place to connect around shared interests.'}</p>
         <small>{community._count.members} members · {community._count.posts} posts · Created by {community.owner.displayName}</small>
         <div style={{ margin: '20px 0' }}>
-          <button className="button" disabled={busy} onClick={() => void membership()}>{busy ? 'Please wait…' : joined ? (role === 'OWNER' ? 'You own this community' : 'Leave community') : 'Join community'}</button>
+          <button className="button" disabled={busy || role === 'OWNER'} onClick={() => void membership()}>{busy ? 'Please wait…' : joined ? (role === 'OWNER' ? 'You own this community' : 'Leave community') : 'Join community'}</button>
           {role === 'OWNER' && <Link className="ghostButton" href="/creator/audience" style={{ marginLeft: 10 }}>Manage members ↗</Link>}
         </div>
         {!joined ? <div className="emptyState"><h3>Join the conversation</h3><p>Become a member to read discussions, publish posts and reply to other members.</p></div> : <>
