@@ -291,8 +291,8 @@ function Communities() {
 }
 
 function Live() {
-  const { items, loading, error, refresh } = useLoad<ApiRecord>('/live/rooms');
-  const [room, setRoom] = useState<{ id: string; token: string; serverUrl: string; title: string } | null>(null);
+  const { items, loading, error } = useLoad<ApiRecord>('/live/rooms');
+  const [room, setRoom] = useState<{ id: string; token: string; serverUrl: string; title: string; canPublish: boolean } | null>(null);
   const [busy, setBusy] = useState('');
   useEffect(() => {
     if (!room) return;
@@ -303,15 +303,19 @@ function Live() {
     setBusy(item.id);
     try {
       const result = await api<any>('/live/rooms/' + encodeURIComponent(item.id) + '/join-token', { method: 'POST' });
-      setRoom({ id: item.id, token: result.token, serverUrl: result.serverUrl || result.url, title: item.title || 'VOXA LIVE' });
+      setRoom({ id: item.id, token: result.token, serverUrl: result.serverUrl || result.url, title: item.title || 'VOXA LIVE', canPublish: Boolean(result.canPublish) });
     } catch (e) { Alert.alert('Unable to join room', e instanceof Error ? e.message : 'Try again'); }
     finally { setBusy(''); }
   }
   if (room) return <View style={styles.liveRoom}>
-    <Text style={styles.livePill}>● CONNECTING TO LIVE</Text><Text style={styles.pageTitle}>{room.title}</Text>
-    <Text style={styles.muted}>Your VOXA live room connection is active when the native room reports connected.</Text>
-    <LiveKitRoom serverUrl={room.serverUrl} token={room.token} connect={true} audio={true} video={false} onDisconnected={() => setRoom(null)}>
-      <LiveRoomPanel roomId={room.id} />
+    <Text style={styles.livePill}>● CONNECTED TO VOXA LIVE</Text><Text style={styles.pageTitle}>{room.title}</Text>
+    <LiveKitRoom key={room.id + room.token} serverUrl={room.serverUrl} token={room.token} connect={true} audio={room.canPublish} video={false} onDisconnected={() => setRoom(null)}>
+      <LiveRoomPanel roomId={room.id} canPublish={room.canPublish}
+        onPublishGranted={async () => {
+          const fresh = await api<any>('/live/rooms/' + encodeURIComponent(room.id) + '/join-token', { method: 'POST' });
+          setRoom(current => current ? { ...current, token: fresh.token, canPublish: Boolean(fresh.canPublish) } : current);
+        }}
+        onMicToggle={enabled => setRoom(current => current ? { ...current, canPublish: enabled } : current)} />
     </LiveKitRoom>
     <Button title="Leave room" secondary onPress={() => setRoom(null)} />
   </View>;
@@ -326,36 +330,96 @@ function Live() {
   </ScrollView>;
 }
 
-function LiveRoomPanel({ roomId }: { roomId: string }) {
-  const { items, loading, error, refresh } = useLoad<any>('/live/rooms/' + encodeURIComponent(roomId) + '/chat');
+function LiveRoomPanel({ roomId, canPublish, onPublishGranted, onMicToggle }: {
+  roomId: string; canPublish: boolean; onPublishGranted: () => Promise<void>; onMicToggle: (enabled: boolean) => void;
+}) {
+  const [messages, setMessages] = useState<any[]>([]);
+  const [stage, setStage] = useState<any>(null);
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
-  const [stageBusy, setStageBusy] = useState(false);
+  const [stageBusy, setStageBusy] = useState('');
+  const [micEnabled, setMicEnabled] = useState(canPublish);
+  const [loadError, setLoadError] = useState('');
+  const isHost = Boolean(stage?.isHost);
+  const isSpeaker = isHost || (stage?.speakers || []).some((speaker: any) => speaker.userId === stage?.currentUserId);
+  async function refreshRoom() {
+    try {
+      const [chat, state] = await Promise.all([
+        api<any>('/live/rooms/' + encodeURIComponent(roomId) + '/chat'),
+        api<any>('/live/rooms/' + encodeURIComponent(roomId) + '/stage'),
+      ]);
+      setMessages(chat.messages || chat || []);
+      setStage({ ...state, currentUserId: state.currentUserId });
+      setLoadError('');
+      if (!canPublish && (state.speakers || []).some((speaker: any) => speaker.userId === state.currentUserId)) await onPublishGranted();
+    } catch (e) { setLoadError(e instanceof Error ? e.message : 'Unable to refresh live room'); }
+  }
+  useEffect(() => { void refreshRoom(); }, [roomId]);
   async function sendMessage() {
     const content = message.trim();
     if (!content || sending) return;
     setSending(true);
     try {
       await api('/live/rooms/' + encodeURIComponent(roomId) + '/chat', { method: 'POST', body: JSON.stringify({ content }) });
-      setMessage(''); refresh();
+      setMessage(''); await refreshRoom();
     } catch (e) { Alert.alert('Message not sent', e instanceof Error ? e.message : 'Try again'); }
     finally { setSending(false); }
   }
   async function requestToSpeak() {
-    setStageBusy(true);
-    try { await api('/live/rooms/' + encodeURIComponent(roomId) + '/stage-requests', { method: 'POST' }); Alert.alert('Request sent', 'The host can now review your request to join the stage.'); }
+    setStageBusy('request');
+    try { await api('/live/rooms/' + encodeURIComponent(roomId) + '/stage-requests', { method: 'POST' }); Alert.alert('Request sent', 'The host can review your request.'); await refreshRoom(); }
     catch (e) { Alert.alert('Request not sent', e instanceof Error ? e.message : 'Try again'); }
-    finally { setStageBusy(false); }
+    finally { setStageBusy(''); }
+  }
+  async function decideRequest(requestId: string, approve: boolean) {
+    setStageBusy(requestId);
+    try {
+      await api('/live/rooms/' + encodeURIComponent(roomId) + '/stage-requests/' + encodeURIComponent(requestId) + '/' + (approve ? 'approve' : 'reject'), { method: 'POST' });
+      await refreshRoom();
+    } catch (e) { Alert.alert('Stage action failed', e instanceof Error ? e.message : 'Try again'); }
+    finally { setStageBusy(''); }
+  }
+  async function removeSpeaker(userId: string) {
+    setStageBusy(userId);
+    try {
+      await api('/live/rooms/' + encodeURIComponent(roomId) + '/speakers/' + encodeURIComponent(userId) + '/remove', { method: 'POST' });
+      await refreshRoom();
+    } catch (e) { Alert.alert('Unable to remove speaker', e instanceof Error ? e.message : 'Try again'); }
+    finally { setStageBusy(''); }
+  }
+  function toggleMic() {
+    const next = !micEnabled;
+    setMicEnabled(next);
+    onMicToggle(next);
   }
   return <View style={[styles.roomPanel, { flex: 1 }]}>
-    <Text style={styles.cardTitle}>Live conversation</Text>
-    <Text style={styles.smallMuted}>Your microphone is connected as an audience member. Request the stage to speak.</Text>
-    <Button title={stageBusy ? 'Sending request…' : 'Request to speak'} secondary onPress={requestToSpeak} disabled={stageBusy} />
+    <Text style={styles.cardTitle}>Live stage</Text>
+    <Text style={styles.smallMuted}>{isHost ? 'You are hosting this room.' : isSpeaker ? 'You are on stage.' : 'You are listening to the conversation.'}</Text>
+    {(isHost || isSpeaker) && <Button title={micEnabled ? 'Mute microphone' : 'Unmute microphone'} secondary onPress={toggleMic} />}
+    {!isHost && !isSpeaker && <Button title={stageBusy === 'request' ? 'Requesting…' : stage?.ownRequest?.status === 'PENDING' ? 'Request pending' : 'Request to speak'} secondary onPress={requestToSpeak} disabled={stageBusy === 'request' || stage?.ownRequest?.status === 'PENDING'} />}
+    <Button title="Refresh stage and chat" secondary onPress={refreshRoom} />
+    {!!loadError && <Text style={styles.error}>{loadError}</Text>}
+    {isHost && <>
+      <SectionTitle>Speaker requests ({stage?.requests?.length || 0})</SectionTitle>
+      {(stage?.requests || []).map((request: any) => <View key={request.id} style={styles.stageRow}>
+        <Text style={[styles.muted, { flex: 1 }]}>{request.userId}</Text>
+        <Pressable onPress={() => decideRequest(request.id, true)} disabled={!!stageBusy}><Text style={styles.backLink}>Approve</Text></Pressable>
+        <Pressable onPress={() => decideRequest(request.id, false)} disabled={!!stageBusy}><Text style={styles.error}>Reject</Text></Pressable>
+      </View>)}
+    </>}
+    <SectionTitle>On stage ({stage?.speakers?.length || 0})</SectionTitle>
+    {(stage?.speakers || []).map((speaker: any) => <View key={speaker.userId} style={styles.stageRow}>
+      <Text style={[styles.muted, { flex: 1 }]}>{speaker.userId} · {speaker.role}</Text>
+      {isHost && speaker.role !== 'HOST' && <Pressable onPress={() => removeSpeaker(speaker.userId)} disabled={!!stageBusy}><Text style={styles.error}>Remove</Text></Pressable>}
+    </View>)}
     <SectionTitle>Room chat</SectionTitle>
-    {loading ? <ActivityIndicator color={colors.accent} /> : error ? <Text style={styles.smallMuted}>{error}</Text> : <ScrollView style={{ maxHeight: 210 }}>
-      {items.map((item: any, index: number) => <View key={item.id || index} style={styles.chatBubble}><Text style={styles.cardTitle}>{item.user?.displayName || item.author?.displayName || 'Listener'}</Text><Text style={styles.muted}>{item.content || item.message || ''}</Text></View>)}
-      {!items.length && <Empty text="Be the first to join the conversation." />}
-    </ScrollView>}
+    <ScrollView style={{ maxHeight: 190 }}>
+      {messages.map((item: any, index: number) => <View key={item.id || index} style={styles.chatBubble}>
+        <Text style={styles.cardTitle}>{item.author?.displayName || item.user?.displayName || 'Listener'}</Text>
+        <Text style={styles.muted}>{item.content || item.message || ''}</Text>
+      </View>)}
+      {!messages.length && <Empty text="Be the first to join the conversation." />}
+    </ScrollView>
     <Field value={message} onChangeText={setMessage} placeholder="Write a message…" maxLength={1000} />
     <Button title={sending ? 'Sending…' : 'Send message'} onPress={sendMessage} disabled={sending || !message.trim()} />
   </View>;
@@ -502,7 +566,7 @@ const styles = StyleSheet.create({
   hint: { color: colors.muted, fontSize: 11, lineHeight: 17, marginTop: 14 }, notice: { color: colors.accent2, fontSize: 12, lineHeight: 18, marginBottom: 10 }, switchAuth: { color: colors.accent2, textAlign: 'center', fontWeight: '700', marginTop: 16 }, error: { color: colors.danger, fontSize: 12, marginBottom: 10 },
   liveCard: { backgroundColor: colors.panel, borderRadius: 16, borderColor: colors.border, borderWidth: 1, padding: 16, marginBottom: 12 },
   livePill: { color: colors.live, fontSize: 10, fontWeight: '900', letterSpacing: 1.2, marginBottom: 10 }, liveRoom: { flex: 1, padding: 18 },
-  backLink: { color: colors.accent2, fontWeight: '800', marginVertical: 8 }, discussionCard: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 }, replyCard: { backgroundColor: colors.panel2, borderRadius: 10, padding: 10, marginTop: 8 }, creatorShow: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 }, episodeManage: { borderTopWidth: 1, borderColor: colors.border, paddingTop: 12, marginTop: 12 }, chatBubble: { backgroundColor: colors.panel2, borderRadius: 10, padding: 9, marginBottom: 7 }, roomPanel: { backgroundColor: colors.panel, borderRadius: 16, padding: 20, marginVertical: 18, minHeight: 120 },
+  backLink: { color: colors.accent2, fontWeight: '800', marginVertical: 8 }, discussionCard: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 }, replyCard: { backgroundColor: colors.panel2, borderRadius: 10, padding: 10, marginTop: 8 }, creatorShow: { backgroundColor: colors.panel, borderColor: colors.border, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 12 }, episodeManage: { borderTopWidth: 1, borderColor: colors.border, paddingTop: 12, marginTop: 12 }, stageRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderColor: colors.border }, chatBubble: { backgroundColor: colors.panel2, borderRadius: 10, padding: 9, marginBottom: 7 }, roomPanel: { backgroundColor: colors.panel, borderRadius: 16, padding: 20, marginVertical: 18, minHeight: 120 },
   formCard: { backgroundColor: colors.panel, borderRadius: 16, borderWidth: 1, borderColor: colors.border, padding: 14 },
   profileCard: { alignItems: 'center', backgroundColor: colors.panel, borderRadius: 18, borderWidth: 1, borderColor: colors.border, padding: 24, marginBottom: 20 },
   avatar: { width: 76, height: 76, borderRadius: 38, backgroundColor: colors.panel2, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
