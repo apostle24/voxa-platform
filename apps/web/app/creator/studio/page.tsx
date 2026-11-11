@@ -11,7 +11,7 @@ const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1')
 
 type Episode = {
   id: string; title: string; description?: string | null; status: string;
-  durationSeconds?: number | null; mediaKey?: string | null; membershipRequired: boolean;
+  durationSeconds?: number | null; mediaKey?: string | null; membershipRequired: boolean; isLiveReplay?: boolean;
   mediaAssets: { id: string; status: string; contentType: string }[];
 };
 type MembershipPlan = { id: string; name: string; description?: string | null; priceMinor: number; currency: string; isActive: boolean };
@@ -347,7 +347,7 @@ export default function CreatorStudioPage() {
             </form>}
             <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
               {show.episodes.map(episode => <div id={'episode-' + episode.id} key={episode.id} style={{ padding: 14, borderRadius: 9, border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                <div><b style={{ fontSize: 13 }}>{episode.title}</b><small style={{ display: 'block', color: 'var(--muted)', fontSize: 10, marginTop: 5 }}>{episode.status} · {episode.durationSeconds ? Math.floor(episode.durationSeconds / 60) + ' min' : 'Duration not set'} · {episode.mediaAssets?.[0]?.status ? 'Media ' + episode.mediaAssets[0].status.toLowerCase() : episode.mediaKey ? 'Media processing status unavailable' : 'Media required'}</small></div>
+                <div><b style={{ fontSize: 13 }}>{episode.title}</b>{episode.isLiveReplay && <span style={{ display: 'inline-flex', marginLeft: 8, padding: '3px 7px', borderRadius: 5, background: 'rgba(143,105,255,.14)', color: '#b9a5ff', fontSize: 9, fontWeight: 700, letterSpacing: '.08em' }}>LIVE REPLAY</span>}<small style={{ display: 'block', color: 'var(--muted)', fontSize: 10, marginTop: 5 }}>{episode.status} · {episode.durationSeconds ? Math.floor(episode.durationSeconds / 60) + ' min' : 'Duration not set'} · {episode.mediaAssets?.[0]?.status ? 'Media ' + episode.mediaAssets[0].status.toLowerCase() : episode.mediaKey ? 'Media processing status unavailable' : 'Media required'}</small>{episode.isLiveReplay && episode.status !== 'PUBLISHED' && <small style={{ display: 'block', color: 'var(--muted)', fontSize: 11, marginTop: 7 }}>This recording is private until you review its details and publish it. Preview the processed replay before publishing.</small>}</div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   {episode.status !== 'PUBLISHED' && <label className="ghostButton" style={{ cursor: 'pointer' }}>{uploadingId === episode.id ? 'Uploading…' : 'Upload media'}<input type="file" accept="audio/*,video/mp4,video/webm,video/quicktime" disabled={uploadingId === episode.id} onChange={event => void uploadMedia(show.id, episode.id, event)} style={{ display: 'none' }} /></label>}
                   <button className="ghostButton" disabled={busy || plans.length === 0 || episode.status === 'PUBLISHED'} onClick={() => void toggleEpisodeMembership(show.id, episode.id, episode.membershipRequired)}>{episode.membershipRequired ? 'Members only ✓' : 'Make members only'}</button>
