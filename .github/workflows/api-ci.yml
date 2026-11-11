@@ -61,6 +61,8 @@ jobs:
       - run: pnpm --filter @voxa/api prisma:generate
       - name: Check media worker syntax
         run: node --check apps/api/scripts/media-worker.cjs
+      - name: Validate staging database bootstrap script
+        run: sh -n apps/api/scripts/bootstrap-staging-db.sh
       - name: Build isolated media worker image
         run: docker build -f apps/api/Dockerfile.media-worker -t voxa-media-worker:ci .
       - name: Typecheck API and web
