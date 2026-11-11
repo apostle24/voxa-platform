@@ -13,8 +13,8 @@ function destination(item: Notice) {
   if (!item.resourceId) return null;
   if (item.resourceType === 'live_room') return '/live/' + item.resourceId;
   if (item.resourceType === 'episode') return '/episodes/' + item.resourceId;
-  if (item.resourceType === 'moment') return '/moments/' + item.resourceId;
-  if (item.resourceType === 'creator') return '/creators';
+  if (item.resourceType === 'moment') return '/moments';
+  if (item.resourceType === 'creator') return '/creator/audience';
   if (item.resourceType === 'community') return '/communities';
   return null;
 }
