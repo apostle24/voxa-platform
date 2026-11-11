@@ -9,3 +9,13 @@ export class ReviewReportDto {
   @MaxLength(1000)
   moderatorNote?: string;
 }
+
+
+export class ModerationActionDto {
+  @IsIn(['HIDE_EPISODE', 'RESTORE_EPISODE', 'HIDE_MOMENT', 'RESTORE_MOMENT'])
+  action!: 'HIDE_EPISODE' | 'RESTORE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_MOMENT';
+
+  @IsString()
+  @MaxLength(1000)
+  moderatorNote!: string;
+}
