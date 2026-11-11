@@ -240,6 +240,7 @@ export class LiveService {
       await tx.liveViewerSession.updateMany({ where: { roomId, leftAt: null }, data: { leftAt } });
       await tx.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt: leftAt } });
       await tx.liveAgendaItem.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', completedAt: leftAt } });
+      await tx.liveGuestInvitation.updateMany({ where: { roomId, status: { in: ['PENDING', 'ACCEPTED'] } }, data: { status: 'CANCELLED', respondedAt: leftAt } });
       return ended;
     });
   }
@@ -281,6 +282,7 @@ export class LiveService {
       data: { status: LiveRoomStatus.CANCELLED, endedAt: new Date() },
     });
     if (result.count !== 1) throw new ConflictException('This scheduled room has already changed; refresh and try again');
+    await this.prisma.liveGuestInvitation.updateMany({ where: { roomId, status: { in: ['PENDING', 'ACCEPTED'] } }, data: { status: 'CANCELLED', respondedAt: new Date() } });
     return { id: roomId, status: LiveRoomStatus.CANCELLED };
   }
 
