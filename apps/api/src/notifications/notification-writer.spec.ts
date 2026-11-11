@@ -1,5 +1,6 @@
 import { PrismaService } from '../prisma/prisma.service';
 import { createUserNotification } from './notification-writer';
+import { notificationEventBus } from './notification-events';
 
 describe('createUserNotification', () => {
   let prisma: any;
@@ -23,7 +24,8 @@ describe('createUserNotification', () => {
 
   it('delivers when the category is enabled or preferences do not exist yet', async () => {
     prisma.notificationPreference.findUnique.mockResolvedValue(null);
-    prisma.notification.create.mockResolvedValue({ id: 'notice-1' });
+    prisma.notification.create.mockResolvedValue({ id: 'notice-1', title: 'New follower' });
+    const publish = jest.spyOn(notificationEventBus, 'emit');
     await expect(createUserNotification(prisma as unknown as PrismaService, {
       recipientId: 'creator-1', actorId: 'listener-1', type: 'NEW_FOLLOWER',
       title: 'New follower', category: 'follows',
@@ -31,6 +33,8 @@ describe('createUserNotification', () => {
     expect(prisma.notification.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ recipientId: 'creator-1', actorId: 'listener-1', type: 'NEW_FOLLOWER' }),
     }));
+    expect(publish).toHaveBeenCalledWith('notification.created', expect.objectContaining({ recipientId: 'creator-1', notification: expect.objectContaining({ id: 'notice-1' }) }));
+    publish.mockRestore();
   });
 
   it('does not create notifications for the actor themselves', async () => {

@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query, Req, Sse, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsOptional } from 'class-validator';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { NotificationsService } from './notifications.service';
+import { NotificationRealtimeService } from './notification-realtime.service';
 
 class UpdateNotificationPreferencesDto {
   @IsOptional() @IsBoolean() follows?: boolean;
@@ -13,7 +14,12 @@ class UpdateNotificationPreferencesDto {
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
-  constructor(private readonly notifications: NotificationsService) {}
+  constructor(private readonly notifications: NotificationsService, private readonly realtime: NotificationRealtimeService) {}
+
+  @Sse('stream')
+  stream(@Req() req: AuthenticatedRequest) {
+    return this.realtime.stream(req.user.id);
+  }
 
   @Get()
   list(@Req() req: AuthenticatedRequest, @Query('unreadOnly') unreadOnly?: string) {

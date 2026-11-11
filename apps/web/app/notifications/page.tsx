@@ -55,6 +55,7 @@ export default function NotificationsPage() {
     if (response.ok) {
       setItems(current => current.map(item => item.id === id ? { ...item, readAt: new Date().toISOString() } : item));
       setUnread(value => Math.max(0, value - 1));
+      window.dispatchEvent(new Event('voxa:notification-read'));
     }
   }
 
@@ -66,6 +67,7 @@ export default function NotificationsPage() {
       if (!response.ok) throw new Error('Could not mark notifications as read');
       setItems(current => current.map(item => ({ ...item, readAt: item.readAt || new Date().toISOString() })));
       setUnread(0);
+      window.dispatchEvent(new Event('voxa:notification-read'));
     } catch (e) { setError(e instanceof Error ? e.message : 'Could not update notifications'); }
     finally { setBusy(false); }
   }
@@ -92,8 +94,21 @@ export default function NotificationsPage() {
 
   useEffect(() => {
     void load();
-    const interval = window.setInterval(() => { setRefreshing(true); void load().finally(() => setRefreshing(false)); }, 30000);
-    return () => window.clearInterval(interval);
+    const onNotification = (event: Event) => {
+      const notice = (event as CustomEvent<Notice>).detail;
+      if (!notice?.id) { void load(); return; }
+      setItems(current => current.some(item => item.id === notice.id) ? current : [notice, ...current].slice(0, 50));
+      setUnread(value => value + (notice.readAt ? 0 : 1));
+    };
+    const onRefresh = () => { setRefreshing(true); void load().finally(() => setRefreshing(false)); };
+    window.addEventListener('voxa:notification', onNotification);
+    window.addEventListener('voxa:notification-refresh', onRefresh);
+    window.addEventListener('focus', onRefresh);
+    return () => {
+      window.removeEventListener('voxa:notification', onNotification);
+      window.removeEventListener('voxa:notification-refresh', onRefresh);
+      window.removeEventListener('focus', onRefresh);
+    };
   }, [load]);
 
   const settings = [
