@@ -295,7 +295,7 @@ export class LiveService {
   }
 
   async getRoomAnalytics(hostId: string, roomId: string) {
-    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true, startedAt: true, endedAt: true, peakAudienceCount: true } });
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true, startedAt: true, endedAt: true, peakAudienceCount: true, recordingStatus: true, recordingStartedAt: true, recordingEndedAt: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can view room analytics');
     const activeSince = new Date(Date.now() - 45_000);
@@ -317,7 +317,7 @@ export class LiveService {
     const stageUserIds = new Set([room.hostId, ...stageMembers.filter(member => member.leftAt === null).map(member => member.userId)]);
     const concurrentViewers = activeViewerUsers.filter(viewer => !stageUserIds.has(viewer.userId)).length;
     return {
-      room: { id: room.id, title: room.title, status: room.status, startedAt: room.startedAt, endedAt: room.endedAt, durationSeconds },
+      room: { id: room.id, title: room.title, status: room.status, startedAt: room.startedAt, endedAt: room.endedAt, durationSeconds, recordingStatus: room.recordingStatus, recordingStartedAt: room.recordingStartedAt, recordingEndedAt: room.recordingEndedAt },
       stage: { totalSpeakerSessions: speakers.length, activeSpeakers: speakers.filter(speaker => speaker.currentlyOnStage).length, speakers },
       requests: { pending: requests.pending ?? 0, approved: requests.approved ?? 0, rejected: requests.rejected ?? 0 },
       audience: { concurrentViewers, peakConcurrentViewers: room.peakAudienceCount },
