@@ -28,7 +28,7 @@ function formatTime(seconds: number) {
 }
 
 
-function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: string }) {
+function EpisodeCommunity({ episodeId, token, replayContextSeconds, onReplayContextConsumed }: { episodeId: string; token: string; replayContextSeconds?: number | null; onReplayContextConsumed?: () => void }) {
   const [data, setData] = useState<{ likeCount: number; commentCount: number; likedByMe: boolean; comments: any[] } | null>(null);
   const [message, setMessage] = useState('');
   const [replyTo, setReplyTo] = useState<string | null>(null);
@@ -76,15 +76,19 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
     setBusy(true);
     setError('');
     try {
+      const contextualDraft = !replyTo && replayContextSeconds !== null && replayContextSeconds !== undefined
+        ? '[Replay @ ' + replayContextSeconds + 's] ' + draft.trim()
+        : draft.trim();
       const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/comments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
-        body: JSON.stringify({ content: draft.trim(), ...(replyTo ? { parentId: replyTo } : {}) }),
+        body: JSON.stringify({ content: contextualDraft, ...(replyTo ? { parentId: replyTo } : {}) }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Unable to post comment');
       setDraft('');
       setReplyTo(null);
+      onReplayContextConsumed?.();
       await load();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Unable to post comment');
@@ -102,7 +106,8 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
       {!token ? <p style={{ color: 'var(--muted)', fontSize: 13 }}>Sign in to join the conversation and support this episode.</p> : <>
         {error && <p className="errorText" role="alert">{error}</p>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 18 }}>
-          <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={2000} rows={3} placeholder={replyTo ? 'Write a reply…' : 'Share your thoughts about this episode…'} style={{ width: '100%', resize: 'vertical', padding: 13, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit', font: 'inherit' }} />
+          {replayContextSeconds !== null && replayContextSeconds !== undefined && !replyTo && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', borderRadius: 9, background: 'var(--surface)', border: '1px solid var(--line)' }}><small style={{ color: 'var(--muted)' }}>Comment linked to replay moment <b style={{ color: 'inherit' }}>{formatTime(replayContextSeconds)}</b></small><button type="button" className="ghostButton" onClick={onReplayContextConsumed}>Remove moment</button></div>}
+          <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={replayContextSeconds !== null && replayContextSeconds !== undefined && !replyTo ? 1980 : 2000} rows={3} placeholder={replyTo ? 'Write a reply…' : replayContextSeconds !== null && replayContextSeconds !== undefined ? 'What would you like to say about this moment?' : 'Share your thoughts about this episode…'} style={{ width: '100%', resize: 'vertical', padding: 13, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit', font: 'inherit' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button className="button small" disabled={busy || !draft.trim()} onClick={() => void submitComment()}>{busy ? 'Posting…' : replyTo ? 'Post reply' : 'Post comment'}</button>
             {replyTo && <button className="ghostButton" onClick={() => setReplyTo(null)}>Cancel reply</button>}
@@ -113,7 +118,11 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
           <p className="eyebrow">{data?.commentCount ?? '—'} COMMENTS</p>
           {data?.comments?.length ? data.comments.map((comment: any) => <article key={comment.id} style={{ padding: '16px 0', borderBottom: '1px solid var(--line)' }}>
             <b style={{ fontSize: 13 }}>{comment.author.displayName}</b><small style={{ color: 'var(--muted)', marginLeft: 9 }}>{new Date(comment.createdAt).toLocaleDateString()}</small>
-            <p style={{ fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{comment.content}</p>
+            {(() => {
+              const context = /^\[Replay @ (\d+)s\]\s*/.exec(comment.content || '');
+              const body = context ? comment.content.slice(context[0].length) : comment.content;
+              return <><p style={{ fontSize: 13, lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{body}</p>{context && <Link href={'/episodes/' + encodeURIComponent(episodeId) + '?t=' + context[1]} style={{ display: 'inline-flex', marginBottom: 8, color: 'var(--accent, #a78bfa)', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>▶ At {formatTime(Number(context[1]))}</Link>}</>;
+            })()}
             {comment.content !== '[deleted]' && <button className="ghostButton" onClick={() => { setReplyTo(comment.id); setDraft(''); }}>Reply</button>}
             {comment.replies?.map((reply: any) => <div key={reply.id} style={{ margin: '14px 0 0 22px', paddingLeft: 14, borderLeft: '2px solid var(--line)' }}>
               <b style={{ fontSize: 12 }}>{reply.author.displayName}</b><small style={{ color: 'var(--muted)', marginLeft: 9 }}>{new Date(reply.createdAt).toLocaleDateString()}</small>
@@ -138,6 +147,7 @@ export default function EpisodePage() {
   const [mediaType, setMediaType] = useState('audio/mpeg');
   const [bookmarked, setBookmarked] = useState(false);
   const [shareStatus, setShareStatus] = useState('');
+  const [replayContextSeconds, setReplayContextSeconds] = useState<number | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -410,6 +420,10 @@ export default function EpisodePage() {
             segments={transcript.segments}
             currentTime={mediaType.startsWith('video/') ? videoCurrentTime : currentTrack?.episodeId === episode.id ? currentTime : -1}
             onSeek={seconds => seekReplay(seconds)}
+            onDiscuss={seconds => {
+              setReplayContextSeconds(seconds);
+              window.setTimeout(() => document.getElementById('episode-discussion')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+            }}
           /> : <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
             <div className="eyebrow">EPISODE TRANSCRIPT · {transcript.language.toUpperCase()}</div>
             <h2 style={{ margin: '8px 0 14px' }}>Read along.</h2>
@@ -475,7 +489,7 @@ export default function EpisodePage() {
               {saving ? ' · Saving progress…' : ''}
             </p>
           </section>}
-          <EpisodeCommunity episodeId={episode.id} token={token} />
+          <EpisodeCommunity episodeId={episode.id} token={token} replayContextSeconds={episode.isLiveReplay ? replayContextSeconds : null} onReplayContextConsumed={() => setReplayContextSeconds(null)} />
         </>}
       </section>
     </main>
