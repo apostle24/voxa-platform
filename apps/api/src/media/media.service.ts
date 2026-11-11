@@ -248,11 +248,10 @@ export class MediaService {
     });
     if (!moment) throw new NotFoundException('Moment not found');
     const render = await this.prisma.momentRender.findFirst({
-      where: { momentId, status: 'READY', playbackKey: { not: null } },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, playbackKey: true, contentType: true, sizeBytes: true, aspectRatio: true },
+      where: { momentId }, orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true, playbackKey: true, contentType: true, sizeBytes: true, aspectRatio: true, failureReason: true },
     });
-    if (!render?.playbackKey) return { ready: false };
+    if (!render?.playbackKey || render.status !== 'READY') return { ready: false, status: render?.status || 'NOT_REQUESTED', failureReason: render?.failureReason || null };
     const expiresIn = Math.max(60, Math.min(21600, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 3600))));
     const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: render.playbackKey }), { expiresIn });
     return { ready: true, id: render.id, url, contentType: render.contentType || 'video/mp4', sizeBytes: render.sizeBytes?.toString() || null, aspectRatio: render.aspectRatio, expiresIn };
