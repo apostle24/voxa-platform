@@ -733,9 +733,9 @@ export default function LiveRoomPage() {
           const total = poll.options.reduce((sum: number, option: any) => sum + option.voteCount, 0);
           return <div key={poll.id} style={{ padding: 14, borderRadius: 12, background: 'var(--surface)', marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'center' }}><b>{poll.question}</b><span className="countBadge">{poll.status}</span></div>
-            <p className="helperText">{total} vote{total === 1 ? '' : 's'} · {poll.myVote ? 'Your vote is recorded' : 'Choose one option'}</p>
+            <p className="helperText">{total} vote{total === 1 ? '' : 's'} · {poll.myVote ? 'Your vote is recorded · one vote per person' : 'Choose one option'}</p>
             <div style={{ display: 'grid', gap: 8 }}>
-              {poll.options.map((option: any) => <button type="button" key={option.id} className={poll.myVote === option.id ? 'approveButton' : 'controlButton'} disabled={poll.status !== 'OPEN' || !!interactionBusy} onClick={() => void votePoll(poll.id, option.id)} style={{ display: 'flex', justifyContent: 'space-between', textAlign: 'left' }}><span>{option.text}</span><b>{option.voteCount}{total ? ' · ' + Math.round(option.voteCount / total * 100) + '%' : ''}</b></button>)}
+              {poll.options.map((option: any) => <button type="button" key={option.id} className={poll.myVote === option.id ? 'approveButton' : 'controlButton'} disabled={poll.status !== 'OPEN' || Boolean(poll.myVote) || !!interactionBusy} onClick={() => void votePoll(poll.id, option.id)} style={{ display: 'flex', justifyContent: 'space-between', textAlign: 'left' }}><span>{option.text}</span><b>{option.voteCount}{total ? ' · ' + Math.round(option.voteCount / total * 100) + '%' : ''}</b></button>)}
             </div>
             {(isHost || isModerator) && poll.status === 'OPEN' && <button type="button" className="rejectButton" style={{ marginTop: 10 }} disabled={!!interactionBusy} onClick={() => void closePoll(poll.id)}>Close poll</button>}
           </div>;
