@@ -328,8 +328,25 @@ model LiveRoom {
   stage       LiveStageMember[]
   requests    StageRequest[]
   chatMessages LiveChatMessage[]
+  viewerSessions LiveViewerSession[]
 
   @@index([status, scheduledAt])
+}
+
+
+model LiveViewerSession {
+  id         String   @id @default(cuid())
+  roomId     String
+  userId     String
+  sessionId  String
+  joinedAt   DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  leftAt     DateTime?
+  room       LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, sessionId])
+  @@index([roomId, leftAt, lastSeenAt])
+  @@index([roomId, userId, leftAt])
 }
 
 model LiveChatMessage {
