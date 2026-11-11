@@ -10,7 +10,7 @@ describe('ShowsService publishing and playback progress', () => {
     prisma = {
       creator: { findUnique: jest.fn() },
       show: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn(), update: jest.fn() },
-      episode: { findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
+      episode: { findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       mediaAsset: { findFirst: jest.fn() },
       moment: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), delete: jest.fn(), findMany: jest.fn() },
       playbackProgress: { upsert: jest.fn() },
@@ -65,6 +65,36 @@ describe('ShowsService publishing and playback progress', () => {
     expect(prisma.episode.update).not.toHaveBeenCalled();
   });
 
+  it('unpublishes an owned published episode back to an editable draft', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', status: 'PUBLISHED' });
+    prisma.episode.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.unpublishEpisode('creator-user', 'show-1', 'episode-1')).resolves.toMatchObject({ id: 'episode-1', showId: 'show-1', status: 'DRAFT', publishedAt: null });
+    expect(prisma.episode.updateMany).toHaveBeenCalledWith({
+      where: { id: 'episode-1', showId: 'show-1', status: 'PUBLISHED' },
+      data: { status: 'DRAFT', publishedAt: null },
+    });
+  });
+
+  it('does not allow another creator to unpublish an episode', async () => {
+    prisma.show.findFirst.mockResolvedValue(null);
+    await expect(service.unpublishEpisode('intruder', 'show-1', 'episode-1')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.episode.findFirst).not.toHaveBeenCalled();
+    expect(prisma.episode.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('detects a concurrent publication change instead of overwriting it', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', status: 'PUBLISHED' });
+    prisma.episode.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.unpublishEpisode('creator-user', 'show-1', 'episode-1')).rejects.toBeInstanceOf(ConflictException);
+  });
+  it('rejects unpublishing an episode that is already a draft', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', status: 'DRAFT' });
+    await expect(service.unpublishEpisode('creator-user', 'show-1', 'episode-1')).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.episode.updateMany).not.toHaveBeenCalled();
+  });
   it('bounds saved playback progress to the published episode duration', async () => {
     prisma.episode.findFirst.mockResolvedValue({
       id: 'episode-1', durationSeconds: 120,
