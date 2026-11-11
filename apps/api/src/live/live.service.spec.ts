@@ -16,6 +16,10 @@ describe('LiveService access boundaries', () => {
       liveRoomModerator: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn(), deleteMany: jest.fn() },
       liveRoomCoHost: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn(), deleteMany: jest.fn() },
       liveRoomHostTransfer: { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() },
+      liveGuestInvitation: { findMany: jest.fn().mockResolvedValue([]), findUnique: jest.fn(), findFirst: jest.fn(), create: jest.fn(), upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
+      notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
+      notification: { create: jest.fn().mockResolvedValue({ id: 'notification-1', recipientId: 'guest-1', type: 'LIVE_GUEST_INVITATION', title: 'You are invited to speak on VOXA LIVE', body: null, resourceType: 'live_room', resourceId: 'room-1' }) },
+      notificationDevice: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
       livePoll: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn() },
       livePollOption: { findFirst: jest.fn() },
       livePollVote: { upsert: jest.fn() },
@@ -41,6 +45,52 @@ describe('LiveService access boundaries', () => {
   });
 
   afterEach(() => { jest.restoreAllMocks(); });
+
+  it('allows only the host or co-host to invite a guest into a future speaking slot', async () => {
+    const startsAt = new Date(Date.now() + 60 * 60 * 1000);
+    const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000);
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'SCHEDULED' });
+    prisma.user.findUnique.mockResolvedValue({ id: 'guest-1', displayName: 'Guest' });
+    prisma.liveGuestInvitation.findUnique.mockResolvedValue(null);
+    prisma.liveGuestInvitation.findFirst.mockResolvedValue(null);
+    prisma.liveGuestInvitation.upsert.mockResolvedValue({ id: 'invite-1', status: 'PENDING' });
+    const result = await service.inviteLiveGuest('host-1', 'room-1', {
+      userId: 'guest-1', slotStartsAt: startsAt.toISOString(), slotEndsAt: endsAt.toISOString(),
+    });
+    expect(result).toEqual({ id: 'invite-1', status: 'PENDING' });
+    expect(prisma.liveGuestInvitation.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { roomId_inviteeId: { roomId: 'room-1', inviteeId: 'guest-1' } },
+    }));
+    await expect(service.inviteLiveGuest('intruder-1', 'room-1', {
+      userId: 'guest-1', slotStartsAt: startsAt.toISOString(), slotEndsAt: endsAt.toISOString(),
+    })).rejects.toThrow(ForbiddenException);
+  });
+
+  it('prevents a guest speaker from receiving a handoff outside the accepted booking window', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue(null);
+    prisma.liveStageMember.findUnique.mockResolvedValue({ userId: 'guest-1', role: 'GUEST', leftAt: null });
+    prisma.liveGuestInvitation.findFirst.mockResolvedValue(null);
+    await expect(service.handoffSpeaker('host-1', 'room-1', 'guest-1'))
+      .rejects.toThrow('accepted booking slot');
+    expect(prisma.liveSpeakerTurn.create).not.toHaveBeenCalled();
+  });
+
+  it('prevents overlapping accepted guest speaker bookings', async () => {
+    const startsAt = new Date(Date.now() + 60 * 60 * 1000);
+    const endsAt = new Date(startsAt.getTime() + 30 * 60 * 1000);
+    prisma.liveGuestInvitation.findFirst.mockResolvedValue({ id: 'other-booking' });
+    prisma.liveGuestInvitation.findUnique.mockResolvedValue({ id: 'invite-1', status: 'PENDING', slotStartsAt: startsAt, slotEndsAt: endsAt });
+    await expect(service.respondToGuestInvitation('guest-1', 'room-1', 'invite-1', 'ACCEPTED'))
+      .rejects.toThrow(ConflictException);
+    expect(prisma.liveGuestInvitation.update).not.toHaveBeenCalled();
+  });
+
+  it('does not allow another account to answer a guest invitation', async () => {
+    prisma.liveGuestInvitation.findFirst.mockResolvedValue(null);
+    await expect(service.respondToGuestInvitation('intruder-1', 'room-1', 'invite-1', 'ACCEPTED'))
+      .rejects.toThrow('Guest invitation not found');
+  });
 
   it('lists only the signed-in host live rooms, including scheduled and past rooms', async () => {
     prisma.liveRoom.findMany.mockResolvedValue([{ id: 'room-1', hostId: 'host-1', status: 'SCHEDULED' }]);

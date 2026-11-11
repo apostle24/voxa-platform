@@ -4,6 +4,7 @@ import { CreateLiveRoomDto } from './dto/create-live-room.dto';
 import { CreateLiveChatMessageDto } from './dto/create-live-chat-message.dto';
 import { CreateLivePollDto, VoteLivePollDto, CreateLiveQuestionDto, ModerateLiveQuestionDto } from './dto/live-audience-interactions.dto';
 import { CreateLiveAgendaItemDto, UpdateLiveAgendaItemDto, HandoffLiveSpeakerDto } from './dto/live-session-agenda.dto';
+import { CreateLiveGuestInvitationDto, RespondLiveGuestInvitationDto } from './dto/live-guest-invitation.dto';
 import { LiveService } from './live.service';
 
 @Controller('live')
@@ -220,6 +221,30 @@ export class LiveController {
   @UseGuards(JwtAuthGuard)
   endSpeakerTurn(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
     return this.live.endSpeakerTurn(req.user.id, roomId);
+  }
+
+  @Get('rooms/:roomId/guest-invitations')
+  @UseGuards(JwtAuthGuard)
+  listGuestInvitations(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.listGuestInvitations(req.user.id, roomId);
+  }
+
+  @Post('rooms/:roomId/guest-invitations')
+  @UseGuards(JwtAuthGuard)
+  inviteLiveGuest(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body() input: CreateLiveGuestInvitationDto) {
+    return this.live.inviteLiveGuest(req.user.id, roomId, input);
+  }
+
+  @Post('rooms/:roomId/guest-invitations/:invitationId/respond')
+  @UseGuards(JwtAuthGuard)
+  respondToGuestInvitation(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('invitationId') invitationId: string, @Body() input: RespondLiveGuestInvitationDto) {
+    return this.live.respondToGuestInvitation(req.user.id, roomId, invitationId, input.decision);
+  }
+
+  @Post('rooms/:roomId/guest-invitations/:invitationId/cancel')
+  @UseGuards(JwtAuthGuard)
+  cancelGuestInvitation(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('invitationId') invitationId: string) {
+    return this.live.cancelGuestInvitation(req.user.id, roomId, invitationId);
   }
 
   @Get('rooms/:roomId/stage')

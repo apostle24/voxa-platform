@@ -132,6 +132,8 @@ model User {
   liveRoomCoHostsAssigned LiveRoomCoHost[] @relation("LiveRoomCoHostAssignedBy")
   liveRoomHostTransfersFrom LiveRoomHostTransfer[] @relation("LiveRoomHostTransferFrom")
   liveRoomHostTransfersTo LiveRoomHostTransfer[] @relation("LiveRoomHostTransferTo")
+  liveGuestInvitationsReceived LiveGuestInvitation[] @relation("LiveGuestInvitee")
+  liveGuestInvitationsSent LiveGuestInvitation[] @relation("LiveGuestInviter")
   liveQuestions LiveQuestion[]
   livePollVotes LivePollVote[]
   liveSpeakerTurns LiveSpeakerTurn[]
@@ -399,6 +401,7 @@ model LiveRoom {
   moderators LiveRoomModerator[]
   coHosts LiveRoomCoHost[]
   hostTransfers LiveRoomHostTransfer[]
+  guestInvitations LiveGuestInvitation[]
   polls LivePoll[]
   questions LiveQuestion[]
   agendaItems LiveAgendaItem[]
@@ -1082,4 +1085,26 @@ model LiveRoomHostTransfer {
   @@index([roomId, transferredAt])
   @@index([previousHostId, transferredAt])
   @@index([newHostId, transferredAt])
+}
+
+
+model LiveGuestInvitation {
+  id          String   @id @default(cuid())
+  roomId      String
+  inviteeId   String
+  inviterId   String
+  status      String   @default("PENDING")
+  slotStartsAt DateTime
+  slotEndsAt   DateTime
+  message     String?
+  respondedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  room        LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  invitee     User     @relation("LiveGuestInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+  inviter     User     @relation("LiveGuestInviter", fields: [inviterId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, inviteeId])
+  @@index([inviteeId, status, slotStartsAt])
+  @@index([roomId, status, slotStartsAt])
 }
