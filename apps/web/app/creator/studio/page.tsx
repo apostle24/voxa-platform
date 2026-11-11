@@ -42,6 +42,7 @@ export default function CreatorStudioPage() {
   const [uploadingId, setUploadingId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [publishedEpisodeId, setPublishedEpisodeId] = useState('');
   const [draftPreview, setDraftPreview] = useState<{ episodeId: string; url: string; contentType: string } | null>(null);
   const [editingShowId, setEditingShowId] = useState('');
   const [editShowTitle, setEditShowTitle] = useState('');
@@ -260,7 +261,7 @@ export default function CreatorStudioPage() {
 
   async function publishEpisode(showId: string, episodeId: string) {
     setBusy(true); setError(''); setNotice('');
-    try { await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/publish', { method: 'POST' }); await loadShows(); setNotice('Episode published and available to listeners.'); }
+    try { await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/publish', { method: 'POST' }); await loadShows(); setPublishedEpisodeId(episodeId); setNotice('Episode published and available to listeners.'); }
     catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to publish episode'); }
     finally { setBusy(false); }
   }
@@ -275,7 +276,7 @@ export default function CreatorStudioPage() {
         <h1 style={{ fontSize: 'clamp(34px,5vw,54px)', letterSpacing: -2, margin: '12px 0' }}>Creator Studio.</h1>
         <p style={{ color: 'var(--muted)', fontSize: 13 }}>Create a show, publish episodes and manage your audio or video uploads.</p>
         {error && <p className="errorText">{error}</p>}
-        {notice && <p style={{ color: '#8ee6b7', fontSize: 12 }}>{notice}</p>}
+        {notice && <div style={{ color: '#8ee6b7', fontSize: 12, margin: '12px 0' }}><p>{notice}</p>{publishedEpisodeId && <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}><Link className="textLink" href={'/episodes/' + publishedEpisodeId}>Open published episode ↗</Link><Link className="textLink" href="/discover">View in Discover ↗</Link></div>}</div>}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16, margin: '28px 0 40px' }}>
           <form className="createPanel" onSubmit={createShow}>
             <div className="eyebrow">01 · NEW SHOW</div><h2>Create a <em>show.</em></h2>
