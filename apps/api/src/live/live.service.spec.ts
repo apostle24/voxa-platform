@@ -22,7 +22,7 @@ describe('LiveService access boundaries', () => {
       notificationDevice: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
       livePoll: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), updateMany: jest.fn() },
       livePollOption: { findFirst: jest.fn() },
-      livePollVote: { upsert: jest.fn() },
+      livePollVote: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn() },
       liveQuestion: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       liveAgendaItem: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
       liveSpeakerTurn: { findFirst: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
@@ -74,6 +74,36 @@ describe('LiveService access boundaries', () => {
     await expect(service.handoffSpeaker('host-1', 'room-1', 'guest-1'))
       .rejects.toThrow('accepted booking slot');
     expect(prisma.liveSpeakerTurn.create).not.toHaveBeenCalled();
+  });
+
+  it('records one poll vote per user and rejects a second vote', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC' });
+    prisma.livePoll.findFirst.mockResolvedValue({ id: 'poll-1', status: 'OPEN' });
+    prisma.livePollOption.findFirst.mockResolvedValue({ id: 'option-1' });
+    prisma.livePollVote.findUnique.mockResolvedValue(null);
+    prisma.livePollVote.create.mockResolvedValue({ id: 'vote-1' });
+
+    await expect(service.voteLivePoll('viewer-1', 'room-1', 'poll-1', 'option-1'))
+      .resolves.toEqual({ pollId: 'poll-1', optionId: 'option-1', recorded: true });
+    expect(prisma.livePollVote.create).toHaveBeenCalledWith({
+      data: { pollId: 'poll-1', optionId: 'option-1', userId: 'viewer-1' },
+    });
+
+    prisma.livePollVote.findUnique.mockResolvedValue({ id: 'vote-1' });
+    await expect(service.voteLivePoll('viewer-1', 'room-1', 'poll-1', 'option-2'))
+      .rejects.toThrow('already voted');
+    expect(prisma.livePollVote.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects concurrent duplicate poll votes using the database unique constraint', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC' });
+    prisma.livePoll.findFirst.mockResolvedValue({ id: 'poll-1', status: 'OPEN' });
+    prisma.livePollOption.findFirst.mockResolvedValue({ id: 'option-1' });
+    prisma.livePollVote.findUnique.mockResolvedValue(null);
+    prisma.livePollVote.create.mockRejectedValue({ code: 'P2002' });
+
+    await expect(service.voteLivePoll('viewer-1', 'room-1', 'poll-1', 'option-1'))
+      .rejects.toThrow('already voted');
   });
 
   it('prevents overlapping accepted guest speaker bookings', async () => {
