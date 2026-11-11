@@ -11,7 +11,7 @@ describe('LiveService access boundaries', () => {
 
   beforeEach(() => {
     prisma = {
-      liveRoom: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+      liveRoom: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn() },
@@ -79,6 +79,37 @@ describe('LiveService access boundaries', () => {
       data: expect.objectContaining({ recordingStatus: 'FAILED', recordingFailure: 'LiveKit Egress reported a recording failure' }),
     }));
     receiver.mockRestore();
+  });
+
+
+  it('creates a scheduled room with its requested start time', async () => {
+    const scheduledAt = new Date(Date.now() + 60 * 60 * 1000);
+    prisma.liveRoom.create.mockResolvedValue({
+      id: 'room-scheduled', title: 'Global Creator Roundtable', status: 'SCHEDULED', scheduledAt,
+    });
+    const result = await service.createRoom('host-1', {
+      title: 'Global Creator Roundtable', scheduledAt: scheduledAt.toISOString(),
+    } as any);
+    expect(prisma.liveRoom.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ hostId: 'host-1', status: 'SCHEDULED', scheduledAt }),
+    }));
+    expect(result.status).toBe('SCHEDULED');
+  });
+
+  it('rejects scheduled rooms less than one minute in the future', async () => {
+    await expect(service.createRoom('host-1', {
+      title: 'Too soon', scheduledAt: new Date(Date.now() + 10_000).toISOString(),
+    } as any)).rejects.toThrow('at least one minute in the future');
+    expect(prisma.liveRoom.create).not.toHaveBeenCalled();
+  });
+
+  it('prevents listeners entering a scheduled room before it starts', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-scheduled', hostId: 'host-1', status: 'SCHEDULED',
+      scheduledAt: new Date(Date.now() + 60 * 60 * 1000), visibility: 'PUBLIC', stage: [],
+    });
+    await expect(service.joinToken('listener-1', 'room-scheduled'))
+      .rejects.toThrow('This room is scheduled. Join when the host starts it.');
   });
 
   it('does not issue a join token to a non-host for a restricted room', async () => {
