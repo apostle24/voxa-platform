@@ -604,3 +604,15 @@ model AuthSession {
 
   @@index([userId, revokedAt, expiresAt])
 }
+
+
+model LiveKitWebhookEvent {
+  eventId             String   @id
+  eventType           String
+  roomId              String?
+  participantIdentity String?
+  receivedAt          DateTime @default(now())
+
+  @@index([roomId, eventType, receivedAt])
+  @@index([participantIdentity, receivedAt])
+}
