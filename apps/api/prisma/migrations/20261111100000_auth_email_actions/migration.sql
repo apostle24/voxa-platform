@@ -14,3 +14,6 @@ CREATE TABLE "EmailActionToken" (
 CREATE UNIQUE INDEX "EmailActionToken_tokenHash_key" ON "EmailActionToken"("tokenHash");
 CREATE INDEX "EmailActionToken_userId_purpose_consumedAt_expiresAt_idx" ON "EmailActionToken"("userId", "purpose", "consumedAt", "expiresAt");
 ALTER TABLE "EmailActionToken" ADD CONSTRAINT "EmailActionToken_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- Existing accounts predate mandatory verification; preserve their access.
+UPDATE "User" SET "emailVerifiedAt" = "createdAt" WHERE "emailVerifiedAt" IS NULL;
