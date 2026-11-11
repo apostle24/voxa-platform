@@ -62,7 +62,7 @@ async function generateTranscript(playbackFile, episodeId) {
 
   // OpenAI's transcription upload limit is 25 MB. Produce a compact mono
   // derivative so ordinary podcast episodes fit without changing playback media.
-  const transcriptFile = playbackFile.replace(/\\.[^.]+$/, '-transcription.mp3');
+  const transcriptFile = playbackFile.replace(/\.[^.]+$/, '-transcription.mp3');
   try {
     await run('ffmpeg', [
       '-nostdin', '-y', '-i', playbackFile, '-vn', '-ac', '1', '-ar', '16000',
