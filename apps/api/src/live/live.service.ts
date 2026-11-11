@@ -7,6 +7,9 @@ import { LiveRoomStatus, LiveRoomVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
 
+// LiveKit EgressStatus.COMPLETE from the LiveKit protocol enum.
+const LIVEKIT_EGRESS_STATUS_COMPLETE = 3;
+
 @Injectable()
 export class LiveService {
   constructor(private readonly prisma: PrismaService, private readonly config: ConfigService) {}
@@ -240,6 +243,27 @@ export class LiveService {
     if (room.hostId !== userId) throw new ForbiddenException('Only the host can end this room');
     if (room.status === LiveRoomStatus.ENDED || room.status === LiveRoomStatus.CANCELLED) {
       return { id: room.id, status: room.status, endedAt: room.endedAt };
+    }
+
+    // Ask Egress to finalize its file before deleting the room and disconnecting participants.
+    // A STOPPING state prevents concurrent end requests from issuing duplicate stop commands.
+    if (room.recordingStatus === 'RECORDING' && room.recordingEgressId) {
+      const claimed = await this.prisma.liveRoom.updateMany({
+        where: { id: roomId, recordingStatus: 'RECORDING', recordingEgressId: room.recordingEgressId },
+        data: { recordingStatus: 'STOPPING' },
+      });
+      if (claimed.count === 1) {
+        try {
+          await this.egressClient().stopEgress(room.recordingEgressId);
+        } catch {
+          // Restore only if the completion webhook has not already moved the recording forward.
+          await this.prisma.liveRoom.updateMany({
+            where: { id: roomId, recordingStatus: 'STOPPING', recordingEgressId: room.recordingEgressId },
+            data: { recordingStatus: 'RECORDING' },
+          });
+          throw new ServiceUnavailableException('Unable to finalize the live recording; the room was not ended. Check LiveKit Egress and try again');
+        }
+      }
     }
 
     // DeleteRoom forcibly disconnects all participants and prevents further joins.
@@ -502,11 +526,20 @@ export class LiveService {
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can stop recording');
     if (room.recordingStatus !== 'RECORDING' || !room.recordingEgressId) throw new ConflictException('This room has no active recording');
-    await this.prisma.liveRoom.update({ where: { id: roomId }, data: { recordingStatus: 'STOPPING' } });
+    const claimed = await this.prisma.liveRoom.updateMany({
+      where: { id: roomId, recordingStatus: 'RECORDING', recordingEgressId: room.recordingEgressId },
+      data: { recordingStatus: 'STOPPING' },
+    });
+    if (claimed.count !== 1) throw new ConflictException('Recording state changed; refresh and try again');
     try {
       await this.egressClient().stopEgress(room.recordingEgressId);
       return { roomId, recordingStatus: 'STOPPING' };
     } catch {
+      // Do not leave the host stuck in STOPPING when LiveKit rejected the request.
+      await this.prisma.liveRoom.updateMany({
+        where: { id: roomId, recordingStatus: 'STOPPING', recordingEgressId: room.recordingEgressId },
+        data: { recordingStatus: 'RECORDING' },
+      });
       throw new ServiceUnavailableException('Unable to stop recording; check LiveKit Egress status before retrying');
     }
   }
@@ -532,14 +565,22 @@ export class LiveService {
       if (inserted.count === 0) return { received: true, duplicate: true };
 
       if (event.egressInfo?.egressId && event.event === 'egress_ended') {
-        const fileLocation = event.egressInfo.fileResults?.[0]?.location || null;
+        const fileLocation = event.egressInfo.fileResults?.[0]?.location?.trim() || null;
+        // Egress status 3 is COMPLETE. ABORTED, FAILED, LIMIT_REACHED and unknown
+        // terminal states must never be exposed as a playable replay.
+        const completed = event.egressInfo.status === LIVEKIT_EGRESS_STATUS_COMPLETE && Boolean(fileLocation);
+        const failure = event.egressInfo.status === LIVEKIT_EGRESS_STATUS_COMPLETE
+          ? 'LiveKit completed the recording without returning a media file'
+          : event.egressInfo.status === 4
+            ? 'LiveKit Egress reported a recording failure'
+            : 'LiveKit Egress did not complete the recording successfully';
         await tx.liveRoom.updateMany({
           where: { recordingEgressId: event.egressInfo.egressId },
           data: {
-            recordingStatus: event.egressInfo.status === 4 ? 'FAILED' : 'COMPLETED',
+            recordingStatus: completed ? 'COMPLETED' : 'FAILED',
             recordingEndedAt: new Date(),
-            ...(fileLocation ? { recordingObjectKey: fileLocation } : {}),
-            ...(event.egressInfo.status === 4 ? { recordingFailure: 'LiveKit Egress reported a recording failure' } : {}),
+            recordingObjectKey: completed ? fileLocation : null,
+            recordingFailure: completed ? null : failure,
           },
         });
       }

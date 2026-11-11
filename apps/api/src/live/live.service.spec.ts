@@ -188,6 +188,58 @@ describe('LiveService access boundaries', () => {
     receiver.mockRestore();
   });
 
+  it('marks aborted Egress recordings as failed instead of publishing a replay', async () => {
+    const receiver = jest.spyOn(WebhookReceiver.prototype, 'receive').mockResolvedValue({
+      id: 'evt-egress-aborted-1',
+      event: 'egress_ended',
+      egressInfo: { egressId: 'egress-aborted', status: 5, fileResults: [{ location: 'live-recordings/room-1/partial.mp4' }] },
+    } as any);
+    prisma.liveKitWebhookEvent.createMany.mockResolvedValue({ count: 1 });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    await service.receiveLiveKitWebhook('{"event":"egress_ended"}', 'signed-token');
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { recordingEgressId: 'egress-aborted' },
+      data: expect.objectContaining({ recordingStatus: 'FAILED', recordingObjectKey: null }),
+    }));
+    receiver.mockRestore();
+  });
+
+  it('does not mark a completed Egress as replay-ready when no file was uploaded', async () => {
+    const receiver = jest.spyOn(WebhookReceiver.prototype, 'receive').mockResolvedValue({
+      id: 'evt-egress-empty-1',
+      event: 'egress_ended',
+      egressInfo: { egressId: 'egress-empty', status: 3, fileResults: [] },
+    } as any);
+    prisma.liveKitWebhookEvent.createMany.mockResolvedValue({ count: 1 });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    await service.receiveLiveKitWebhook('{"event":"egress_ended"}', 'signed-token');
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { recordingEgressId: 'egress-empty' },
+      data: expect.objectContaining({ recordingStatus: 'FAILED', recordingObjectKey: null }),
+    }));
+    receiver.mockRestore();
+  });
+
+  it('marks Egress complete only when LiveKit supplies the finished media location', async () => {
+    const receiver = jest.spyOn(WebhookReceiver.prototype, 'receive').mockResolvedValue({
+      id: 'evt-egress-complete-1',
+      event: 'egress_ended',
+      egressInfo: { egressId: 'egress-complete', status: 3, fileResults: [{ location: 's3://voxa-media/live-recordings/room-1/final.mp4' }] },
+    } as any);
+    prisma.liveKitWebhookEvent.createMany.mockResolvedValue({ count: 1 });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    await service.receiveLiveKitWebhook('{"event":"egress_ended"}', 'signed-token');
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { recordingEgressId: 'egress-complete' },
+      data: expect.objectContaining({
+        recordingStatus: 'COMPLETED',
+        recordingObjectKey: 's3://voxa-media/live-recordings/room-1/final.mp4',
+        recordingFailure: null,
+      }),
+    }));
+    receiver.mockRestore();
+  });
+
 
 
 
@@ -317,6 +369,83 @@ describe('LiveService access boundaries', () => {
     expect(prisma.$transaction).toHaveBeenCalled();
     expect(prisma.liveStageMember.updateMany).toHaveBeenCalledWith({ where: { roomId: 'room-1', leftAt: null }, data: { leftAt: endedAt } });
     expect(prisma.liveViewerSession.updateMany).toHaveBeenCalledWith({ where: { roomId: 'room-1', leftAt: null }, data: { leftAt: endedAt } });
+  });
+
+  it('moves a manual recording stop to STOPPING only once', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', recordingStatus: 'RECORDING', recordingEgressId: 'egress-1',
+    });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    const stopEgress = jest.fn().mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'egressClient').mockReturnValue({ stopEgress });
+
+    await expect(service.stopRoomRecording('host-1', 'room-1'))
+      .resolves.toEqual({ roomId: 'room-1', recordingStatus: 'STOPPING' });
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith({
+      where: { id: 'room-1', recordingStatus: 'RECORDING', recordingEgressId: 'egress-1' },
+      data: { recordingStatus: 'STOPPING' },
+    });
+    expect(stopEgress).toHaveBeenCalledWith('egress-1');
+  });
+
+  it('restores RECORDING when a manual stop request fails', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', recordingStatus: 'RECORDING', recordingEgressId: 'egress-1',
+    });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    jest.spyOn(service as any, 'egressClient').mockReturnValue({
+      stopEgress: jest.fn().mockRejectedValue(new Error('egress unavailable')),
+    });
+
+    await expect(service.stopRoomRecording('host-1', 'room-1'))
+      .rejects.toThrow('Unable to stop recording');
+    expect(prisma.liveRoom.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'room-1', recordingStatus: 'STOPPING', recordingEgressId: 'egress-1' },
+      data: { recordingStatus: 'RECORDING' },
+    });
+  });
+
+  it('stops an active recording before deleting the live room', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', status: 'LIVE',
+      recordingStatus: 'RECORDING', recordingEgressId: 'egress-1',
+    });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    prisma.liveRoom.update.mockResolvedValue({ id: 'room-1', status: 'ENDED', endedAt: new Date() });
+    prisma.liveStageMember.updateMany.mockResolvedValue({ count: 0 });
+    prisma.liveViewerSession.updateMany.mockResolvedValue({ count: 0 });
+    const stopEgress = jest.fn().mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'egressClient').mockReturnValue({ stopEgress });
+    const deleteRoom = jest.fn().mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ deleteRoom });
+
+    await service.endRoom('host-1', 'room-1');
+
+    expect(stopEgress).toHaveBeenCalledWith('egress-1');
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith({
+      where: { id: 'room-1', recordingStatus: 'RECORDING', recordingEgressId: 'egress-1' },
+      data: { recordingStatus: 'STOPPING' },
+    });
+    expect(deleteRoom).toHaveBeenCalledWith('room-1');
+  });
+
+  it('does not end the room when an active recording cannot be finalized', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', status: 'LIVE',
+      recordingStatus: 'RECORDING', recordingEgressId: 'egress-1',
+    });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    const stopEgress = jest.fn().mockRejectedValue(new Error('egress unavailable'));
+    jest.spyOn(service as any, 'egressClient').mockReturnValue({ stopEgress });
+    const deleteRoom = jest.fn();
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ deleteRoom });
+
+    await expect(service.endRoom('host-1', 'room-1')).rejects.toThrow('Unable to finalize the live recording');
+    expect(deleteRoom).not.toHaveBeenCalled();
+    expect(prisma.liveRoom.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'room-1', recordingStatus: 'STOPPING', recordingEgressId: 'egress-1' },
+      data: { recordingStatus: 'RECORDING' },
+    });
   });
 
   it('returns room activity analytics only to the host', async () => {
