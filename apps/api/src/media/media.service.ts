@@ -206,4 +206,56 @@ export class MediaService {
       durationSeconds: asset.durationSeconds ?? null,
     };
   }
+
+  async createMomentRender(userId: string, momentId: string, input: { aspectRatio: '9:16' | '16:9'; subtitles?: string }) {
+    this.ensureConfigured();
+    const moment = await this.prisma.moment.findFirst({
+      where: { id: momentId, creator: { userId } },
+      select: {
+        id: true, startSeconds: true, endSeconds: true,
+        episode: {
+          select: {
+            durationSeconds: true, mediaKey: true, status: true, membershipRequired: true,
+            mediaAssets: { where: { status: 'READY' }, orderBy: { createdAt: 'desc' }, take: 1, select: { playbackKey: true, contentType: true } },
+            show: { select: { status: true } },
+          },
+        },
+      },
+    });
+    if (!moment) throw new NotFoundException('Moment not found');
+    if (moment.episode.status !== PublicationStatus.PUBLISHED || moment.episode.show.status !== PublicationStatus.PUBLISHED || moment.episode.membershipRequired) {
+      throw new ConflictException('Only public published episode media can be rendered as a Moment');
+    }
+    if (moment.endSeconds <= moment.startSeconds || moment.endSeconds - moment.startSeconds > 90) {
+      throw new ConflictException('Moment duration must be between 1 and 90 seconds');
+    }
+    const source = moment.episode.mediaAssets[0];
+    if (!source?.playbackKey || !source.contentType?.startsWith('video/')) {
+      throw new ConflictException('A processed video source is required before rendering');
+    }
+    const render = await this.prisma.momentRender.create({
+      data: { momentId, aspectRatio: input.aspectRatio, subtitles: input.subtitles?.trim() || null },
+      select: { id: true, status: true, aspectRatio: true, createdAt: true },
+    });
+    return { ...render, queued: true };
+  }
+
+  async getMomentRender(userId: string | undefined, momentId: string) {
+    this.ensureConfigured();
+    const moment = await this.prisma.moment.findFirst({
+      where: { id: momentId, ...(userId ? { OR: [{ status: PublicationStatus.PUBLISHED }, { creator: { userId } }] } : { status: PublicationStatus.PUBLISHED }) },
+      select: { id: true },
+    });
+    if (!moment) throw new NotFoundException('Moment not found');
+    const render = await this.prisma.momentRender.findFirst({
+      where: { momentId, status: 'READY', playbackKey: { not: null } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, playbackKey: true, contentType: true, sizeBytes: true, aspectRatio: true },
+    });
+    if (!render?.playbackKey) return { ready: false };
+    const expiresIn = Math.max(60, Math.min(21600, Number(this.config.get('S3_PLAYBACK_URL_TTL_SECONDS', 3600))));
+    const url = await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.bucket, Key: render.playbackKey }), { expiresIn });
+    return { ready: true, id: render.id, url, contentType: render.contentType || 'video/mp4', sizeBytes: render.sizeBytes?.toString() || null, aspectRatio: render.aspectRatio, expiresIn };
+  }
+
 }
