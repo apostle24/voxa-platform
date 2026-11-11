@@ -81,8 +81,10 @@ async function generateTranscript(playbackFile, episodeId) {
     const audio = await require('node:fs/promises').readFile(transcriptFile);
     const form = new FormData();
     form.append('file', new Blob([audio], { type: 'audio/mpeg' }), 'episode.mp3');
-    form.append('model', process.env.OPENAI_TRANSCRIPTION_MODEL || 'whisper-1');
-    form.append('response_format', 'verbose_json');
+    // Diarized output supplies segment timestamps and speaker turns.
+    form.append('model', process.env.OPENAI_DIARIZATION_MODEL || 'gpt-4o-transcribe-diarize');
+    form.append('response_format', 'diarized_json');
+    form.append('chunking_strategy', 'auto');
     const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
       headers: { Authorization: 'Bearer ' + apiKey },
@@ -97,10 +99,16 @@ async function generateTranscript(playbackFile, episodeId) {
     const transcript = String(result.text || '').trim();
     if (!transcript) throw new Error('Transcription provider returned an empty transcript');
     const language = String(result.language || 'en').slice(0, 12);
+    const segments = Array.isArray(result.segments) ? result.segments.map(segment => ({
+      startSeconds: Math.max(0, Number(segment.start) || 0),
+      endSeconds: Math.max(0, Number(segment.end) || 0),
+      text: String(segment.text || '').trim(),
+      speaker: String(segment.speaker || 'Speaker').slice(0, 40),
+    })).filter(segment => segment.text && segment.endSeconds >= segment.startSeconds) : [];
     await prisma.episodeTranscript.create({
-      data: { episodeId, content: transcript, language },
+      data: { episodeId, content: transcript, language, ...(segments.length ? { segments } : {}) },
     });
-    return { status: 'READY', language, characters: transcript.length };
+    return { status: 'READY', language, characters: transcript.length, segments: segments.length, speakers: [...new Set(segments.map(segment => segment.speaker))].length };
   } finally {
     await rm(transcriptFile, { force: true });
   }
