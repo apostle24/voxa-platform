@@ -16,11 +16,6 @@ class SaveChaptersDto {
   chapters!: Array<{ title: string; startSeconds: number }>;
 }
 
-class EpisodeProductionAdviceDto {
-  @IsString() @MinLength(1) @MaxLength(80)
-  intent!: string;
-}
-
 class SaveTranscriptDto {
   @IsString() @MinLength(1) @MaxLength(200000)
   content!: string;
