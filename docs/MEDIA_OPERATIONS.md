@@ -31,8 +31,13 @@ Configure the bucket CORS policy to allow the deployed VOXA web origin to issue 
 - Upload validation currently checks declared content type, object metadata and byte size. It does not inspect file signatures/codecs, scan malware, moderate content, or verify that the media duration matches the creator-supplied episode duration.
 - The original uploaded file is used for playback. There is no transcoding worker, adaptive HLS/DASH packaging, thumbnail generation, waveform extraction, loudness normalization, or CDN pipeline yet.
 - The browser currently uses native audio/video controls. Background playback, casting, offline downloads, chapters, transcripts, captions and a global persistent player are not implemented.
-- A successful upload does not mean the asset has passed a processing/moderation pipeline. Do not treat `UPLOADED` as equivalent to `READY`.
+- A successful upload only means metadata, size, ownership, and a small file-signature sample passed. It does not mean the asset passed a processing/moderation pipeline. Do not treat `UPLOADED` as equivalent to `READY`.
 
 ## Production gate
 
 Before public launch, implement asynchronous media processing and quarantine, file signature and codec inspection, malware scanning, content moderation, retry/dead-letter handling, cleanup of abandoned uploads, CDN delivery, playback telemetry, storage lifecycle policies, and end-to-end tests for public and membership-gated playback.
+
+
+## Media validation increment
+
+The API performs a bounded range read (bytes=0-31) from the private object after upload completion and checks a supported container/magic signature before creating the MediaAsset record. This is an early anti-spoofing check only. It is not a substitute for a maintained media parser, ffprobe/codec inspection, malware scanner such as ClamAV, or content moderation. A future processing worker must run in isolated, resource-limited infrastructure, write validated outputs to a separate processed-media prefix, and only transition assets to READY after every required stage succeeds. Failed or timed-out jobs must remain unavailable for playback and publishing.
