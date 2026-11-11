@@ -21,6 +21,10 @@ type Episode = {
   durationSeconds?: number | null; isExplicit: boolean; isLiveReplay?: boolean;
   membershipRequired: boolean;
   matchingMoments?: Array<{ startSeconds: number; endSeconds: number; text: string; speaker: string }>;
+  semanticScore?: number;
+  semanticExcerpt?: string;
+  semanticExcerptStartSeconds?: number | null;
+  semanticExcerptSpeaker?: string | null;
   show: { id: string; title: string; creator: { handle: string; user: { displayName: string } } };
 };
 
@@ -37,6 +41,8 @@ export default function DiscoverPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [aiTopics, setAiTopics] = useState<Array<{ topic: string; count: number }>>([]);
   const [activeAiTopic, setActiveAiTopic] = useState('');
+  const [semanticLoading, setSemanticLoading] = useState(false);
+  const [semanticMode, setSemanticMode] = useState(false);
   const [category, setCategory] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -132,12 +138,28 @@ export default function DiscoverPage() {
     }
   }
 
+  async function searchByMeaning() {
+    if (query.trim().length < 3) { setError('Describe what you want to hear in at least 3 characters.'); return; }
+    setSemanticLoading(true); setSemanticMode(true); setActiveAiTopic(''); setCategory(''); setError(''); setLoading(true);
+    try {
+      const response = await fetch(API + '/discovery/semantic?q=' + encodeURIComponent(query.trim()));
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Semantic search is unavailable');
+      setEpisodes(data.items || []);
+      if (!data.items?.length) setError('No close meaning-based matches found. Try describing the topic another way.');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Semantic search is unavailable');
+    } finally { setLoading(false); setSemanticLoading(false); }
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setSemanticMode(false);
     void load(query, category);
   }
 
   async function chooseAiTopic(topic: string) {
+    setSemanticMode(false);
     setActiveAiTopic(topic);
     setCategory('');
     setQuery(topic);
@@ -156,6 +178,7 @@ export default function DiscoverPage() {
   }
 
   function chooseCategory(value: string) {
+    setSemanticMode(false);
     setActiveAiTopic('');
     setCategory(value);
     void load(query, value);
@@ -173,7 +196,8 @@ export default function DiscoverPage() {
         </header>
         <form onSubmit={event => { setActiveAiTopic(''); submit(event); }} style={{ display: 'flex', gap: 10, margin: '24px 0', flexWrap: 'wrap' }}>
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Try a question: stories about faith, leadership or personal growth…" aria-label="Search podcasts" style={{ flex: '1 1 260px', minWidth: 0, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, color: 'white', padding: '14px 16px' }} />
-          <button className="button" type="submit">Search</button>
+          <button className="button" type="submit" onClick={() => setSemanticMode(false)}>Keyword search</button>
+          <button className="ghostButton" type="button" onClick={() => void searchByMeaning()} disabled={semanticLoading}>{semanticLoading ? "Understanding…" : "✦ Search by meaning"}</button>
         </form>
         {aiTopics.length > 0 && <section aria-label="Explore AI-generated episode topics" style={{ marginBottom: 24 }}>
           <div className="eyebrow sectionEyebrow">EXPLORE BY AI-GENERATED TOPIC</div>
@@ -266,7 +290,8 @@ export default function DiscoverPage() {
                 <button className="button small" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode)}>{preparingEpisode === episode.id ? 'Preparing…' : '▶ Play'}</button>
                 <button className="ghostButton" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode, true)}>＋ Queue</button>
               </div>
-              {!activeAiTopic && query.trim() && episode.matchingMoments?.length ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+              {semanticMode && episode.semanticExcerpt ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}><small style={{ color: 'var(--purple)' }}>MEANING MATCH · SCORE {(episode.semanticScore || 0).toFixed(2)}</small><p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 6 }}>{episode.semanticExcerpt}{episode.semanticExcerptSpeaker ? ' — ' + episode.semanticExcerptSpeaker : ''}</p>{episode.semanticExcerptStartSeconds != null ? <Link href={'/episodes/' + episode.id + '?t=' + Math.floor(episode.semanticExcerptStartSeconds)} className="textLink">Jump to transcript moment ↗</Link> : null}</div> : null}
+              {!semanticMode && !activeAiTopic && query.trim() && episode.matchingMoments?.length ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
                 <small style={{ color: 'var(--muted)', letterSpacing: '.06em' }}>MATCHING MOMENTS</small>
                 {episode.matchingMoments.map((moment, index) => <Link key={index} href={'/episodes/' + episode.id + '?t=' + Math.floor(moment.startSeconds)} style={{ display: 'block', marginTop: 9, color: 'inherit', textDecoration: 'none', fontSize: 13 }}>
                   <b style={{ color: 'var(--purple)' }}>{Math.floor(moment.startSeconds / 60)}:{String(Math.floor(moment.startSeconds % 60)).padStart(2, '0')}</b> · {moment.speaker}<br/><span style={{ color: 'var(--muted)' }}>{moment.text}</span>

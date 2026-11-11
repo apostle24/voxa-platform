@@ -215,6 +215,7 @@ model Episode {
   comments        EpisodeComment[]
   transcript      EpisodeTranscript?
   intelligence    EpisodeIntelligence?
+  semanticEmbedding EpisodeEmbedding?
   chapters        EpisodeChapter[]
   likes           EpisodeLike[]
 
@@ -895,4 +896,15 @@ model UserBlock {
   @@unique([blockerId, blockedUserId])
   @@index([blockerId, createdAt])
   @@index([blockedUserId, createdAt])
+}
+
+model EpisodeEmbedding {
+  id          String   @id @default(cuid())
+  episodeId   String   @unique
+  vector      Json
+  contentHash String
+  updatedAt   DateTime @updatedAt
+  episode     Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@index([updatedAt])
 }

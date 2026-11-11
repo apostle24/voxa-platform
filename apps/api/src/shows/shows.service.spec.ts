@@ -1,4 +1,4 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ShowsService } from './shows.service';
 
@@ -397,5 +397,89 @@ describe('ShowsService AI topic discovery', () => {
     await expect(service.discoverTopicEpisodes('  ')).resolves.toEqual({ items: [] });
     await expect(service.discoverTopicEpisodes('x'.repeat(61))).resolves.toEqual({ items: [] });
     expect(prisma.episodeIntelligence.findMany).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('ShowsService semantic podcast search', () => {
+  let service: ShowsService;
+  let prisma: any;
+  const originalKey = process.env.OPENAI_API_KEY;
+
+  beforeEach(() => {
+    prisma = { episode: { findMany: jest.fn() }, episodeEmbedding: { upsert: jest.fn() } };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  });
+
+  it('rejects short queries before calling the embedding provider', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    await expect(service.semanticSearch('hi')).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.episode.findMany).not.toHaveBeenCalled();
+  });
+
+  it('fails clearly when semantic search has no server-side provider key', async () => {
+    delete process.env.OPENAI_API_KEY;
+    await expect(service.semanticSearch('episodes about courage')).rejects.toBeInstanceOf(ServiceUnavailableException);
+    expect(prisma.episode.findMany).not.toHaveBeenCalled();
+  });
+
+
+  it('ranks public episodes using cached document vectors and returns semantic context', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    const provider = jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [{ index: 0, embedding: [1, 0] }] }),
+      } as Response)
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ data: [
+          { index: 0, embedding: [0.95, 0.05] },
+          { index: 1, embedding: [0, 1] },
+        ] }),
+      } as Response);
+    prisma.episode.findMany.mockResolvedValue([
+      {
+        id: 'episode-best', title: 'Finding courage', description: 'A story about fear and hope',
+        artworkUrl: null, durationSeconds: 600, isExplicit: false, isLiveReplay: false,
+        membershipRequired: false, publishedAt: new Date(),
+        show: { id: 'show-1', title: 'Human stories', category: 'Life', language: 'en', creator: { handle: 'host', user: { displayName: 'Host' } } },
+        transcript: { content: 'A conversation about fear and courage', segments: [{ text: 'Choose courage when fear arrives', startSeconds: 45, speaker: 'Host' }] },
+        intelligence: { summary: 'A hopeful story', topics: ['Resilience'] }, semanticEmbedding: null,
+      },
+      {
+        id: 'episode-other', title: 'Cooking basics', description: 'Kitchen tips',
+        artworkUrl: null, durationSeconds: 300, isExplicit: false, isLiveReplay: false,
+        membershipRequired: false, publishedAt: new Date(),
+        show: { id: 'show-2', title: 'Food school', category: 'Food', language: 'en', creator: { handle: 'chef', user: { displayName: 'Chef' } } },
+        transcript: null, intelligence: null, semanticEmbedding: null,
+      },
+    ]);
+    prisma.episodeEmbedding.upsert.mockResolvedValue({});
+
+    const result = await service.semanticSearch('how to face fear and become brave');
+
+    expect(result.items[0].id).toBe('episode-best');
+    expect(result.items[0].semanticExcerpt).toContain('Choose courage');
+    expect(result.items[0].semanticExcerptStartSeconds).toBe(45);
+    expect(prisma.episode.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { status: 'PUBLISHED', membershipRequired: false, show: { status: 'PUBLISHED' } },
+      take: 250,
+    }));
+    expect(prisma.episodeEmbedding.upsert).toHaveBeenCalledTimes(2);
+    expect(provider).toHaveBeenCalledTimes(2);
+  });
+
+  it('ranks vectors by cosine similarity and handles mismatched dimensions safely', () => {
+    expect((service as any).cosineSimilarity([1, 0], [0.9, 0.1])).toBeGreaterThan(
+      (service as any).cosineSimilarity([1, 0], [0, 1]),
+    );
+    expect((service as any).cosineSimilarity([1, 0], [1])).toBe(0);
   });
 });

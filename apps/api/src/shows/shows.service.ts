@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto';
 import { createUserNotification } from '../notifications/notification-writer';
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { Prisma, PublicationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateShowDto } from './dto/create-show.dto';
@@ -720,6 +721,102 @@ export class ShowsService {
     const hasMore = items.length > limit;
     const page = hasMore ? items.slice(0, limit) : items;
     return { items: page, nextCursor: hasMore ? page[page.length - 1].id : null };
+  }
+
+
+  private async requestTextEmbeddings(inputs: string[]): Promise<number[][]> {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new ServiceUnavailableException('Semantic search is not configured. Set OPENAI_API_KEY on the API server.');
+    const response = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: process.env.VOXA_EMBEDDING_MODEL || 'text-embedding-3-small', input: inputs }),
+    });
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new ServiceUnavailableException(detail.slice(0, 300) || 'The semantic search provider is temporarily unavailable');
+    }
+    const payload = await response.json() as { data?: Array<{ index: number; embedding: number[] }> };
+    if (!payload.data || payload.data.length !== inputs.length) throw new ServiceUnavailableException('The semantic search provider returned an incomplete embedding response');
+    return [...payload.data].sort((a, b) => a.index - b.index).map(item => item.embedding);
+  }
+
+  private cosineSimilarity(left: number[], right: number[]) {
+    if (!left.length || left.length !== right.length) return 0;
+    let dot = 0, leftMagnitude = 0, rightMagnitude = 0;
+    for (let index = 0; index < left.length; index++) {
+      dot += left[index] * right[index];
+      leftMagnitude += left[index] * left[index];
+      rightMagnitude += right[index] * right[index];
+    }
+    return leftMagnitude && rightMagnitude ? dot / (Math.sqrt(leftMagnitude) * Math.sqrt(rightMagnitude)) : 0;
+  }
+
+  async semanticSearch(query: string) {
+    const term = query.trim().replace(/\s+/g, ' ');
+    if (term.length < 3 || term.length > 500) throw new ConflictException('Enter a search description between 3 and 500 characters');
+    const queryVector = (await this.requestTextEmbeddings([term]))[0];
+    const candidates = await this.prisma.episode.findMany({
+      where: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED } },
+      orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }], take: 250,
+      select: {
+        id: true, title: true, description: true, artworkUrl: true, durationSeconds: true,
+        isExplicit: true, isLiveReplay: true, membershipRequired: true, publishedAt: true,
+        show: { select: { id: true, title: true, category: true, language: true, creator: { select: { handle: true, user: { select: { displayName: true } } } } } },
+        transcript: { select: { content: true, segments: true } },
+        intelligence: { select: { summary: true, topics: true } },
+        semanticEmbedding: { select: { vector: true, contentHash: true } },
+      },
+    });
+    if (!candidates.length) return { query: term, items: [], searched: 0 };
+    const embeddingModel = process.env.VOXA_EMBEDDING_MODEL || 'text-embedding-3-small';
+    const documents = candidates.map(episode => [
+      episode.title, episode.description || '', episode.show.title, episode.show.category || '',
+      episode.intelligence?.summary || '', JSON.stringify(episode.intelligence?.topics || []),
+      episode.transcript?.content || '',
+    ].join('\n').slice(0, 8000));
+    const hashes = documents.map(document => createHash('sha256').update(embeddingModel + '\n' + document).digest('hex'));
+    const vectors: Array<number[] | null> = candidates.map((episode, index) => {
+      const cached = episode.semanticEmbedding;
+      return cached && cached.contentHash === hashes[index] && Array.isArray(cached.vector) ? cached.vector as number[] : null;
+    });
+    const missing: number[] = [];
+    vectors.forEach((vector, index) => { if (!vector) missing.push(index); });
+    for (let offset = 0; offset < missing.length; offset += 32) {
+      const indexes = missing.slice(offset, offset + 32);
+      const batch = await this.requestTextEmbeddings(indexes.map(index => documents[index]));
+      await Promise.all(indexes.map(async (candidateIndex, batchIndex) => {
+        const vector = batch[batchIndex];
+        vectors[candidateIndex] = vector;
+        await this.prisma.episodeEmbedding.upsert({
+          where: { episodeId: candidates[candidateIndex].id },
+          create: { episodeId: candidates[candidateIndex].id, vector, contentHash: hashes[candidateIndex] },
+          update: { vector, contentHash: hashes[candidateIndex] },
+        });
+      }));
+    }
+    const ranked = candidates.map((episode, index) => ({ episode, score: this.cosineSimilarity(queryVector, vectors[index] || []) }))
+      .sort((a, b) => b.score - a.score).slice(0, 20);
+    return {
+      query: term, searched: candidates.length,
+      items: ranked.map(({ episode, score }) => {
+        const raw = episode.transcript?.segments;
+        const segments = Array.isArray(raw) ? raw as Array<{ text?: string; startSeconds?: number; speaker?: string }> : [];
+        const queryTerms = term.toLocaleLowerCase().split(/[^a-z0-9]+/).filter(word => word.length > 3);
+        const bestSegment = segments.map(segment => ({
+          segment,
+          relevance: queryTerms.reduce((total, word) => total + (String(segment.text || '').toLocaleLowerCase().includes(word) ? 1 : 0), 0),
+        })).sort((a, b) => b.relevance - a.relevance)[0]?.segment;
+        const excerpt = bestSegment?.text || episode.intelligence?.summary || episode.description || '';
+        return {
+          id: episode.id, title: episode.title, description: episode.description, artworkUrl: episode.artworkUrl,
+          durationSeconds: episode.durationSeconds, isExplicit: episode.isExplicit, isLiveReplay: episode.isLiveReplay,
+          membershipRequired: false, publishedAt: episode.publishedAt, show: episode.show,
+          semanticScore: Number(score.toFixed(4)), semanticExcerpt: excerpt.slice(0, 360),
+          semanticExcerptStartSeconds: bestSegment?.startSeconds ?? null, semanticExcerptSpeaker: bestSegment?.speaker || null,
+        };
+      }),
+    };
   }
 
   async discoverEpisodes(params: { q?: string; category?: string; language?: string; cursor?: string; limit?: number }) {
