@@ -30,7 +30,7 @@ describe('createUserNotification', () => {
     await expect(createUserNotification(prisma as unknown as PrismaService, {
       recipientId: 'creator-1', actorId: 'listener-1', type: 'NEW_FOLLOWER',
       title: 'New follower', category: 'follows',
-    })).resolves.toEqual({ id: 'notice-1' });
+    })).resolves.toEqual({ id: 'notice-1', title: 'New follower' });
     expect(prisma.notification.create).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({ recipientId: 'creator-1', actorId: 'listener-1', type: 'NEW_FOLLOWER' }),
     }));
