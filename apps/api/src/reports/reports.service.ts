@@ -1,9 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { LiveService } from '../live/live.service';
 
 @Injectable()
 export class ReportsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService, private readonly live: LiveService) {}
 
   private async requireModerator(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
@@ -195,7 +196,7 @@ export class ReportsService {
     const suspendedUntil = input.action === 'SUSPEND_USER'
       ? new Date(now.getTime() + (input.suspensionDays as number) * 24 * 60 * 60 * 1000)
       : null;
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       if (input.action === 'SUSPEND_USER') {
         const changed = await tx.user.updateMany({
           where: { id: target.id, OR: [{ suspendedUntil: null }, { suspendedUntil: { lte: now } }] },
@@ -226,5 +227,10 @@ export class ReportsService {
       }});
       return { reportId, targetType: 'USER', targetId: target.id, action: input.action, status: 'ACTIONED', suspendedUntil };
     });
+    if (input.action === 'SUSPEND_USER') {
+      const liveRoomEnforcement = await this.live.disconnectUserFromLiveRooms(target.id);
+      return { ...result, liveRoomEnforcement };
+    }
+    return result;
   }
 }
