@@ -30,6 +30,14 @@ describe('LiveService access boundaries', () => {
     service = new LiveService(prisma as unknown as PrismaService, config as unknown as ConfigService);
   });
 
+  it('lists only the signed-in host live rooms, including scheduled and past rooms', async () => {
+    prisma.liveRoom.findMany.mockResolvedValue([{ id: 'room-1', hostId: 'host-1', status: 'SCHEDULED' }]);
+    await expect(service.listMyLiveRooms('host-1')).resolves.toEqual([{ id: 'room-1', hostId: 'host-1', status: 'SCHEDULED' }]);
+    expect(prisma.liveRoom.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { hostId: 'host-1' }, take: 30,
+    }));
+  });
+
   it('hides live chat messages from accounts blocked in either direction', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', visibility: 'PUBLIC' });
     prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'viewer-1', blockedUserId: 'blocked-1' }]);

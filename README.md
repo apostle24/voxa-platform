@@ -168,3 +168,7 @@ The Expo app lives in `apps/mobile`. See [Mobile README](apps/mobile/README.md) 
 
 ## Trust & Safety
 VOXA includes authenticated reports for episodes, VOXA Moments, live rooms, community posts, and accounts. Moderators and administrators can review reports and apply audited content/account actions. Users can block and unblock accounts; blocked users are filtered from community discussions and live chat; blocking a live host prevents chat participation in that host's room. Mobile includes report actions, blocked-account management, and a role-gated moderation queue. Apply migrations `20261111280000_mobile_safety_moderation` and `20261111290000_community_post_moderation` before using these workflows. Reports are non-punitive until a moderator reviews them.
+
+
+## Web Creator Studio
+The web Creator Studio provides a consolidated creator workspace for show and episode publishing, media processing, transcript and chapter editing, creator audience tools, analytics, and VOXA LIVE session management. The studio overview shows owned shows, published episodes, drafts, and live/scheduled sessions. Creators can open a live room from the dashboard to manage stage requests, speakers, chat, recording, and audience interactions. Published episodes can be returned to draft using the authenticated unpublish endpoint. The authenticated `GET /live/rooms/me` endpoint lists only the current creator's live rooms for this dashboard.

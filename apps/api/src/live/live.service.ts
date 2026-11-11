@@ -134,6 +134,18 @@ export class LiveService {
     return { id: roomId, status: LiveRoomStatus.CANCELLED };
   }
 
+  async listMyLiveRooms(hostId: string) {
+    return this.prisma.liveRoom.findMany({
+      where: { hostId },
+      orderBy: [{ startedAt: 'desc' }, { scheduledAt: 'asc' }],
+      take: 30,
+      select: {
+        id: true, title: true, description: true, isAudioOnly: true, status: true, startedAt: true, scheduledAt: true,
+        _count: { select: { stage: true, requests: true } },
+      },
+    });
+  }
+
   async listLiveRooms() {
     return this.prisma.liveRoom.findMany({
       where: { status: { in: [LiveRoomStatus.LIVE, LiveRoomStatus.SCHEDULED] }, visibility: LiveRoomVisibility.PUBLIC },

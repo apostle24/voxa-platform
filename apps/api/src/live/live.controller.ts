@@ -8,6 +8,12 @@ import { LiveService } from './live.service';
 export class LiveController {
   constructor(private readonly live: LiveService) {}
 
+  @Get('rooms/me')
+  @UseGuards(JwtAuthGuard)
+  listMyRooms(@Req() req: AuthenticatedRequest) {
+    return this.live.listMyLiveRooms(req.user.id);
+  }
+
   @Get('rooms')
   listRooms() {
     return this.live.listLiveRooms();
