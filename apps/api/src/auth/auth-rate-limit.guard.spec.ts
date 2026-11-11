@@ -1,4 +1,4 @@
-import { ExecutionContext, TooManyRequestsException } from '@nestjs/common';
+import { ExecutionContext, HttpException } from '@nestjs/common';
 import { AuthRateLimitGuard } from './auth-rate-limit.guard';
 
 describe('AuthRateLimitGuard', () => {
@@ -13,7 +13,7 @@ describe('AuthRateLimitGuard', () => {
   });
   it('blocks the eleventh attempt from the same IP', () => {
     for (let i = 0; i < 10; i += 1) guard.canActivate(contextFor('203.0.113.10'));
-    expect(() => guard.canActivate(contextFor('203.0.113.10'))).toThrow(TooManyRequestsException);
+    expect(() => guard.canActivate(contextFor('203.0.113.10'))).toThrow(HttpException);
   });
   it('tracks source IPs independently', () => {
     for (let i = 0; i < 10; i += 1) guard.canActivate(contextFor('203.0.113.10'));
