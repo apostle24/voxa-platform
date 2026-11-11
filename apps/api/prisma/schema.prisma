@@ -176,6 +176,7 @@ model Episode {
   moments         Moment[]
   comments        EpisodeComment[]
   transcript      EpisodeTranscript?
+  chapters        EpisodeChapter[]
   likes           EpisodeLike[]
 
   @@index([showId, status, publishedAt])
@@ -735,4 +736,18 @@ model EpisodeTranscript {
   language  String   @default("en")
   updatedAt DateTime @updatedAt
   episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+}
+
+model EpisodeChapter {
+  id           String   @id @default(cuid())
+  episodeId    String
+  title        String
+  startSeconds Int
+  position     Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  episode      Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@unique([episodeId, startSeconds])
+  @@index([episodeId, position])
 }
