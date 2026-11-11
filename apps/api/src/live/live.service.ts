@@ -169,7 +169,7 @@ export class LiveService {
   async getChatMessages(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, visibility: true } });
     if (!room) throw new NotFoundException('Live room not found');
-    if (room.visibility !== LiveRoomVisibility.PUBLIC && !(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('This room chat is not publicly accessible');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && !(await this.canManageLiveSession(roomId, userId, room.hostId))) throw new ForbiddenException('This room chat is not publicly accessible');
     const blocks = await this.prisma.userBlock.findMany({
       where: { OR: [{ blockerId: userId }, { blockedUserId: userId }] }, select: { blockerId: true, blockedUserId: true },
     });
@@ -185,7 +185,7 @@ export class LiveService {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, visibility: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Chat is available only while the room is live');
-    if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room chat is not publicly accessible');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && !(await this.canManageLiveSession(roomId, userId, room.hostId))) throw new ForbiddenException('This room chat is not publicly accessible');
     const blockedHost = await this.prisma.userBlock.findFirst({ where: { OR: [
       { blockerId: userId, blockedUserId: room.hostId },
       { blockerId: room.hostId, blockedUserId: userId },
@@ -627,7 +627,7 @@ export class LiveService {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, visibility: true } });
     if (!room) throw new NotFoundException('Live room not found');
     const isModerator = room.hostId === userId || await this.canModerateRoom(roomId, userId, room.hostId);
-    if (room.visibility !== LiveRoomVisibility.PUBLIC && !isModerator) throw new ForbiddenException('This room is not publicly accessible');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && !(await this.canManageLiveSession(roomId, userId, room.hostId))) throw new ForbiddenException('This room is not publicly accessible');
     const [polls, questions] = await Promise.all([
       this.prisma.livePoll.findMany({
         where: { roomId }, orderBy: { createdAt: 'desc' }, take: 10,
