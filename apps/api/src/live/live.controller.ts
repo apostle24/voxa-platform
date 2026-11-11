@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
 import { CreateLiveChatMessageDto } from './dto/create-live-chat-message.dto';
@@ -17,6 +17,12 @@ export class LiveController {
   @UseGuards(JwtAuthGuard)
   createRoom(@Req() req: AuthenticatedRequest, @Body() input: CreateLiveRoomDto) {
     return this.live.createRoom(req.user.id, input);
+  }
+
+  @Post('webhooks/livekit')
+  receiveLiveKitWebhook(@Req() req: any, @Headers('authorization') authorization?: string) {
+    const rawBody = req.rawBody?.toString('utf8') || '';
+    return this.live.receiveLiveKitWebhook(rawBody, authorization);
   }
 
   @Post('rooms/:roomId/end')
