@@ -500,6 +500,14 @@ function Creator() {
     } catch (e) { Alert.alert('Unable to save episode', e instanceof Error ? e.message : 'Try again'); }
     finally { setBusy(false); }
   }
+  async function retryProcessing(show: ApiRecord, episode: ApiRecord) {
+    setBusy(true);
+    try {
+      await api('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id) + '/retry-processing', { method: 'POST' });
+      refresh();
+    } catch (e) { Alert.alert('Retry unavailable', e instanceof Error ? e.message : 'Try again'); }
+    finally { setBusy(false); }
+  }
   async function publishEpisode(show: ApiRecord, episode: ApiRecord) {
     setBusy(true);
     try { await api('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id) + '/publish', { method: 'POST' }); refresh(); }
@@ -548,7 +556,7 @@ function Creator() {
             </>}
 
             <Button title="Upload audio / video" secondary onPress={() => uploadEpisode(show, episode)} disabled={busy} />
-            {episode.mediaAssets?.[0]?.status === 'FAILED' && <Button title="Retry media processing" secondary onPress={async () => { await api('/shows/' + show.id + '/episodes/' + episode.id + '/retry-processing', { method: 'POST' }); refresh(); }} disabled={busy} />}
+            {episode.mediaAssets?.[0]?.status === 'FAILED' && <Button title="Retry media processing" secondary onPress={() => retryProcessing(show, episode)} disabled={busy} />}
             <Button title="Publish episode" onPress={() => publishEpisode(show, episode)} disabled={busy || show.status !== 'PUBLISHED'} />
           </>}
           {episode.status === 'PUBLISHED' && <Button title="Unpublish episode" secondary onPress={() => Alert.alert('Unpublish episode?', 'It will be removed from public discovery and returned to drafts.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Unpublish', style: 'destructive', onPress: () => unpublishEpisode(show, episode) }])} disabled={busy} />}
