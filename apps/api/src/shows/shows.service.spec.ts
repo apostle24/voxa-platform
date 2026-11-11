@@ -83,6 +83,12 @@ describe('ShowsService publishing and playback progress', () => {
     expect(prisma.episode.updateMany).not.toHaveBeenCalled();
   });
 
+  it('detects a concurrent publication change instead of overwriting it', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', status: 'PUBLISHED' });
+    prisma.episode.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.unpublishEpisode('creator-user', 'show-1', 'episode-1')).rejects.toBeInstanceOf(ConflictException);
+  });
   it('rejects unpublishing an episode that is already a draft', async () => {
     prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
     prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1', status: 'DRAFT' });
