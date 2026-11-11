@@ -32,6 +32,7 @@ describe('LiveService access boundaries', () => {
       liveChatMessage: { count: jest.fn(), findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       stageRequest: { upsert: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), groupBy: jest.fn() },
       liveKitWebhookEvent: { createMany: jest.fn() },
+      mediaAsset: { findUnique: jest.fn() },
       $transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
     };
     config = {
@@ -464,10 +465,55 @@ describe('LiveService access boundaries', () => {
     expect(result.measurementNote).toContain('45 seconds');
   });
 
+  it('returns the existing replay draft and processing state to its room host', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', title: 'VOXA Live', status: 'ENDED',
+      startedAt: new Date('2026-11-11T10:00:00.000Z'), endedAt: new Date('2026-11-11T11:00:00.000Z'),
+      peakAudienceCount: 6, recordingStatus: 'COMPLETED',
+      recordingObjectKey: 'live-recordings/room-1/final.mp4',
+    });
+    prisma.liveStageMember.findMany.mockResolvedValue([]);
+    prisma.stageRequest.groupBy.mockResolvedValue([]);
+    prisma.liveChatMessage.count.mockResolvedValue(0);
+    prisma.liveViewerSession.groupBy.mockResolvedValue([]);
+    prisma.mediaAsset.findUnique.mockResolvedValue({
+      id: 'asset-1', episodeId: 'episode-1', status: 'READY',
+      episode: { status: 'DRAFT', isLiveReplay: true },
+    });
+
+    const result = await service.getRoomAnalytics('host-1', 'room-1');
+
+    expect(prisma.mediaAsset.findUnique).toHaveBeenCalledWith({
+      where: { objectKey: 'live-recordings/room-1/final.mp4' },
+      select: { id: true, episodeId: true, status: true, episode: { select: { status: true, isLiveReplay: true } } },
+    });
+    expect(result.replayDraft).toEqual({
+      episodeId: 'episode-1', mediaAssetId: 'asset-1',
+      processingStatus: 'READY', episodeStatus: 'DRAFT',
+    });
+  });
+
+  it('returns no replay draft when a completed recording has not been imported yet', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', title: 'VOXA Live', status: 'ENDED',
+      startedAt: null, endedAt: null, peakAudienceCount: 0, recordingStatus: 'COMPLETED',
+      recordingObjectKey: 'live-recordings/room-1/final.mp4',
+    });
+    prisma.liveStageMember.findMany.mockResolvedValue([]);
+    prisma.stageRequest.groupBy.mockResolvedValue([]);
+    prisma.liveChatMessage.count.mockResolvedValue(0);
+    prisma.liveViewerSession.groupBy.mockResolvedValue([]);
+    prisma.mediaAsset.findUnique.mockResolvedValue(null);
+
+    const result = await service.getRoomAnalytics('host-1', 'room-1');
+    expect(result.replayDraft).toBeNull();
+  });
+
   it('does not disclose room analytics to a non-host', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
     await expect(service.getRoomAnalytics('listener-1', 'room-1')).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.liveStageMember.findMany).not.toHaveBeenCalled();
+    expect(prisma.mediaAsset.findUnique).not.toHaveBeenCalled();
   });
 
 
