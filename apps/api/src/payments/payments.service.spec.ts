@@ -237,6 +237,7 @@ describe('PaymentsService safety boundaries', () => {
     prisma.creator.findUnique.mockResolvedValue({ id: 'creator-1', userId: 'creator-user-1' });
     prisma.paymentAttempt.findMany.mockResolvedValue([{
       id: 'attempt-1', reference: 'VOXA_MEMBERSHIP_1', creatorNetMinor: 8500, currency: 'GHS',
+      creator: { userId: 'creator-user-1' },
     }]);
     const tx = {
       $queryRaw: jest.fn().mockResolvedValue([{ locked: true }]),
