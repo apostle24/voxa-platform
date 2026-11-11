@@ -48,7 +48,7 @@ export class AccountSecurityService {
     const user = await this.prisma.user.findUnique({ where: { email }, select: { id: true, email: true } });
     if (!user) return { accepted: true };
     const raw = await this.issueToken(user.id, 'RESET_PASSWORD', RESET_TTL_MS);
-    const url = this.frontendUrl('/reset-password?token=' + encodeURIComponent(raw));
+    const url = this.frontendUrl('/reset-password#token=' + encodeURIComponent(raw));
     await this.mail.sendAccountLink(user.email, 'Reset your VOXA password', 'Use this link to choose a new password. It expires in 30 minutes.', url);
     return { accepted: true };
   }
