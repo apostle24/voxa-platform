@@ -11,10 +11,9 @@ describe('LiveService access boundaries', () => {
   beforeEach(() => {
     prisma = {
       liveRoom: { findUnique: jest.fn() },
-      liveStageMember: { findMany: jest.fn() },
+      liveStageMember: { findMany: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn() },
       stageRequest: { upsert: jest.fn(), groupBy: jest.fn() },
-      liveStageMember: { findUnique: jest.fn() },
     };
     config = {
       get: jest.fn((key: string) => ({
