@@ -41,6 +41,8 @@ jobs:
         env:
           DATABASE_URL: postgresql://voxa:voxa@localhost:5432/voxa_ci
       - run: pnpm --filter @voxa/api prisma:generate
+      - name: Check media worker syntax
+        run: node --check apps/api/scripts/media-worker.cjs
       - name: Typecheck API and web
         run: pnpm -r typecheck
       - name: Run API unit tests
