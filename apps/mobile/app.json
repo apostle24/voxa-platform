@@ -12,18 +12,32 @@
       "bundleIdentifier": "com.voxa.mobile"
     },
     "android": {
-      "package": "com.voxa.mobile",
-      "permissions": [
-        "RECORD_AUDIO",
-        "MODIFY_AUDIO_SETTINGS"
-      ]
+      "package": "com.voxa.mobile"
     },
     "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow VOXA to access your microphone for live rooms.",
+          "enableBackgroundPlayback": true
+        }
+      ],
       "expo-secure-store",
-      "expo-av",
       "expo-dev-client",
-      "@livekit/react-native-expo-plugin",
-      "@config-plugins/react-native-webrtc"
+      [
+        "@livekit/react-native-expo-plugin",
+        {
+          "android": {
+            "audioType": "communication"
+          }
+        }
+      ],
+      [
+        "@config-plugins/react-native-webrtc",
+        {
+          "microphonePermission": "Allow VOXA to access your microphone for live rooms."
+        }
+      ]
     ]
   }
 }
