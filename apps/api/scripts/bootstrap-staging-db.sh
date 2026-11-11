@@ -12,11 +12,11 @@ if [ "${VOXA_STAGING_DB_BOOTSTRAP:-false}" = "true" ]; then
   # The first incremental migration failed because the empty database has no
   # pre-existing Episode table. Resolve that failed attempt before schema push.
   if output=$(pnpm --filter @voxa/api exec prisma migrate resolve --rolled-back 20261110160000_media_asset_processing 2>&1); then
-    printf '%s\\n' "$output"
+    printf '%s\n' "$output"
   else
-    printf '%s\\n' "$output"
+    printf '%s\n' "$output"
     # P3012 means the migration is already resolved and is not in a failed state.
-    printf '%s\\n' "$output" | grep -q 'P3012' || exit 1
+    printf '%s\n' "$output" | grep -q 'P3012' || exit 1
   fi
 
   # The staging database is new and contains no user data. Do not use
