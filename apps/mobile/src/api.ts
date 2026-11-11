@@ -78,3 +78,13 @@ export async function signOut() {
   } finally { await clearSession(); }
 }
 export const imageFor = (item: ApiRecord) => item.artworkUrl || item.coverImageUrl || item.show?.artworkUrl || item.creator?.avatarUrl || null;
+
+export async function registerAccount(displayName: string, email: string, password: string) {
+  const response = await fetch(API + '/auth/mobile/register', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName, email, password }),
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.message || 'Unable to create your account');
+  return data;
+}
