@@ -1087,7 +1087,7 @@ export class LiveService {
     const stageMember = room.stage.find((member) => member.userId === userId);
     let isSpeaker = Boolean(stageMember);
     const guestBooking = !isHost && !isCoHost ? await this.prisma.liveGuestInvitation.findFirst({
-      where: { roomId, inviteeId: userId, status: 'ACCEPTED' },
+      where: { roomId, inviteeId: userId, status: 'ACCEPTED', slotEndsAt: { gt: new Date() } },
       orderBy: { slotStartsAt: 'asc' },
       select: { id: true, slotStartsAt: true, slotEndsAt: true },
     }) : null;
