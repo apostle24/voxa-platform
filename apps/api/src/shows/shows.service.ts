@@ -700,6 +700,65 @@ export class ShowsService {
     return { items: results, nextCursor: hasMore ? page[page.length - 1].id : null };
   }
 
+
+  async getPersonalizedRecommendations(userId: string, requestedLimit?: number) {
+    const limit = Math.max(1, Math.min(20, Number(requestedLimit) || 12));
+    const [recentProgress, bookmarks, follows] = await Promise.all([
+      this.prisma.playbackProgress.findMany({ where: { userId }, orderBy: { updatedAt: 'desc' }, take: 30,
+        select: { episodeId: true, episode: { select: { show: { select: { category: true, creatorId: true } } } } } }),
+      this.prisma.episodeBookmark.findMany({ where: { userId }, orderBy: { createdAt: 'desc' }, take: 30,
+        select: { episodeId: true, episode: { select: { show: { select: { category: true, creatorId: true } } } } } }),
+      this.prisma.follow.findMany({ where: { followerId: userId }, select: { creatorId: true } }),
+    ]);
+    const categoryCounts = new Map<string, number>();
+    const creatorCounts = new Map<string, number>();
+    const excludedIds = new Set<string>();
+    for (const signal of [...recentProgress, ...bookmarks]) {
+      excludedIds.add(signal.episodeId);
+      const category = signal.episode?.show?.category;
+      const creatorId = signal.episode?.show?.creatorId;
+      if (category) categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+      if (creatorId) creatorCounts.set(creatorId, (creatorCounts.get(creatorId) || 0) + 1);
+    }
+    const followedCreatorIds = follows.map(item => item.creatorId);
+    const preferredCategories = [...categoryCounts.entries()].sort((a,b) => b[1]-a[1]).slice(0,5).map(([v])=>v);
+    const listenedCreatorIds = [...creatorCounts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,10).map(([v])=>v);
+    const creatorIds = [...new Set([...followedCreatorIds, ...listenedCreatorIds])];
+    const select = {
+      id: true, title: true, description: true, artworkUrl: true, durationSeconds: true,
+      isExplicit: true, isLiveReplay: true, publishedAt: true,
+      show: { select: { id: true, title: true, category: true, creatorId: true,
+        creator: { select: { handle: true, user: { select: { displayName: true } } } } } },
+    };
+    const candidates = await this.prisma.episode.findMany({
+      where: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED },
+        ...(excludedIds.size ? { id: { notIn: [...excludedIds] } } : {}),
+        ...(preferredCategories.length || creatorIds.length ? { OR: [
+          ...(preferredCategories.length ? [{ show: { category: { in: preferredCategories } } }] : []),
+          ...(creatorIds.length ? [{ show: { creatorId: { in: creatorIds } } }] : []),
+        ] } : {}),
+      },
+      take: limit * 3, orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }], select,
+    });
+    const recommendations = candidates.map(episode => {
+      const followed = followedCreatorIds.includes(episode.show.creatorId);
+      const categoryMatch = Boolean(episode.show.category && preferredCategories.includes(episode.show.category));
+      const creatorMatch = creatorIds.includes(episode.show.creatorId);
+      const score = (followed ? 100 : 0) + (categoryMatch ? 20 : 0) + (creatorMatch ? 10 : 0);
+      const reason = followed ? 'From a creator you follow' : categoryMatch ? 'Based on topics you listen to'
+        : creatorMatch ? 'From a creator you have listened to' : 'Popular on VOXA';
+      return { ...episode, score, reason };
+    }).sort((a,b)=>b.score-a.score || new Date(b.publishedAt || 0).getTime()-new Date(a.publishedAt || 0).getTime())
+      .slice(0,limit).map(({score,...episode})=>episode);
+    if (preferredCategories.length || creatorIds.length) return { items: recommendations, personalized: true };
+    const fallback = await this.prisma.episode.findMany({
+      where: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED },
+        ...(excludedIds.size ? { id: { notIn: [...excludedIds] } } : {}) },
+      take: limit, orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }], select,
+    });
+    return { items: fallback.map(episode => ({ ...episode, reason: 'Popular on VOXA' })), personalized: false };
+  }
+
   async discoveryCategories() {
     const categories = await this.prisma.show.findMany({
       where: { status: PublicationStatus.PUBLISHED, category: { not: null }, episodes: { some: { status: PublicationStatus.PUBLISHED } } },
