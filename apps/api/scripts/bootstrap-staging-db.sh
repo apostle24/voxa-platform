@@ -6,7 +6,7 @@
 # as already represented by that schema.
 set -eu
 
-if [ "\${VOXA_STAGING_DB_BOOTSTRAP:-false}" = "true" ]; then
+if [ "${VOXA_STAGING_DB_BOOTSTRAP:-false}" = "true" ]; then
   echo "VOXA staging database bootstrap enabled"
 
   # The first incremental migration failed because the empty database has no
