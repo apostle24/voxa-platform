@@ -99,6 +99,7 @@ export class CreatorsService {
         createdAt: true,
         user: {
           select: {
+            id: true,
             displayName: true,
             liveRooms: { where: { status: 'LIVE', visibility: 'PUBLIC' }, orderBy: { startedAt: 'desc' }, take: 3,
               select: { id: true, title: true, description: true, startedAt: true } },
