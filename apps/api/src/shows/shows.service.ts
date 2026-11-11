@@ -346,6 +346,83 @@ export class ShowsService {
     return { episodeId, likedByMe: liked, likeCount };
   }
 
+  async createMoment(userId: string, episodeId: string, caption: string, startSeconds: number, endSeconds: number) {
+    const episode = await this.prisma.episode.findFirst({
+      where: {
+        id: episodeId,
+        status: PublicationStatus.PUBLISHED,
+        membershipRequired: false,
+        show: { status: PublicationStatus.PUBLISHED, creator: { userId } },
+      },
+      select: { id: true, durationSeconds: true, show: { select: { creatorId: true } } },
+    });
+    if (!episode) throw new NotFoundException('A published public episode owned by your creator account is required');
+    if (!Number.isInteger(startSeconds) || !Number.isInteger(endSeconds) || startSeconds < 0 || endSeconds <= startSeconds) {
+      throw new ConflictException('Choose a valid clip range');
+    }
+    if (endSeconds - startSeconds > 90) throw new ConflictException('VOXA Moments can be up to 90 seconds long');
+    if (!episode.durationSeconds || endSeconds > episode.durationSeconds) throw new ConflictException('Clip range exceeds the episode duration');
+    const video = await this.prisma.mediaAsset.findFirst({
+      where: { episodeId, status: 'READY', contentType: { startsWith: 'video/' }, playbackKey: { not: null } },
+      select: { id: true },
+    });
+    if (!video) throw new ConflictException('A fully processed video episode is required to create a Moment');
+    return this.prisma.moment.create({
+      data: { creatorId: episode.show.creatorId, episodeId, caption: caption.trim(), startSeconds, endSeconds },
+      select: { id: true, episodeId: true, caption: true, startSeconds: true, endSeconds: true, status: true, createdAt: true },
+    });
+  }
+
+  async publishMoment(userId: string, momentId: string) {
+    const moment = await this.prisma.moment.findFirst({
+      where: { id: momentId, creator: { userId } },
+      select: { id: true, status: true },
+    });
+    if (!moment) throw new NotFoundException('Moment not found');
+    if (moment.status === PublicationStatus.PUBLISHED) return moment;
+    return this.prisma.moment.update({
+      where: { id: momentId },
+      data: { status: PublicationStatus.PUBLISHED, publishedAt: new Date() },
+      select: { id: true, status: true, publishedAt: true },
+    });
+  }
+
+  async deleteMoment(userId: string, momentId: string) {
+    const moment = await this.prisma.moment.findFirst({
+      where: { id: momentId, creator: { userId } },
+      select: { id: true },
+    });
+    if (!moment) throw new NotFoundException('Moment not found');
+    await this.prisma.moment.delete({ where: { id: momentId } });
+    return { deleted: true };
+  }
+
+  async discoverMoments(cursor?: string, requestedLimit?: number) {
+    const limit = Math.max(1, Math.min(30, Number(requestedLimit) || 15));
+    const items = await this.prisma.moment.findMany({
+      where: {
+        status: PublicationStatus.PUBLISHED,
+        episode: {
+          status: PublicationStatus.PUBLISHED,
+          membershipRequired: false,
+          show: { status: PublicationStatus.PUBLISHED },
+          mediaAssets: { some: { status: 'READY', contentType: { startsWith: 'video/' }, playbackKey: { not: null } } },
+        },
+      },
+      take: limit + 1,
+      ...(cursor ? { skip: 1, cursor: { id: cursor } } : {}),
+      orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
+      select: {
+        id: true, episodeId: true, caption: true, startSeconds: true, endSeconds: true, publishedAt: true,
+        creator: { select: { handle: true, user: { select: { displayName: true } } } },
+        episode: { select: { id: true, title: true, artworkUrl: true, durationSeconds: true } },
+      },
+    });
+    const hasMore = items.length > limit;
+    const page = hasMore ? items.slice(0, limit) : items;
+    return { items: page, nextCursor: hasMore ? page[page.length - 1].id : null };
+  }
+
   async discoverShows(params: { q?: string; category?: string; language?: string; cursor?: string; limit?: number }) {
     const limit = Math.max(1, Math.min(50, Number(params.limit) || 20));
     const where: any = { status: PublicationStatus.PUBLISHED };

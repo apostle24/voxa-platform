@@ -24,6 +24,10 @@ export default function CreatorStudioPage() {
   const [planName, setPlanName] = useState('');
   const [planDescription, setPlanDescription] = useState('');
   const [planPrice, setPlanPrice] = useState('');
+  const [momentEpisodeId, setMomentEpisodeId] = useState('');
+  const [momentCaption, setMomentCaption] = useState('');
+  const [momentStart, setMomentStart] = useState('0');
+  const [momentEnd, setMomentEnd] = useState('30');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -50,6 +54,11 @@ export default function CreatorStudioPage() {
     if (!token) return;
     const data = await request('/creators/me/shows');
     setShows(data || []);
+    const eligible = (data || []).flatMap((show: Show) => show.episodes
+      .filter(episode => show.status === 'PUBLISHED' && episode.status === 'PUBLISHED' && !episode.membershipRequired
+        && episode.mediaAssets?.[0]?.status === 'READY' && episode.mediaAssets?.[0]?.contentType?.startsWith('video/'))
+      .map(episode => ({ id: episode.id })));
+    if (!momentEpisodeId && eligible[0]?.id) setMomentEpisodeId(eligible[0].id);
     if (!episodeShowId && data?.[0]?.id) setEpisodeShowId(data[0].id);
   }
 
@@ -82,6 +91,21 @@ export default function CreatorStudioPage() {
       await loadShows();
       setNotice('Your show draft has been created.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to create show'); }
+    finally { setBusy(false); }
+  }
+
+  async function createMoment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true); setError(''); setNotice('');
+    try {
+      const created = await request('/episodes/' + encodeURIComponent(momentEpisodeId) + '/moments', {
+        method: 'POST',
+        body: JSON.stringify({ caption: momentCaption, startSeconds: Number(momentStart), endSeconds: Number(momentEnd) }),
+      });
+      await request('/moments/' + encodeURIComponent(created.id) + '/publish', { method: 'POST' });
+      setMomentCaption('');
+      setNotice('Your VOXA Moment is now published. It is available in the Moments feed.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to publish Moment'); }
     finally { setBusy(false); }
   }
 
@@ -209,6 +233,27 @@ export default function CreatorStudioPage() {
           </form>
         </div>
         {plans.length > 0 && <><div className="eyebrow sectionEyebrow">YOUR MEMBERSHIP PLANS</div><div className="membershipGrid">{plans.map(plan => <article className="membershipCard" key={plan.id}><span>{plan.isActive ? 'ACTIVE PLAN' : 'INACTIVE PLAN'}</span><h3>{plan.name}</h3><p>{plan.description || 'Monthly creator membership'}</p><strong>{new Intl.NumberFormat(undefined, { style: 'currency', currency: plan.currency }).format(plan.priceMinor / 100)} <small>/ month</small></strong></article>)}</div></>}
+        <div className="eyebrow sectionEyebrow">CREATE A VOXA MOMENT</div>
+        <form className="createPanel" onSubmit={createMoment} style={{ maxWidth: 720, marginBottom: 28 }}>
+          <h2>Turn a highlight into a <em>Moment.</em></h2>
+          <label>Published public video episode
+            <select required value={momentEpisodeId} onChange={event => setMomentEpisodeId(event.target.value)}>
+              <option value="">Select a ready video episode</option>
+              {shows.flatMap(show => show.episodes
+                .filter(episode => show.status === 'PUBLISHED' && episode.status === 'PUBLISHED' && !episode.membershipRequired
+                  && episode.mediaAssets?.[0]?.status === 'READY' && episode.mediaAssets?.[0]?.contentType?.startsWith('video/'))
+                .map(episode => <option key={episode.id} value={episode.id}>{show.title} — {episode.title}</option>))}
+            </select>
+          </label>
+          <label>Caption<input required minLength={1} maxLength={500} value={momentCaption} onChange={event => setMomentCaption(event.target.value)} placeholder="The key insight from this conversation…" /></label>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <label>Start (seconds)<input required type="number" min={0} value={momentStart} onChange={event => setMomentStart(event.target.value)} /></label>
+            <label>End (seconds)<input required type="number" min={1} value={momentEnd} onChange={event => setMomentEnd(event.target.value)} /></label>
+          </div>
+          <small>Moments are limited to 90 seconds and can only use fully processed public video episodes. Members-only source episodes are excluded.</small>
+          <button className="button full" disabled={busy || !momentEpisodeId || !momentCaption.trim() || Number(momentEnd) <= Number(momentStart) || Number(momentEnd) - Number(momentStart) > 90}>{busy ? 'Publishing…' : 'Publish Moment'}</button>
+          <p><Link className="textLink" href="/moments">View the Moments feed ↗</Link></p>
+        </form>
         <div className="eyebrow sectionEyebrow">YOUR SHOWS AND EPISODES</div>
         {shows.length ? <div style={{ display: 'grid', gap: 18 }}>
           {shows.map(show => <article key={show.id} style={{ padding: 22, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 12 }}>

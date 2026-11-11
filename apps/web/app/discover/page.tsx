@@ -71,7 +71,7 @@ export default function DiscoverPage() {
     <main className="appShell">
       <nav className="nav">
         <Link className="brand" href="/">VOXA<span>.</span></Link>
-        <div className="navLinks"><Link href="/live">Explore LIVE</Link><Link href="/creator/setup">Become a creator</Link><Link href="/login">Sign in</Link></div>
+        <div className="navLinks"><Link href="/moments">Moments</Link><Link href="/live">Explore LIVE</Link><Link href="/creator/setup">Become a creator</Link><Link href="/login">Sign in</Link></div>
       </nav>
       <section className="communityPage" style={{ maxWidth: 1120 }}>
         <header className="communityHeader">
