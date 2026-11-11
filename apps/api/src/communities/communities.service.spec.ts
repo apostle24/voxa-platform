@@ -72,6 +72,7 @@ describe('CommunitiesService discussion replies', () => {
       communityMember: { findUnique: jest.fn() },
       communityPost: { findMany: jest.fn(), findFirst: jest.fn() },
       communityPostComment: { create: jest.fn() },
+      userBlock: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       notification: { create: jest.fn().mockResolvedValue({ id: 'notice-1', recipientId: 'owner-1', type: 'COMMUNITY_REPLY', title: 'New reply', body: null, resourceType: 'community', resourceId: 'community-1' }) },
       notificationDevice: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
@@ -91,6 +92,19 @@ describe('CommunitiesService discussion replies', () => {
     await expect(service.listPosts('member-1', 'community-1')).resolves.toEqual([
       { id: 'post-1', comments: [{ id: 'reply-1', content: 'Welcome' }] },
     ]);
+  });
+
+  it('filters posts and replies from accounts blocked in either direction', async () => {
+    prisma.communityMember.findUnique.mockResolvedValue({ communityId: 'community-1' });
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'member-1', blockedUserId: 'blocked-1' }]);
+    prisma.communityPost.findMany.mockResolvedValue([]);
+    await service.listPosts('member-1', 'community-1');
+    expect(prisma.communityPost.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { communityId: 'community-1', deletedAt: null, authorId: { notIn: ['blocked-1'] } },
+      select: expect.objectContaining({
+        comments: expect.objectContaining({ where: { authorId: { notIn: ['blocked-1'] } } }),
+      }),
+    }));
   });
 
   it('creates replies only on posts in the selected community', async () => {

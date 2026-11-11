@@ -88,6 +88,32 @@ enum PaymentAttemptStatus {
   FAILED
 }
 
+enum ReportTargetType {
+  EPISODE
+  MOMENT
+  LIVE_ROOM
+  USER
+  COMMUNITY_POST
+}
+
+enum ReportReason {
+  HARASSMENT
+  HATE
+  VIOLENCE
+  SEXUAL_CONTENT
+  SPAM
+  COPYRIGHT
+  SELF_HARM
+  OTHER
+}
+
+enum ReportStatus {
+  NEW
+  REVIEWING
+  ACTIONED
+  DISMISSED
+}
+
 model User {
   id          String     @id @default(cuid())
   email       String     @unique
@@ -96,6 +122,8 @@ model User {
   role        UserRole   @default(LISTENER)
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
+  suspendedUntil DateTime?
+  suspensionReason String?
   creator     Creator?
   follows     Follow[]   @relation("Follower")
   liveRooms   LiveRoom[] @relation("RoomHost")
@@ -121,6 +149,13 @@ model User {
   communityMemberships CommunityMember[]
   communityPosts CommunityPost[]
   communityPostComments CommunityPostComment[]
+  submittedReports ContentReport[] @relation("ReportSubmitter")
+  reviewedReports ContentReport[] @relation("ReportReviewer")
+  moderationActions ModerationAction[]
+  blocksMade UserBlock[] @relation("UserBlocksMade")
+  blocksReceived UserBlock[] @relation("UserBlocksReceived")
+
+  @@index([suspendedUntil])
 }
 
 model Creator {
@@ -751,6 +786,7 @@ model CommunityPost {
   communityId String
   authorId    String
   content     String
+  deletedAt   DateTime?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   community   Community @relation(fields: [communityId], references: [id], onDelete: Cascade)
@@ -759,6 +795,7 @@ model CommunityPost {
 
   @@index([communityId, createdAt])
   @@index([authorId, createdAt])
+  @@index([deletedAt])
 }
 
 
@@ -808,4 +845,54 @@ model EpisodeIntelligence {
   generatedAt DateTime @default(now())
   updatedAt   DateTime @updatedAt
   episode     Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+}
+
+model ContentReport {
+  id             String           @id @default(cuid())
+  reporterId     String
+  targetType     ReportTargetType
+  targetId       String
+  reason         ReportReason
+  details        String?
+  status         ReportStatus     @default(NEW)
+  reviewerId     String?
+  moderatorNote  String?
+  reviewedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  reporter       User             @relation("ReportSubmitter", fields: [reporterId], references: [id], onDelete: Cascade)
+  reviewer       User?            @relation("ReportReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+
+  @@index([status, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([reporterId, createdAt])
+}
+
+model ModerationAction {
+  id         String   @id @default(cuid())
+  actorId    String
+  reportId   String
+  targetType String
+  targetId   String
+  action     String
+  reason     String
+  createdAt  DateTime @default(now())
+  actor      User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([reportId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([actorId, createdAt])
+}
+
+model UserBlock {
+  id            String   @id @default(cuid())
+  blockerId     String
+  blockedUserId String
+  createdAt     DateTime @default(now())
+  blocker       User     @relation("UserBlocksMade", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedUser   User     @relation("UserBlocksReceived", fields: [blockedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedUserId])
+  @@index([blockerId, createdAt])
+  @@index([blockedUserId, createdAt])
 }

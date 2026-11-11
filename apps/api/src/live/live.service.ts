@@ -31,8 +31,12 @@ export class LiveService {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, visibility: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room chat is not publicly accessible');
+    const blocks = await this.prisma.userBlock.findMany({
+      where: { OR: [{ blockerId: userId }, { blockedUserId: userId }] }, select: { blockerId: true, blockedUserId: true },
+    });
+    const hiddenUsers = [...new Set(blocks.map(block => block.blockerId === userId ? block.blockedUserId : block.blockerId))];
     const messages = await this.prisma.liveChatMessage.findMany({
-      where: { roomId }, orderBy: { createdAt: 'desc' }, take: 100,
+      where: { roomId, ...(hiddenUsers.length ? { userId: { notIn: hiddenUsers } } : {}) }, orderBy: { createdAt: 'desc' }, take: 100,
       select: { id: true, content: true, deletedAt: true, createdAt: true, userId: true, author: { select: { displayName: true } } },
     });
     return { messages: messages.reverse().map(message => ({ ...message, content: message.deletedAt ? '[deleted]' : message.content })) };
@@ -43,6 +47,11 @@ export class LiveService {
     if (!room) throw new NotFoundException('Live room not found');
     if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Chat is available only while the room is live');
     if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room chat is not publicly accessible');
+    const blockedHost = await this.prisma.userBlock.findFirst({ where: { OR: [
+      { blockerId: userId, blockedUserId: room.hostId },
+      { blockerId: room.hostId, blockedUserId: userId },
+    ] }, select: { id: true } });
+    if (blockedHost) throw new ForbiddenException('You cannot chat in a room hosted by an account you have blocked or that has blocked you');
     const clean = content.trim();
     if (!clean) throw new ConflictException('Message cannot be empty');
     return this.prisma.liveChatMessage.create({

@@ -228,10 +228,10 @@ export default function App() {
     </View>
     <View style={styles.content}>
       {tab === 'Discover' && <Discover onPlay={playEpisode} targetEpisodeId={deepLinkTarget?.kind === 'episode' ? deepLinkTarget.id : undefined} />}
-      {tab === 'Communities' && <Communities targetCommunityId={deepLinkTarget?.kind === 'community' ? deepLinkTarget.id : undefined} />}
+      {tab === 'Communities' && <Communities userId={user.id} targetCommunityId={deepLinkTarget?.kind === 'community' ? deepLinkTarget.id : undefined} />}
       {tab === 'LIVE' && <Live userId={user.id} targetRoomId={deepLinkTarget?.kind === 'live' ? deepLinkTarget.id : undefined} />}
       {tab === 'Creator' && <Creator />}
-      {tab === 'Profile' && (deepLinkTarget?.kind === 'creator' ? <CreatorProfile handle={deepLinkTarget.id} /> : <Profile user={user} onSignOut={async () => { if (pushToken) await api('/notifications/devices', { method: 'DELETE', body: JSON.stringify({ expoPushToken: pushToken }) }).catch(() => undefined); audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setPushToken(''); setUser(null); }} />)}
+      {tab === 'Profile' && (deepLinkTarget?.kind === 'creator' ? <CreatorProfile handle={deepLinkTarget.id} viewerId={user.id} /> : <Profile user={user} onSignOut={async () => { if (pushToken) await api('/notifications/devices', { method: 'DELETE', body: JSON.stringify({ expoPushToken: pushToken }) }).catch(() => undefined); audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setPushToken(''); setUser(null); }} />)}
     </View>
     {player && <View style={styles.miniPlayer}>
       <View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.playerTitle}>{player.title}</Text><Text style={styles.smallMuted}>{player.show}</Text></View>
@@ -302,10 +302,11 @@ function EpisodeCard({ item, onPlay }: { item: ApiRecord; onPlay: () => void }) 
   return <View style={styles.episodeCard}>
     <View style={{ flex: 1 }}><Text style={styles.cardTitle}>{item.title || 'Episode'}</Text><Text style={styles.smallMuted}>{item.show?.title || item.creator?.user?.displayName || 'VOXA'}</Text><Text numberOfLines={2} style={styles.cardDesc}>{item.description || ''}</Text></View>
     <Pressable onPress={onPlay} style={styles.playButton}><Text style={styles.playButtonText}>▶</Text></Pressable>
+    <SafetyActions targetType="EPISODE" targetId={item.id} />
   </View>;
 }
 
-function Communities({ targetCommunityId }: { targetCommunityId?: string }) {
+function Communities({ userId, targetCommunityId }: { userId: string; targetCommunityId?: string }) {
   const { items, loading, error, refresh } = useLoad<ApiRecord>('/communities');
   const [selected, setSelected] = useState<ApiRecord | null>(null);
   const [joined, setJoined] = useState(false);
@@ -373,6 +374,8 @@ function Communities({ targetCommunityId }: { targetCommunityId?: string }) {
       <Text style={styles.cardTitle}>{post.author?.displayName || 'Community member'}</Text>
       <Text style={styles.cardDesc}>{post.content}</Text>
       <Text style={styles.smallMuted}>{post.comments?.length || 0} replies</Text>
+      <SafetyActions targetType="COMMUNITY_POST" targetId={post.id} />
+      {!!post.author?.id && post.author.id !== userId && <SafetyActions targetType="USER" targetId={post.author.id} allowBlock />}
       {(post.comments || []).map((comment: any) => <View key={comment.id} style={styles.replyCard}>
         <Text style={styles.cardTitle}>{comment.author?.displayName || 'Member'}</Text><Text style={styles.muted}>{comment.content}</Text>
       </View>)}
@@ -436,6 +439,8 @@ function Live({ userId, targetRoomId }: { userId: string; targetRoomId?: string 
       <Text style={styles.livePill}>● {item.status || 'LIVE'}</Text><Text style={styles.cardTitle}>{item.title || 'Live conversation'}</Text><Text style={styles.smallMuted}>{item.host?.displayName || item.creator?.user?.displayName || 'VOXA host'}</Text>
       <Text numberOfLines={2} style={styles.cardDesc}>{item.description || 'Join the conversation.'}</Text>
       <Button title={busy === item.id ? 'Joining…' : 'Join room'} onPress={() => join(item)} disabled={!!busy} />
+      {item.status === 'LIVE' && <SafetyActions targetType="LIVE_ROOM" targetId={item.id} />}
+      {!!item.host?.id && item.host.id !== userId && <SafetyActions targetType="USER" targetId={item.host.id} allowBlock />}
     </View>)}
     {!loading && !items.length && <Empty text="No public live rooms right now. Check back soon." />}
   </ScrollView>;
@@ -679,7 +684,7 @@ function Creator() {
   </ScrollView>;
 }
 
-function CreatorProfile({ handle }: { handle: string }) {
+function CreatorProfile({ handle, viewerId }: { handle: string; viewerId: string }) {
   const [creator, setCreator] = useState<any>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -697,6 +702,7 @@ function CreatorProfile({ handle }: { handle: string }) {
       <Text style={styles.profileName}>{creator.user?.displayName || creator.displayName || creator.handle || handle}</Text>
       <Text style={styles.muted}>{creator.bio || 'VOXA creator'}</Text>
       {!!creator.handle && <Text style={styles.smallMuted}>@{creator.handle}</Text>}
+      {!!creator.user?.id && creator.user.id !== viewerId && <SafetyActions targetType="USER" targetId={creator.user.id} allowBlock />}
     </View>}
   </ScrollView>;
 }
@@ -706,8 +712,127 @@ function Profile({ user, onSignOut }: { user: User; onSignOut: () => void }) {
     <Text style={styles.eyebrow}>YOUR VOXA ACCOUNT</Text><Text style={styles.pageTitle}>Profile</Text>
     <View style={styles.profileCard}><View style={styles.avatar}><Text style={styles.avatarText}>{user.displayName.slice(0,1).toUpperCase()}</Text></View>
       <Text style={styles.profileName}>{user.displayName}</Text><Text style={styles.muted}>{user.email}</Text><Text style={styles.smallMuted}>Account role: {user.role}</Text></View>
+    {['ADMIN', 'MODERATOR'].includes(user.role) && <ModerationPanel />}
+    <BlockedUsersPanel />
     <Button title="Sign out" secondary onPress={onSignOut} />
   </ScrollView>;
+}
+
+
+const REPORT_REASONS = [
+  { value: 'HARASSMENT', label: 'Harassment or bullying' },
+  { value: 'HATE', label: 'Hateful content' },
+  { value: 'VIOLENCE', label: 'Violence or threats' },
+  { value: 'SEXUAL_CONTENT', label: 'Sexual content' },
+  { value: 'SPAM', label: 'Spam or misleading content' },
+  { value: 'COPYRIGHT', label: 'Copyright concern' },
+  { value: 'SELF_HARM', label: 'Self-harm concern' },
+  { value: 'OTHER', label: 'Something else' },
+];
+
+function SafetyActions({ targetType, targetId, allowBlock = false }: { targetType: 'EPISODE' | 'MOMENT' | 'LIVE_ROOM' | 'USER' | 'COMMUNITY_POST'; targetId: string; allowBlock?: boolean }) {
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
+  async function report(reason: string) {
+    if (busy) return;
+    setBusy(true); setNotice('');
+    try {
+      const result = await api<any>('/reports', { method: 'POST', body: JSON.stringify({ targetType, targetId, reason }) });
+      setNotice(result.duplicate ? 'You have already reported this item recently.' : 'Report sent to the VOXA safety team.');
+      setReportOpen(false);
+    } catch (error) { setNotice(error instanceof Error ? error.message : 'Report could not be sent.'); }
+    finally { setBusy(false); }
+  }
+  async function block() {
+    if (busy) return;
+    Alert.alert('Block this account?', 'You will be able to unblock this account from your profile.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Block account', style: 'destructive', onPress: async () => {
+        setBusy(true);
+        try { await api('/users/' + encodeURIComponent(targetId) + '/block', { method: 'POST' }); setNotice('Account blocked.'); }
+        catch (error) { setNotice(error instanceof Error ? error.message : 'Unable to block account.'); }
+        finally { setBusy(false); }
+      }},
+    ]);
+  }
+  return <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
+    <Pressable disabled={busy} onPress={() => setReportOpen(value => !value)}><Text style={styles.backLink}>{busy ? 'Please wait…' : reportOpen ? 'Cancel report' : '⚑ Report'}</Text></Pressable>
+    {allowBlock && <Pressable disabled={busy} onPress={() => void block()}><Text style={styles.backLink}>Block account</Text></Pressable>}
+    {reportOpen && <View style={{ width: '100%', gap: 6, marginTop: 6 }}>
+      <Text style={styles.smallMuted}>Choose a report reason:</Text>
+      {REPORT_REASONS.map(reason => <Pressable key={reason.value} disabled={busy} onPress={() => void report(reason.value)} style={styles.replyCard}><Text style={styles.muted}>{reason.label}</Text></Pressable>)}
+    </View>}
+    {!!notice && <Text style={styles.smallMuted}>{notice}</Text>}
+  </View>;
+}
+
+function BlockedUsersPanel() {
+  const blocked = useLoad<any>('/users/me/blocked');
+  async function unblock(id: string) {
+    try { await api('/users/' + encodeURIComponent(id) + '/block', { method: 'DELETE' }); blocked.refresh(); }
+    catch (error) { Alert.alert('Unable to unblock', error instanceof Error ? error.message : 'Try again'); }
+  }
+  return <View style={styles.formCard}>
+    <SectionTitle>Blocked accounts</SectionTitle>
+    {blocked.loading ? <ActivityIndicator color={colors.accent} /> : blocked.error ? <Empty text={blocked.error} /> : blocked.items.length ? blocked.items.map((item: any) => <View key={item.blockedUserId} style={styles.stageRow}>
+      <Text style={{ color: colors.text, flex: 1 }}>{item.blockedUser?.displayName || item.blockedUserId}</Text>
+      <Pressable onPress={() => void unblock(item.blockedUserId)}><Text style={styles.backLink}>Unblock</Text></Pressable>
+    </View>) : <Empty text="You have not blocked any accounts." />}
+  </View>;
+}
+
+function ModerationPanel() {
+  const [statusFilter, setStatusFilter] = useState('NEW');
+  const reports = useLoad<any>('/admin/reports?status=' + statusFilter, [statusFilter]);
+  const [notes, setNotes] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState('');
+  async function review(id: string, status: 'REVIEWING' | 'ACTIONED' | 'DISMISSED') {
+    if (status !== 'REVIEWING' && !notes[id]?.trim()) { Alert.alert('Moderator note required', 'Enter a short reason before closing a report.'); return; }
+    setBusyId(id);
+    try {
+      await api('/admin/reports/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify({ status, moderatorNote: notes[id]?.trim() }) });
+      reports.refresh();
+    } catch (error) { Alert.alert('Review failed', error instanceof Error ? error.message : 'Try again'); }
+    finally { setBusyId(''); }
+  }
+  async function action(id: string, actionName: string, days?: number) {
+    if (!notes[id]?.trim()) { Alert.alert('Moderator note required', 'Enter the reason for this action.'); return; }
+    setBusyId(id);
+    try {
+      await api('/admin/reports/' + encodeURIComponent(id) + '/actions', {
+        method: 'POST', body: JSON.stringify({ action: actionName, moderatorNote: notes[id].trim(), ...(days ? { suspensionDays: days } : {}) }),
+      });
+      reports.refresh();
+    } catch (error) { Alert.alert('Action failed', error instanceof Error ? error.message : 'Try again'); }
+    finally { setBusyId(''); }
+  }
+  return <View style={styles.formCard}>
+    <SectionTitle>Safety moderation queue</SectionTitle>
+    <Button title={'Queue status: ' + statusFilter + ' · Change'} secondary onPress={() => setStatusFilter(current => current === 'NEW' ? 'REVIEWING' : current === 'REVIEWING' ? 'ACTIONED' : current === 'ACTIONED' ? 'DISMISSED' : 'NEW')} />
+    <Button title="Refresh reports" secondary onPress={reports.refresh} />
+    {reports.loading ? <ActivityIndicator color={colors.accent} /> : reports.error ? <Empty text={reports.error} /> : reports.items.length ? reports.items.map((item: any) => <View key={item.id} style={styles.discussionCard}>
+      <Text style={styles.cardTitle}>{item.targetType} · {item.reason}</Text>
+      <Text style={styles.smallMuted}>Reported by {item.reporter?.displayName || 'VOXA user'} · {item.status}</Text>
+      <Text style={styles.cardDesc}>{item.details || item.targetLabel || item.targetId}</Text>
+      <Field value={notes[item.id] || ''} onChangeText={value => setNotes(current => ({ ...current, [item.id]: value }))} placeholder="Required moderator note" multiline maxLength={1000} />
+      {item.status === 'NEW' && <Button title={busyId === item.id ? 'Saving…' : 'Mark reviewing'} secondary onPress={() => void review(item.id, 'REVIEWING')} disabled={!!busyId} />}
+      {item.status !== 'ACTIONED' && item.status !== 'DISMISSED' && item.targetType === 'EPISODE' && <Button title="Hide episode" onPress={() => void action(item.id, 'HIDE_EPISODE')} disabled={!!busyId} />}
+      {item.status !== 'ACTIONED' && item.status !== 'DISMISSED' && item.targetType === 'MOMENT' && <Button title="Hide Moment" onPress={() => void action(item.id, 'HIDE_MOMENT')} disabled={!!busyId} />}
+      {item.targetType === 'COMMUNITY_POST' && item.status !== 'ACTIONED' && <Button title="Hide community post" onPress={() => void action(item.id, 'HIDE_COMMUNITY_POST')} disabled={!!busyId} />}
+      {item.status === 'ACTIONED' && item.targetType === 'COMMUNITY_POST' && <Button title="Restore community post" secondary onPress={() => void action(item.id, 'RESTORE_COMMUNITY_POST')} disabled={!!busyId} />}
+      {item.status === 'ACTIONED' && item.targetType === 'EPISODE' && <Button title="Restore episode" secondary onPress={() => void action(item.id, 'RESTORE_EPISODE')} disabled={!!busyId} />}
+      {item.status === 'ACTIONED' && item.targetType === 'MOMENT' && <Button title="Restore Moment" secondary onPress={() => void action(item.id, 'RESTORE_MOMENT')} disabled={!!busyId} />}
+      {item.status === 'ACTIONED' && item.targetType === 'USER' && !!item.targetSuspendedUntil && <Button title="Reinstate account" secondary onPress={() => void action(item.id, 'REINSTATE_USER')} disabled={!!busyId} />}
+      {item.status !== 'ACTIONED' && item.status !== 'DISMISSED' && item.targetType === 'USER' && <>
+        <Button title="Warn account" onPress={() => void action(item.id, 'WARN_USER')} disabled={!!busyId} />
+        <View style={{ flexDirection: 'row', gap: 6 }}>
+          {[1, 7, 30].map(days => <View key={days} style={{ flex: 1 }}><Button title={days + ' day suspension'} onPress={() => void action(item.id, 'SUSPEND_USER', days)} disabled={!!busyId} /></View>)}
+        </View>
+      </>}
+      {item.status !== 'ACTIONED' && item.status !== 'DISMISSED' && <Button title="Dismiss report" secondary onPress={() => void review(item.id, 'DISMISSED')} disabled={!!busyId} />}
+    </View>) : <Empty text="No reports need review." />}
+  </View>;
 }
 
 const styles = StyleSheet.create({

@@ -164,3 +164,7 @@ VOXA is being developed in deliberate stages: stabilize and test the foundation,
 The Expo app lives in `apps/mobile`. See [Mobile README](apps/mobile/README.md) for setup. It is an independent npm-installed native workspace; install its dependencies from that directory, configure `EXPO_PUBLIC_VOXA_API_URL`, then run Expo. LiveKit requires a native development build and cannot run inside Expo Go.
 
 - The native app now includes creator episode drafts, signed media upload, publishing controls, community discussions/replies, and live stage moderation. Apply the `20261111260000_community_post_comments` migration before using community replies.
+
+
+## Trust & Safety
+VOXA includes authenticated reports for episodes, VOXA Moments, live rooms, community posts, and accounts. Moderators and administrators can review reports and apply audited content/account actions. Users can block and unblock accounts; blocked users are filtered from community discussions and live chat; blocking a live host prevents chat participation in that host's room. Mobile includes report actions, blocked-account management, and a role-gated moderation queue. Apply migrations `20261111280000_mobile_safety_moderation` and `20261111290000_community_post_moderation` before using these workflows. Reports are non-punitive until a moderator reviews them.

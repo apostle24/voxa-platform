@@ -12,5 +12,6 @@ import { LiveService } from './live.service';
   })],
   controllers: [LiveController],
   providers: [LiveService, JwtAuthGuard],
+  exports: [LiveService],
 })
 export class LiveModule {}
