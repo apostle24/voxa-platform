@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   UnauthorizedException,
@@ -31,6 +32,27 @@ export class AuthService {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
       throw new Error('JWT_SECRET must be configured with at least 32 characters');
     }
+  }
+
+  async getMyProfile(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, email: true, displayName: true, role: true, createdAt: true, creator: { select: { handle: true } } },
+    });
+    if (!user) throw new UnauthorizedException('Account no longer exists');
+    return user;
+  }
+
+  async updateMyProfile(userId: string, displayName: string) {
+    const normalizedName = displayName.trim().replace(/\\s+/g, ' ');
+    if (normalizedName.length < 2 || normalizedName.length > 80) {
+      throw new BadRequestException('Display name must be between 2 and 80 characters');
+    }
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { displayName: normalizedName },
+      select: { id: true, email: true, displayName: true, role: true },
+    });
   }
 
   async register(input: RegisterDto) {
