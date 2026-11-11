@@ -56,6 +56,32 @@ export class AuthService {
     });
   }
 
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    if (newPassword.length < 12 || newPassword.length > 128) {
+      throw new BadRequestException('New password must be between 12 and 128 characters');
+    }
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('Choose a new password different from your current password');
+    }
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, passwordHash: true },
+    });
+    if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
+    const passwordHash = await bcrypt.hash(newPassword, 12);
+    const now = new Date();
+    await this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id: userId }, data: { passwordHash } });
+      await tx.authSession.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+    });
+    return { success: true, sessionsRevoked: true };
+  }
+
   async register(input: RegisterDto) {
     const email = input.email.trim().toLowerCase();
     const existing = await this.prisma.user.findUnique({
