@@ -260,6 +260,26 @@ export class ShowsService {
     });
   }
 
+  async getEpisodeIntelligence(episodeId: string, userId?: string) {
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
+      select: { id: true, membershipRequired: true, show: { select: { creator: { select: { id: true, userId: true } } } } },
+    });
+    if (!episode) throw new NotFoundException('Published episode not found');
+    if (episode.membershipRequired && episode.show.creator.userId !== userId) {
+      if (!userId) throw new ForbiddenException('Sign in and join this creator membership to access episode intelligence');
+      const subscription = await this.prisma.membershipSubscription.findFirst({
+        where: { subscriberId: userId, creatorId: episode.show.creator.id, status: 'ACTIVE', currentPeriodEnd: { gt: new Date() } },
+        select: { id: true },
+      });
+      if (!subscription) throw new ForbiddenException('An active creator membership is required to access episode intelligence');
+    }
+    return this.prisma.episodeIntelligence.findUnique({
+      where: { episodeId },
+      select: { summary: true, topics: true, model: true, generatedAt: true },
+    });
+  }
+
   async getEpisodeTranscript(episodeId: string, userId?: string) {
     const episode = await this.prisma.episode.findFirst({
       where: { id: episodeId, status: PublicationStatus.PUBLISHED, show: { status: PublicationStatus.PUBLISHED } },
