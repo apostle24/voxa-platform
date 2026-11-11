@@ -3,7 +3,7 @@ import {
   ActivityIndicator, Alert, FlatList, KeyboardAvoidingView, Platform, Pressable,
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from 'react-native';
-import { Audio } from 'expo-av';
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import * as SecureStore from 'expo-secure-store';
 import { AudioSession, LiveKitRoom, registerGlobals } from '@livekit/react-native';
 import { api, clearSession, getSavedUser, imageFor, saveSession, signIn, signOut, User, ApiRecord, verifyMfa, registerAccount } from './src/api';
@@ -43,8 +43,8 @@ export default function App() {
   const [mfa, setMfa] = useState('');
   const [mfaCode, setMfaCode] = useState('');
   const [player, setPlayer] = useState<PlayerState>(null);
-  const sound = useRef<Audio.Sound | null>(null);
-  const [playing, setPlaying] = useState(false);
+  const audioPlayer = useAudioPlayer(null);
+  const audioStatus = useAudioPlayerStatus(audioPlayer);
   const [playerMessage, setPlayerMessage] = useState('');
 
   useEffect(() => {
@@ -61,7 +61,11 @@ export default function App() {
         await clearSession();
       } finally { if (mounted) setBooting(false); }
     })();
-    return () => { mounted = false; void sound.current?.unloadAsync(); };
+    return () => { mounted = false; };
+  }, []);
+
+  useEffect(() => {
+    void setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' });
   }, []);
 
   async function authenticate() {
@@ -87,26 +91,22 @@ export default function App() {
   async function playEpisode(item: ApiRecord) {
     try {
       setPlayerMessage('Preparing audio…');
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true, staysActiveInBackground: true, shouldDuckAndroid: true });
       const episode = await api<any>('/episodes/' + encodeURIComponent(item.id));
       const member = Boolean(episode.membershipRequired);
       const playback = await api<any>('/episodes/' + encodeURIComponent(item.id) + (member ? '/member-playback-url' : '/playback-url'));
-      await sound.current?.unloadAsync();
-      const created = await Audio.Sound.createAsync({ uri: playback.url }, { shouldPlay: true });
-      sound.current = created.sound;
-      setPlayer({ title: episode.title || item.title || 'VOXA episode', show: episode.show?.title || item.show?.title || 'Podcast', url: playback.url });
-      setPlaying(true); setPlayerMessage('');
-      created.sound.setOnPlaybackStatusUpdate(status => {
-        if (status.isLoaded && status.didJustFinish) setPlaying(false);
-      });
+      const title = episode.title || item.title || 'VOXA episode';
+      const showTitle = episode.show?.title || item.show?.title || 'Podcast';
+      audioPlayer.replace(playback.url);
+      audioPlayer.setActiveForLockScreen(true, { title, artist: showTitle, albumTitle: 'VOXA' });
+      audioPlayer.play();
+      setPlayer({ title, show: showTitle, url: playback.url });
+      setPlayerMessage('');
     } catch (e) { setPlayerMessage(e instanceof Error ? e.message : 'Unable to play this episode'); }
   }
 
   async function togglePlayback() {
-    if (!sound.current) return;
-    const status = await sound.current.getStatusAsync();
-    if (status.isLoaded && status.isPlaying) { await sound.current.pauseAsync(); setPlaying(false); }
-    else { await sound.current.playAsync(); setPlaying(true); }
+    if (audioStatus.playing) audioPlayer.pause();
+    else audioPlayer.play();
   }
 
   if (booting) return <SafeAreaView style={styles.center}><ActivityIndicator color={colors.accent} size="large" /></SafeAreaView>;
@@ -147,7 +147,7 @@ export default function App() {
     </View>
     {player && <View style={styles.miniPlayer}>
       <View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.playerTitle}>{player.title}</Text><Text style={styles.smallMuted}>{player.show}</Text></View>
-      <Pressable onPress={togglePlayback} style={styles.playButton}><Text style={styles.playButtonText}>{playing ? 'Ⅱ' : '▶'}</Text></Pressable>
+      <Pressable onPress={togglePlayback} style={styles.playButton}><Text style={styles.playButtonText}>{audioStatus.playing ? 'Ⅱ' : '▶'}</Text></Pressable>
     </View>}
     {!!playerMessage && <Text style={styles.playerMessage}>{playerMessage}</Text>}
     <View style={styles.tabBar}>
