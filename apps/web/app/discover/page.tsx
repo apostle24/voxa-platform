@@ -12,6 +12,9 @@ type Show = {
   artworkUrl?: string | null; creator: { handle: string; user: { displayName: string } };
   _count?: { episodes: number };
 };
+type CreatorResult = { id: string; handle: string; bio?: string | null; verifiedAt?: string | null; user: { displayName: string }; _count: { followers: number; shows: number } };
+type CommunityResult = { id: string; name: string; slug: string; description?: string | null; category?: string | null; artworkUrl?: string | null; _count: { members: number; posts: number } };
+type MomentResult = { id: string; caption: string; startSeconds: number; endSeconds: number; creator: { handle: string; user: { displayName: string } }; episode: { id: string; title: string; artworkUrl?: string | null } };
 type Episode = {
   id: string; title: string; description?: string | null; artworkUrl?: string | null;
   durationSeconds?: number | null; isExplicit: boolean; isLiveReplay?: boolean;
@@ -24,6 +27,9 @@ export default function DiscoverPage() {
   const [query, setQuery] = useState('');
   const [shows, setShows] = useState<Show[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [creators, setCreators] = useState<CreatorResult[]>([]);
+  const [communities, setCommunities] = useState<CommunityResult[]>([]);
+  const [moments, setMoments] = useState<MomentResult[]>([]);
   const [recommended, setRecommended] = useState<Array<Episode & { reason: string }>>([]);
   const [recommendationsPersonalized, setRecommendationsPersonalized] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
@@ -42,15 +48,24 @@ export default function DiscoverPage() {
     if (selectedCategory) params.set('category', selectedCategory);
     const suffix = params.toString() ? '?' + params.toString() : '';
     try {
-      const [showResponse, episodeResponse] = await Promise.all([
+      const [showResponse, episodeResponse, creatorResponse, communityResponse, momentResponse] = await Promise.all([
         fetch(API + '/discovery/shows' + suffix),
         fetch(API + '/discovery/episodes' + suffix),
+        fetch(API + '/discovery/creators' + (search.trim() ? '?q=' + encodeURIComponent(search.trim()) : '')),
+        fetch(API + '/communities' + (search.trim() ? '?q=' + encodeURIComponent(search.trim()) : '')),
+        fetch(API + '/discovery/moments?limit=6'),
       ]);
-      const [showData, episodeData] = await Promise.all([showResponse.json(), episodeResponse.json()]);
+      const [showData, episodeData, creatorData, communityData, momentData] = await Promise.all([
+        showResponse.json(), episodeResponse.json(), creatorResponse.json(), communityResponse.json(), momentResponse.json(),
+      ]);
       if (!showResponse.ok) throw new Error(showData.message || 'Unable to discover shows');
       if (!episodeResponse.ok) throw new Error(episodeData.message || 'Unable to discover episodes');
+      if (!creatorResponse.ok || !communityResponse.ok || !momentResponse.ok) throw new Error('Some discovery sections could not be loaded');
       setShows(showData.items || []);
       setEpisodes(episodeData.items || []);
+      setCreators(creatorData.items || []);
+      setCommunities(communityData || []);
+      setMoments(momentData.items || []);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Discovery is temporarily unavailable');
     } finally {
@@ -156,6 +171,32 @@ export default function DiscoverPage() {
               </article>)}
             </div>
           </>}
+          <div className="eyebrow sectionEyebrow">CREATORS TO DISCOVER</div>
+          {creators.length ? <div className="creatorShowGrid">
+            {creators.map(creator => <Link className="creatorShowCard" href={'/creators/' + creator.handle} key={creator.id}>
+              <div style={{ height: 92, borderRadius: 8, background: 'linear-gradient(135deg,#252044,#7655bd)', display: 'grid', placeItems: 'center', fontSize: 32, fontWeight: 800 }}>{creator.user.displayName.slice(0,1).toUpperCase()}</div>
+              <h3>{creator.user.displayName}{creator.verifiedAt ? ' ✓' : ''}</h3>
+              <p>{creator.bio || 'Discover this VOXA creator and their shows.'}</p>
+              <small>@{creator.handle} · {creator._count.followers} followers · {creator._count.shows} shows</small>
+            </Link>)}
+          </div> : <div className="emptyState"><p>No creators match this search.</p></div>}
+          <div className="eyebrow sectionEyebrow">COMMUNITIES</div>
+          {communities.length ? <div className="creatorShowGrid">
+            {communities.slice(0,8).map(community => <Link className="creatorShowCard" href={'/communities/' + community.slug} key={community.id}>
+              {community.artworkUrl ? <img src={community.artworkUrl} alt="" /> : <div style={{ height: 110, borderRadius: 8, background: 'linear-gradient(135deg,#243b53,#5b7c99)', display: 'grid', placeItems: 'center', fontSize: 30 }}>✦</div>}
+              <span>{community.category || 'COMMUNITY'}</span><h3>{community.name}</h3>
+              <p>{community.description || 'Join the conversation with this community.'}</p>
+              <small>{community._count.members} members · {community._count.posts} posts</small>
+            </Link>)}
+          </div> : <div className="emptyState"><p>No communities match this search.</p></div>}
+          <div className="eyebrow sectionEyebrow">VOXA MOMENTS</div>
+          {moments.length ? <div className="creatorShowGrid">
+            {moments.map(moment => <Link className="creatorShowCard" href={'/moments'} key={moment.id}>
+              {moment.episode.artworkUrl ? <img src={moment.episode.artworkUrl} alt="" /> : <div style={{ height: 110, borderRadius: 8, background: 'linear-gradient(135deg,#4b245e,#b45f87)', display: 'grid', placeItems: 'center', fontSize: 30 }}>▶</div>}
+              <span>SHORT-FORM CLIP</span><h3>{moment.caption}</h3>
+              <p>{moment.episode.title}</p><small>{moment.creator.user.displayName} · {Math.max(1,moment.endSeconds-moment.startSeconds)} sec</small>
+            </Link>)}
+          </div> : <div className="emptyState"><p>New Moments will appear here as creators publish clips.</p></div>}
           <div className="eyebrow sectionEyebrow">SHOWS</div>
           {shows.length ? <div className="creatorShowGrid">
             {shows.map(show => <Link className="creatorShowCard" href={'/shows/' + show.id} key={show.id}>
