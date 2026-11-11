@@ -152,6 +152,7 @@ export default function EpisodePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [resumeAt, setResumeAt] = useState(0);
+  const [timestampLinkRequested, setTimestampLinkRequested] = useState(false);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
   const [videoPlaybackRate, setVideoPlaybackRate] = useState(1);
@@ -193,7 +194,11 @@ export default function EpisodePage() {
         const requestedTimeValue = new URLSearchParams(window.location.search).get('t');
         const requestedTime = requestedTimeValue === null ? NaN : Number(requestedTimeValue);
         const hasRequestedTime = Number.isFinite(requestedTime) && requestedTime >= 0;
-        if (hasRequestedTime) setResumeAt(requestedTime);
+        if (hasRequestedTime) {
+          const boundedTime = item.durationSeconds ? Math.min(requestedTime, item.durationSeconds) : requestedTime;
+          setResumeAt(boundedTime);
+          setTimestampLinkRequested(true);
+        }
         try {
           const chapterResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-chapters' : '/chapters'),
             { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
@@ -257,6 +262,17 @@ export default function EpisodePage() {
     void load();
     return () => { active = false; };
   }, [episodeId]);
+
+  useEffect(() => {
+    if (!timestampLinkRequested || !episode || resumeAt <= 0) return;
+    if (currentTrack?.episodeId === episode.id && !mediaType.startsWith('video/')) {
+      seek(resumeAt);
+    }
+    if (audioUrl) {
+      window.setTimeout(() => document.getElementById('replay-player')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
+    }
+    setTimestampLinkRequested(false);
+  }, [timestampLinkRequested, episode, resumeAt, currentTrack?.episodeId, mediaType, audioUrl, seek]);
 
   useEffect(() => {
     videoHasStarted.current = false;
@@ -329,29 +345,33 @@ export default function EpisodePage() {
 
   async function shareEpisode() {
     if (!episode) return;
-    const url = window.location.href;
-    const shareData = {
-      title: episode.title,
-      text: episode.isLiveReplay
-        ? 'Watch or listen to this VOXA live replay.'
-        : 'Listen to this episode on VOXA.',
-      url,
-    };
+    await shareUrl(window.location.href, episode.isLiveReplay ? 'Watch or listen to this VOXA live replay.' : 'Listen to this episode on VOXA.', 'Episode link copied.');
+  }
+
+  async function shareReplayMoment(seconds: number) {
+    if (!episode || !episode.isLiveReplay || !Number.isFinite(seconds) || seconds < 0) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('t', String(Math.floor(seconds)));
+    url.hash = 'replay-player';
+    await shareUrl(url.toString(), 'Join this VOXA LIVE replay at ' + formatTime(seconds) + '.', 'Replay moment link copied.');
+  }
+
+  async function shareUrl(url: string, text: string, copiedMessage: string) {
     try {
       if (typeof navigator.share === 'function') {
-        await navigator.share(shareData);
+        await navigator.share({ title: episode?.title || 'VOXA', text, url });
         setShareStatus('Share sheet opened.');
       } else if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(url);
-        setShareStatus('Episode link copied.');
+        setShareStatus(copiedMessage);
       } else {
-        setShareStatus('Copy this page address to share the episode.');
+        setShareStatus('Sharing is unavailable here. Copy this link: ' + url);
       }
     } catch (reason) {
       if (reason instanceof Error && reason.name === 'AbortError') return;
       setShareStatus('Unable to share right now. Copy the page address instead.');
     }
-    window.setTimeout(() => setShareStatus(''), 3500);
+    window.setTimeout(() => setShareStatus(''), 5000);
   }
 
   return (
@@ -420,6 +440,7 @@ export default function EpisodePage() {
             segments={transcript.segments}
             currentTime={mediaType.startsWith('video/') ? videoCurrentTime : currentTrack?.episodeId === episode.id ? currentTime : -1}
             onSeek={seconds => seekReplay(seconds)}
+            onShare={seconds => void shareReplayMoment(seconds)}
             onDiscuss={seconds => {
               setReplayContextSeconds(seconds);
               window.setTimeout(() => document.getElementById('episode-discussion')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
