@@ -1,3 +1,4 @@
+import { createUserNotification } from '../notifications/notification-writer';
 import { publishNotificationEvent } from '../notifications/notification-events';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
@@ -133,14 +134,27 @@ export class CommunitiesService {
   async createPostComment(userId: string, communityId: string, postId: string, content: string) {
     const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { communityId: true } });
     if (!membership) throw new ForbiddenException('Join this community before replying');
-    const post = await this.prisma.communityPost.findFirst({ where: { id: postId, communityId }, select: { id: true } });
+    const post = await this.prisma.communityPost.findFirst({ where: { id: postId, communityId }, select: { id: true, authorId: true } });
     if (!post) throw new NotFoundException('Community post not found');
     const value = content.trim();
     if (!value) throw new ConflictException('Reply cannot be empty');
-    return this.prisma.communityPostComment.create({
+    const comment = await this.prisma.communityPostComment.create({
       data: { postId, authorId: userId, content: value },
       select: { id: true, content: true, createdAt: true, author: { select: { id: true, displayName: true } } },
     });
+    if (post.authorId !== userId) {
+      await createUserNotification(this.prisma, {
+        recipientId: post.authorId,
+        actorId: userId,
+        type: 'COMMUNITY_REPLY',
+        title: 'New reply to your discussion',
+        body: 'Someone replied to your community post.',
+        resourceType: 'community',
+        resourceId: communityId,
+        category: 'community',
+      });
+    }
+    return comment;
   }
 
   async createPost(userId: string, communityId: string, content: string) {
