@@ -260,6 +260,7 @@ export default function CreatorStudioPage() {
   }
 
   async function unpublishEpisode(showId: string, episodeId: string) {
+    if (!window.confirm('Unpublish this episode? It will disappear from public listening until you publish it again.')) return;
     setBusy(true); setError(''); setNotice('');
     try {
       await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/unpublish', { method: 'POST' });
