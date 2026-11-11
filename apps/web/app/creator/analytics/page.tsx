@@ -9,7 +9,7 @@ type Analytics = {
   creator: { handle: string };
   period: { since: string; until: string; days: number };
   audience: { followers: number; activeMembers: number };
-  publishing: { publishedShows: number; publishedEpisodes: number; publishedMoments: number };
+  publishing: { publishedShows: number; publishedEpisodes: number; publishedLiveReplays: number; publishedMoments: number };
   listening: { recordedEpisodeProgressEntries: number; progressEntriesUpdatedLast30Days: number; completedEpisodeProgressEntries: number; metricNote: string };
   moments: { likes: number; comments: number };
 };
@@ -56,6 +56,7 @@ export default function CreatorAnalyticsPage() {
         <div className="earningsGrid">
           <Metric label="Published shows" value={data.publishing.publishedShows} />
           <Metric label="Published episodes" value={data.publishing.publishedEpisodes} />
+          <Metric label="Live replays" value={data.publishing.publishedLiveReplays} />
           <Metric label="Published Moments" value={data.publishing.publishedMoments} />
         </div>
         <div className="sectionTitle"><div><div className="eyebrow">LISTENING</div><h2>Recorded playback activity</h2></div></div>
