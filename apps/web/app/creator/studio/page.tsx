@@ -37,6 +37,7 @@ export default function CreatorStudioPage() {
   const [momentEnd, setMomentEnd] = useState('30');
   const [momentAspect, setMomentAspect] = useState<'9:16' | '16:9'>('9:16');
   const [momentSubtitles, setMomentSubtitles] = useState('');
+  const [momentPreviewUrl, setMomentPreviewUrl] = useState('');
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [category, setCategory] = useState('');
@@ -133,6 +134,15 @@ export default function CreatorStudioPage() {
       setNotice('Your show draft has been created.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to create show'); }
     finally { setBusy(false); }
+  }
+
+  async function previewMomentSource() {
+    if (!momentEpisodeId) return;
+    setError('');
+    try {
+      const data = await request('/episodes/' + encodeURIComponent(momentEpisodeId) + '/playback-url');
+      setMomentPreviewUrl(data.url);
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to preview source video'); }
   }
 
   async function createMoment(event: FormEvent<HTMLFormElement>) {
@@ -359,6 +369,8 @@ export default function CreatorStudioPage() {
             </select>
           </label>
           <label>Caption<input required minLength={1} maxLength={500} value={momentCaption} onChange={event => setMomentCaption(event.target.value)} placeholder="The key insight from this conversation…" /></label>
+          <button type="button" className="ghostButton" onClick={() => void previewMomentSource()} disabled={!momentEpisodeId}>Preview source video</button>
+          {momentPreviewUrl && <video controls playsInline preload="metadata" src={momentPreviewUrl} onLoadedMetadata={event => { event.currentTarget.currentTime = Number(momentStart) || 0; }} onTimeUpdate={event => { if (event.currentTarget.currentTime >= Number(momentEnd)) event.currentTarget.pause(); }} style={{ width: '100%', maxHeight: 360, borderRadius: 10, background: '#000' }} />}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <label>Start (seconds)<input required type="number" min={0} value={momentStart} onChange={event => setMomentStart(event.target.value)} /></label>
             <label>End (seconds)<input required type="number" min={1} value={momentEnd} onChange={event => setMomentEnd(event.target.value)} /></label>
