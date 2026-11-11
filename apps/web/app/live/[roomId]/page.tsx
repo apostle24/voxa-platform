@@ -48,9 +48,9 @@ export default function LiveRoomPage() {
   }, []);
 
   const refreshStage = useCallback(async () => {
-    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
+    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); if (data.status === 'LIVE' && status.startsWith('Scheduled')) setStatus('Room is live · join when ready'); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
-  }, [api, roomId]);
+  }, [api, roomId, status]);
 
   const refreshChat = useCallback(async () => {
     try {
@@ -64,7 +64,7 @@ export default function LiveRoomPage() {
       const roomState = await api('/live/rooms/' + roomId + '/stage');
       setStage(roomState);
       setIsHost(Boolean(roomState.isHost));
-      if (roomState.status === 'SCHEDULED' && (!roomState.isHost || !roomState.scheduledAt || new Date(roomState.scheduledAt).getTime() > Date.now())) {
+      if (roomState.status === 'SCHEDULED' && (!roomState.isHost || (roomState.scheduledAt && new Date(roomState.scheduledAt).getTime() > Date.now()))) {
         setStatus(roomState.scheduledAt ? 'Scheduled · starts ' + new Date(roomState.scheduledAt).toLocaleString() : 'Scheduled · waiting for the host');
         setError('');
         return;
@@ -247,6 +247,7 @@ export default function LiveRoomPage() {
           {!isHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
           {!isHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
           {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button" disabled={!!busy || (!!stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now())} onClick={()=>void connect()}>{stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now() ? 'Starts at scheduled time' : 'Start live room ↗'}</button>}
+          {!stage?.isHost && stage?.status === 'LIVE' && status !== 'Connected · Listening' && status !== 'Connecting to live media…' && <button className="button" onClick={()=>void connect()}>Join live room ↗</button>}
           {status === 'Disconnected' && <button className="button" onClick={()=>void connect()}>Reconnect to live room ↻</button>}
           {isHost && <button className="button danger" disabled={busy==='end'} onClick={()=>void endRoom()}>{busy==='end'?'Ending…':'End room'}</button>}
         </div>
