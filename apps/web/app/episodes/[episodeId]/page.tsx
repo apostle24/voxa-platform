@@ -94,7 +94,7 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
   }
 
   return (
-    <section style={{ marginTop: 42, padding: 24, border: '1px solid var(--line)', borderRadius: 16, background: 'var(--panel)' }}>
+    <section id="episode-discussion" style={{ marginTop: 42, padding: 24, border: '1px solid var(--line)', borderRadius: 16, background: 'var(--panel)' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
         <div><p className="eyebrow">THE CONVERSATION</p><h2 style={{ margin: '5px 0', fontSize: 23 }}>Episode community</h2></div>
         {data && <button className="ghostButton" disabled={busy} onClick={() => void toggleLike()}>{data.likedByMe ? '♥ Liked' : '♡ Like'} · {data.likeCount}</button>}
@@ -371,7 +371,22 @@ export default function EpisodePage() {
               </div>
             </div>
           </div>
-          {chapters.length > 0 && <section style={{ marginTop: 26, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+          {episode.isLiveReplay && <>
+            <nav aria-label="Replay sections" style={{ position: 'sticky', top: 8, zIndex: 5, display: 'flex', gap: 8, overflowX: 'auto', padding: '10px 12px', margin: '0 0 18px', border: '1px solid var(--line)', borderRadius: 12, background: 'var(--panel)', scrollbarWidth: 'thin' }}>
+              {[['replay-player', 'Replay'], ['replay-chapters', 'Chapters'], ['replay-transcript', 'Transcript'], ['episode-discussion', 'Discussion']].map(([id, label]) => <a key={id} href={'#' + id} style={{ flex: '0 0 auto', padding: '7px 11px', borderRadius: 8, color: 'inherit', textDecoration: 'none', fontSize: 13, background: 'var(--surface)' }}>{label}</a>)}
+            </nav>
+            <section aria-label="Live session details" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))', gap: 10, margin: '0 0 24px' }}>
+              {[
+                { label: 'SESSION TYPE', value: mediaType.startsWith('video/') ? 'Video replay' : 'Audio replay' },
+                { label: 'HOST', value: episode.show.creator.user.displayName },
+                { label: 'LENGTH', value: episode.durationSeconds ? formatTime(episode.durationSeconds) : 'Duration unavailable' },
+                { label: 'CHAPTERS', value: String(chapters.length) },
+                { label: 'TRANSCRIPT', value: transcript ? transcript.language.toUpperCase() : 'Not available' },
+                { label: 'ACCESS', value: episode.membershipRequired ? 'Members only' : 'Public replay' },
+              ].map(item => <div key={item.label} style={{ minWidth: 0, padding: '13px 14px', border: '1px solid var(--line)', borderRadius: 12, background: 'var(--panel)' }}><small className="eyebrow">{item.label}</small><div style={{ marginTop: 7, fontSize: 14, fontWeight: 650, overflowWrap: 'anywhere' }}>{item.value}</div></div>)}
+            </section>
+          </>}
+          {chapters.length > 0 && <section id={episode.isLiveReplay ? 'replay-chapters' : undefined} style={{ scrollMarginTop: 90, marginTop: 26, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
             <div className="eyebrow">EPISODE GUIDE</div>
             <h2 style={{ margin: '8px 0 14px' }}>Jump to a chapter.</h2>
             <div style={{ display: 'grid', gap: 8 }}>
@@ -380,7 +395,7 @@ export default function EpisodePage() {
               </button>)}
             </div>
           </section>}
-          {intelligence && <section style={{ marginTop: 30, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+          {intelligence && <section id={episode.isLiveReplay ? 'replay-highlights' : undefined} style={{ scrollMarginTop: 90, marginTop: 30, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
             <div className="eyebrow">VOXA EPISODE INTELLIGENCE</div>
             <h2 style={{ margin: '8px 0 12px' }}>The episode, at a glance</h2>
             <p style={{ whiteSpace: 'pre-wrap', lineHeight: 1.8, fontSize: 14 }}>{intelligence.summary}</p>
@@ -401,7 +416,7 @@ export default function EpisodePage() {
             <div style={{ maxHeight: 420, overflowY: 'auto', whiteSpace: 'pre-wrap', lineHeight: 1.85, fontSize: 14 }}>{transcript.content}</div>
           </section>)}
           {transcriptError && <p style={{ color: 'var(--muted)', fontSize: 12 }}>{transcriptError}</p>}
-          {audioUrl && <section style={{ border: '1px solid var(--border, #30303a)', background: 'var(--surface, #15151c)', borderRadius: 18, padding: 22 }}>
+          {audioUrl && <section id={episode.isLiveReplay ? 'replay-player' : undefined} style={{ scrollMarginTop: 90, border: '1px solid var(--border, #30303a)', background: 'var(--surface, #15151c)', borderRadius: 18, padding: 22 }}>
             {mediaType.startsWith('video/')
               ? <><video
                   ref={videoRef}
