@@ -18,8 +18,28 @@ export default function CreatorPage() {
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   async function load() {
-    try { const response=await apiFetch(API +'/creators/'+encodeURIComponent(handle)); const data=await response.json(); if(!response.ok) throw new Error(data.message||'Creator not found'); setProfile(data); const plansResponse=await apiFetch(API +'/creators/'+encodeURIComponent(handle)+'/membership-plans'); const plansData=await plansResponse.json(); if(plansResponse.ok)setPlans(plansData.plans||[]); }
-    catch(e){setError(e instanceof Error?e.message:'Unable to load creator');}
+    setError('');
+    try {
+      const profileResponse = await apiFetch(API + '/creators/' + encodeURIComponent(handle));
+      const data = await profileResponse.json();
+      if (!profileResponse.ok) throw new Error(data.message || 'Creator not found');
+      setProfile(data);
+      const token = sessionStorage.getItem('voxa_access_token') || '';
+      if (token) {
+        const statusResponse = await apiFetch(API + '/creators/' + encodeURIComponent(handle) + '/follow-status', { headers: { Authorization: 'Bearer ' + token } });
+        if (statusResponse.ok) {
+          const status = await statusResponse.json();
+          setFollowing(Boolean(status.following));
+        }
+      } else {
+        setFollowing(false);
+      }
+      const plansResponse = await apiFetch(API + '/creators/' + encodeURIComponent(handle) + '/membership-plans');
+      const plansData = await plansResponse.json();
+      if (plansResponse.ok) setPlans(plansData.plans || []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to load creator');
+    }
   }
 
   async function purchaseMembership(planId: string) {
