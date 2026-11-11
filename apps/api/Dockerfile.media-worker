@@ -21,7 +21,7 @@ COPY . .
 
 # Keep the workspace dependency graph identical to CI and generate the Prisma client
 # from the checked-in schema. DATABASE_URL is only needed for schema generation.
-RUN pnpm install --frozen-lockfile \
+RUN pnpm install --frozen-lockfile --prod=false \
     && DATABASE_URL="postgresql://voxa:voxa@127.0.0.1:5432/voxa_build" pnpm --filter @voxa/api prisma:generate \
     && chown -R voxa:voxa /app /var/lib/clamav /run/clamav
 
