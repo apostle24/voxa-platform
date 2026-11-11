@@ -133,6 +133,7 @@ export class AuthService {
     if (user.emailVerifiedAt === null) {
       throw new UnauthorizedException('Please verify your email before signing in');
     }
+    this.assertAccountActive(user);
     if (await this.mfa.isEnabled(user.id)) return this.mfa.createLoginChallenge(user.id);
     return this.issueTokens({
       id: user.id,
@@ -143,7 +144,16 @@ export class AuthService {
   }
 
   async issueAuthenticatedSession(user: AuthUser) {
+    const current = await this.prisma.user.findUnique({ where: { id: user.id }, select: { suspendedUntil: true, suspensionReason: true } });
+    this.assertAccountActive(current);
     return this.issueTokens(user);
+  }
+
+  private assertAccountActive(user: { suspendedUntil?: Date | null; suspensionReason?: string | null } | null) {
+    if (!user) throw new UnauthorizedException('Account no longer exists');
+    if (user.suspendedUntil && user.suspendedUntil > new Date()) {
+      throw new UnauthorizedException('This account is temporarily suspended. ' + (user.suspensionReason || 'Contact VOXA support for assistance.'));
+    }
   }
 
   async refresh(refreshToken: string) {
@@ -166,10 +176,11 @@ export class AuthService {
     const tokenHash = this.hashToken(refreshToken);
     const session = await this.prisma.authSession.findUnique({
       where: { tokenHash },
-      include: { user: { select: { id: true, email: true, displayName: true, role: true, emailVerifiedAt: true } } },
+      include: { user: { select: { id: true, email: true, displayName: true, role: true, emailVerifiedAt: true, suspendedUntil: true, suspensionReason: true } } },
     });
     const now = new Date();
     if (session?.user.emailVerifiedAt === null) throw new UnauthorizedException('Please verify your email before signing in');
+    if (session) this.assertAccountActive(session.user);
     if (!session || session.userId !== claims.sub || session.id !== claims.jti || session.revokedAt || session.expiresAt <= now) {
       throw new UnauthorizedException('Refresh session is invalid or expired');
     }
