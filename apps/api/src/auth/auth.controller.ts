@@ -43,7 +43,9 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(@Body() input: LoginDto, @Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
-    return this.withRefreshCookie(await this.auth.login(input), response);
+    const result = await this.auth.login(input);
+    if ('mfaRequired' in result && result.mfaRequired) return result;
+    return this.withRefreshCookie(result, response);
   }
 
   @Post('mfa/setup')
@@ -70,8 +72,8 @@ export class AuthController {
   @Post('mfa/challenge')
   @UseGuards(AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
-  async verifyMfaChallenge(@Body() input: EmailTokenDto, @Res({ passthrough: true }) response: AuthHttpResponse) {
-    const user = await this.mfa.verifyLoginChallenge(input.token, input.code ?? '');
+  async verifyMfaChallenge(@Body() input: MfaVerifyDto, @Res({ passthrough: true }) response: AuthHttpResponse) {
+    const user = await this.mfa.verifyLoginChallenge(input.token, input.code);
     return this.withRefreshCookie(await this.auth.issueAuthenticatedSession(user), response);
   }
 
