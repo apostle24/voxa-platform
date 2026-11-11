@@ -140,6 +140,11 @@ export class ShowsController {
     return this.shows.discoverShows({ q, category, language, cursor, limit: limit ? Number(limit) : undefined });
   }
 
+  @Get('discovery/semantic')
+  semanticSearch(@Query('q') q?: string) {
+    return this.shows.semanticSearch(q || '');
+  }
+
   @Get('discovery/episodes')
   discoverEpisodes(@Query('q') q?: string, @Query('category') category?: string, @Query('language') language?: string,
     @Query('cursor') cursor?: string, @Query('limit') limit?: string) {
