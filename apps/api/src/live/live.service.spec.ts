@@ -10,11 +10,12 @@ describe('LiveService access boundaries', () => {
 
   beforeEach(() => {
     prisma = {
-      liveRoom: { findUnique: jest.fn(), updateMany: jest.fn() },
-      liveStageMember: { findMany: jest.fn(), findUnique: jest.fn() },
+      liveRoom: { findUnique: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+      liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn() },
       stageRequest: { upsert: jest.fn(), groupBy: jest.fn() },
+      $transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
     };
     config = {
       get: jest.fn((key: string) => ({
@@ -48,6 +49,20 @@ describe('LiveService access boundaries', () => {
 
     await expect(service.requestStage('listener-1', 'room-1')).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.stageRequest.upsert).not.toHaveBeenCalled();
+  });
+
+  it('ends the room and closes stage and audience sessions atomically', async () => {
+    const endedAt = new Date('2026-11-11T12:00:00.000Z');
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveRoom.update.mockResolvedValue({ id: 'room-1', status: 'ENDED', endedAt });
+    prisma.liveStageMember.updateMany.mockResolvedValue({ count: 2 });
+    prisma.liveViewerSession.updateMany.mockResolvedValue({ count: 4 });
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ deleteRoom: jest.fn().mockResolvedValue(undefined) });
+    const result = await service.endRoom('host-1', 'room-1');
+    expect(result).toEqual({ id: 'room-1', status: 'ENDED', endedAt });
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.liveStageMember.updateMany).toHaveBeenCalledWith({ where: { roomId: 'room-1', leftAt: null }, data: { leftAt: endedAt } });
+    expect(prisma.liveViewerSession.updateMany).toHaveBeenCalledWith({ where: { roomId: 'room-1', leftAt: null }, data: { leftAt: endedAt } });
   });
 
   it('returns room activity analytics only to the host', async () => {
