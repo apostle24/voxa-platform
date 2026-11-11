@@ -151,9 +151,10 @@ export class LiveService {
     });
     if (!target) throw new ConflictException('You can transfer ownership only to an appointed co-host');
     const updated = await this.prisma.$transaction(async (tx) => {
+      const claimedCoHost = await tx.liveRoomCoHost.deleteMany({ where: { roomId, userId: newHostUserId } });
+      if (claimedCoHost.count !== 1) throw new ConflictException('The selected co-host is no longer assigned to this room');
       const claimed = await tx.liveRoom.updateMany({ where: { id: roomId, hostId }, data: { hostId: newHostUserId } });
       if (claimed.count !== 1) throw new ConflictException('Room ownership changed; refresh and try again');
-      await tx.liveRoomCoHost.deleteMany({ where: { roomId, userId: newHostUserId } });
       await tx.liveRoomCoHost.upsert({
         where: { roomId_userId: { roomId, userId: hostId } },
         create: { roomId, userId: hostId, assignedById: newHostUserId },
@@ -168,7 +169,7 @@ export class LiveService {
   async getChatMessages(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, visibility: true } });
     if (!room) throw new NotFoundException('Live room not found');
-    if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room chat is not publicly accessible');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && !(await this.canModerateRoom(roomId, userId, room.hostId))) throw new ForbiddenException('This room chat is not publicly accessible');
     const blocks = await this.prisma.userBlock.findMany({
       where: { OR: [{ blockerId: userId }, { blockedUserId: userId }] }, select: { blockerId: true, blockedUserId: true },
     });
@@ -276,7 +277,7 @@ export class LiveService {
 
   async listMyLiveRooms(hostId: string) {
     return this.prisma.liveRoom.findMany({
-      where: { hostId },
+      where: { OR: [{ hostId }, { coHosts: { some: { userId: hostId } } }] },
       orderBy: [{ startedAt: 'desc' }, { scheduledAt: 'asc' }],
       take: 30,
       select: {
@@ -925,7 +926,7 @@ export class LiveService {
     if (room.status === LiveRoomStatus.ENDED || room.status === LiveRoomStatus.CANCELLED) {
       throw new ConflictException('This live room has ended');
     }
-    if (!isHost && room.visibility !== LiveRoomVisibility.PUBLIC) {
+    if (!isHost && !isCoHost && room.visibility !== LiveRoomVisibility.PUBLIC) {
       throw new ForbiddenException('This room is not publicly accessible; membership and invite entitlements are not enabled yet');
     }
     if (!isHost && room.status !== LiveRoomStatus.LIVE) {
