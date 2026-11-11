@@ -81,6 +81,23 @@ export class LiveService {
   }
 
 
+
+  private async syncCoHostPublishingPermission(roomId: string, userId: string, canPublish: boolean) {
+    const client = this.roomServiceClient();
+    try {
+      const participants = await client.listParticipants(roomId);
+      if (!participants.some(participant => participant.identity === userId)) return;
+      await client.updateParticipant(roomId, userId, undefined, { canPublish, canSubscribe: true, canPublishData: true });
+    } catch {
+      try {
+        // Force a fresh token if the current LiveKit participant cannot be updated in place.
+        await client.removeParticipant(roomId, userId);
+      } catch {
+        throw new ServiceUnavailableException('The co-host assignment changed, but LiveKit could not refresh or revoke the existing participant session');
+      }
+    }
+  }
+
   async listRoomCoHosts(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
     if (!room) throw new NotFoundException('Live room not found');
@@ -113,14 +130,7 @@ export class LiveService {
         select: { id: true, userId: true, assignedAt: true },
       });
     });
-    try {
-      const participants = await this.roomServiceClient().listParticipants(roomId);
-      if (participants.some(participant => participant.identity === targetId)) {
-        await this.roomServiceClient().updateParticipant(roomId, targetId, undefined, { canPublish: true, canSubscribe: true, canPublishData: true });
-      }
-    } catch {
-      // The co-host receives the correct role and publish grant on their next join token.
-    }
+    await this.syncCoHostPublishingPermission(roomId, targetId, true);
     return { ...assignment, displayName: target.displayName, role: 'CO_HOST' };
   }
 
@@ -131,14 +141,7 @@ export class LiveService {
     const result = await this.prisma.liveRoomCoHost.deleteMany({ where: { roomId, userId: coHostUserId } });
     if (!result.count) throw new NotFoundException('Room co-host not found');
     await this.prisma.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE', speakerId: coHostUserId }, data: { status: 'COMPLETED', endedAt: new Date() } });
-    try {
-      const participants = await this.roomServiceClient().listParticipants(roomId);
-      if (participants.some(participant => participant.identity === coHostUserId)) {
-        await this.roomServiceClient().updateParticipant(roomId, coHostUserId, undefined, { canPublish: false, canSubscribe: true, canPublishData: true });
-      }
-    } catch {
-      // Existing LiveKit tokens expire; subsequent joins use the downgraded role.
-    }
+    await this.syncCoHostPublishingPermission(roomId, coHostUserId, false);
     return { roomId, userId: coHostUserId, removed: true };
   }
 
