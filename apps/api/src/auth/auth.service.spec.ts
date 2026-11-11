@@ -162,4 +162,42 @@ describe('AuthService', () => {
       data: { revokedAt: expect.any(Date) },
     });
   });
+
+  it('routes verified MFA-enabled accounts to a short-lived login challenge', async () => {
+    const passwordHash = await bcrypt.hash('Correct-password-123', 4);
+    prisma.user.findUnique.mockResolvedValue({
+      id: 'user-mfa', email: 'mfa@example.com', displayName: 'MFA User', passwordHash, role: 'LISTENER', emailVerifiedAt: new Date(),
+    });
+    mfa.isEnabled.mockResolvedValue(true);
+    await expect(service.login({ email: 'mfa@example.com', password: 'Correct-password-123' }))
+      .resolves.toMatchObject({ mfaRequired: true, challengeToken: 'challenge' });
+    expect(prisma.authSession.create).not.toHaveBeenCalled();
+  });
+
+  it('returns account profile and updates the display name', async () => {
+    const profile = { id: 'user-10', email: 'listener@example.com', displayName: 'Listener', role: 'LISTENER', createdAt: new Date(), creator: null };
+    prisma.user.findUnique.mockResolvedValue(profile);
+    await expect(service.getMyProfile('user-10')).resolves.toEqual(profile);
+    prisma.user.update.mockResolvedValue({ ...profile, displayName: 'Updated Listener' });
+    await expect(service.updateMyProfile('user-10', ' Updated   Listener ')).resolves.toMatchObject({ displayName: 'Updated Listener' });
+  });
+
+  it('changes password and revokes all sessions atomically', async () => {
+    const oldHash = await bcrypt.hash('Current-password-123', 4);
+    prisma.user.findUnique.mockResolvedValue({ id: 'user-4', passwordHash: oldHash });
+    const tx = { user: { update: jest.fn() }, authSession: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
+    prisma.$transaction.mockImplementation((callback: any) => callback(tx));
+    await expect(service.changePassword('user-4', 'Current-password-123', 'Brand-new-password-456'))
+      .resolves.toEqual({ success: true, sessionsRevoked: true });
+    await expect(bcrypt.compare('Brand-new-password-456', tx.user.update.mock.calls[0][0].data.passwordHash)).resolves.toBe(true);
+  });
+
+  it('lists and revokes only active sessions belonging to the account', async () => {
+    const sessions = [{ id: 'session-1', createdAt: new Date(), lastUsedAt: null, expiresAt: new Date(Date.now() + 60_000) }];
+    prisma.authSession.findMany.mockResolvedValue(sessions);
+    await expect(service.listSessions('user-4')).resolves.toEqual(sessions);
+    prisma.authSession.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.revokeSession('user-4', 'session-1')).resolves.toEqual({ success: true, sessionId: 'session-1' });
+  });
+
 });
