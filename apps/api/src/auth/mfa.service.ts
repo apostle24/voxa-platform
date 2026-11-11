@@ -70,6 +70,8 @@ export class MfaService {
       await tx.mfaCredential.update({ where: { id: credential.id }, data: { enabledAt: new Date() } });
       await tx.mfaBackupCode.deleteMany({ where: { credentialId: credential.id } });
       await tx.mfaBackupCode.createMany({ data: codes.map(code => ({ credentialId: credential.id, codeHash: hash(code) })) });
+      // Existing long-lived sessions were created before MFA was enabled; require a fresh MFA login on every device.
+      await tx.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
     });
     return { enabled: true, backupCodes: codes };
   }
