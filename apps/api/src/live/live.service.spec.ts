@@ -436,6 +436,8 @@ describe('LiveService access boundaries', () => {
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
     prisma.liveStageMember.findUnique.mockResolvedValue({ userId: 'speaker-2', leftAt: null });
     prisma.liveSpeakerTurn.findFirst.mockResolvedValue({ speakerId: 'speaker-1' });
+    prisma.liveStageMember.findMany.mockResolvedValue([{ userId: 'speaker-1' }, { userId: 'speaker-2' }]);
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({ listParticipants: jest.fn().mockResolvedValue([{ identity: 'speaker-1' }, { identity: 'speaker-2' }]), updateParticipant: jest.fn().mockResolvedValue({}) });
     prisma.liveSpeakerTurn.create.mockResolvedValue({ id: 'turn-2', speakerId: 'speaker-2', status: 'ACTIVE' });
     await expect(service.handoffSpeaker('host-1', 'room-1', 'speaker-2'))
       .resolves.toMatchObject({ id: 'turn-2', speakerId: 'speaker-2', status: 'ACTIVE' });
