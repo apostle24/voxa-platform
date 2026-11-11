@@ -51,7 +51,7 @@ export class LiveService {
       { blockerId: userId, blockedUserId: room.hostId },
       { blockerId: room.hostId, blockedUserId: userId },
     ] }, select: { id: true } });
-    if (blockedHost) throw new ForbiddenException('You cannot participate in a room hosted by an account you have blocked or that has blocked you');
+    if (blockedHost) throw new ForbiddenException('You cannot chat in a room hosted by an account you have blocked or that has blocked you');
     const clean = content.trim();
     if (!clean) throw new ConflictException('Message cannot be empty');
     return this.prisma.liveChatMessage.create({
