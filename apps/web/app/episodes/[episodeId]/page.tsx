@@ -168,10 +168,11 @@ export default function EpisodePage() {
     : currentTrack?.episodeId === episode?.id ? currentTime : -1;
 
   useEffect(() => {
-    if (!episode?.isLiveReplay || replayPlaybackTime < 0 || chapters.length === 0) {
+    if (!episode?.isLiveReplay || replayPlaybackTime < 0) {
       setSelectedChapterId(null);
       return;
     }
+    if (chapters.length === 0) return;
     const activeChapter = [...chapters]
       .filter(chapter => Number.isFinite(chapter.startSeconds) && chapter.startSeconds <= replayPlaybackTime)
       .sort((a, b) => b.startSeconds - a.startSeconds)[0];
