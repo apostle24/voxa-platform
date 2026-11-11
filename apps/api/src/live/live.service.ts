@@ -670,10 +670,22 @@ export class LiveService {
     const cleanQuestion = question?.trim();
     if (!cleanQuestion || cleanQuestion.length < 5 || cleanQuestion.length > 240) throw new BadRequestException('Poll question must be between 5 and 240 characters');
     if (cleanOptions.length < 2 || cleanOptions.length > 6 || cleanOptions.some(option => option.length > 80)) throw new BadRequestException('Add 2 to 6 unique poll options, each no longer than 80 characters');
-    return this.prisma.livePoll.create({
-      data: { roomId, createdBy: userId, question: cleanQuestion, options: { create: cleanOptions.map(text => ({ text })) } },
-      select: { id: true, question: true, status: true, createdAt: true, options: { select: { id: true, text: true } } },
+    const activePoll = await this.prisma.livePoll.findFirst({
+      where: { roomId, status: 'OPEN' },
+      select: { id: true },
     });
+    if (activePoll) throw new ConflictException('Close the current live poll before creating another one');
+    try {
+      return await this.prisma.livePoll.create({
+        data: { roomId, createdBy: userId, question: cleanQuestion, options: { create: cleanOptions.map(text => ({ text })) } },
+        select: { id: true, question: true, status: true, createdAt: true, options: { select: { id: true, text: true } } },
+      });
+    } catch (error) {
+      if ((error as { code?: string })?.code === 'P2002') {
+        throw new ConflictException('Close the current live poll before creating another one');
+      }
+      throw error;
+    }
   }
 
   async voteLivePoll(userId: string, roomId: string, pollId: string, optionId: string) {
