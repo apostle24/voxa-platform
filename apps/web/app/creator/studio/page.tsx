@@ -39,6 +39,7 @@ export default function CreatorStudioPage() {
   const [uploadingId, setUploadingId] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [draftPreview, setDraftPreview] = useState<{ episodeId: string; url: string; contentType: string } | null>(null);
 
   async function request(path: string, init: RequestInit = {}) {
     const response = await apiFetch(API + path, {
@@ -81,6 +82,14 @@ export default function CreatorStudioPage() {
     if (!token) return;
     void loadWorkspace().catch(reason => setError(reason instanceof Error ? reason.message : 'Unable to load creator studio'));
   }, [token]);
+
+  async function previewDraft(episodeId: string) {
+    setError('');
+    try {
+      const data = await request('/episodes/' + episodeId + '/draft-preview-url');
+      setDraftPreview({ episodeId, url: data.url, contentType: data.contentType || 'audio/mpeg' });
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to preview this replay'); }
+  }
 
   async function createShow(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -272,6 +281,8 @@ export default function CreatorStudioPage() {
                   <button className="ghostButton" disabled={busy || plans.length === 0 || episode.status === 'PUBLISHED'} onClick={() => void toggleEpisodeMembership(show.id, episode.id, episode.membershipRequired)}>{episode.membershipRequired ? 'Members only ✓' : 'Make members only'}</button>
                   {episode.status !== 'PUBLISHED' && <button className="button small" disabled={busy || show.status !== 'PUBLISHED' || !episode.mediaKey || !episode.durationSeconds || episode.mediaAssets?.[0]?.status !== 'READY'} onClick={() => void publishEpisode(show.id, episode.id)}>{episode.mediaAssets?.[0]?.status === 'READY' ? 'Publish episode' : episode.mediaAssets?.[0]?.status === 'FAILED' ? 'Media failed · re-upload' : 'Media processing…'}</button>}
                   {episode.status === 'PUBLISHED' && <Link className="ghostButton" href={'/episodes/' + episode.id}>Open episode ↗</Link>}
+                  {episode.status !== 'PUBLISHED' && episode.mediaAssets?.[0]?.status === 'READY' && <button className="ghostButton" onClick={() => void previewDraft(episode.id)}>Preview replay</button>}
+                  {draftPreview?.episodeId === episode.id && (draftPreview.contentType.startsWith('video/') ? <video controls playsInline preload="metadata" src={draftPreview.url} style={{ width: '100%', maxHeight: 420, borderRadius: 10, background: '#000' }} /> : <audio controls preload="metadata" src={draftPreview.url} style={{ width: '100%' }} />)}
                 </div>
               </div>)}
               {!show.episodes.length && <p style={{ color: 'var(--muted)', fontSize: 12 }}>No episodes yet. Use the episode form above to add your first one.</p>}
