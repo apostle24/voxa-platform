@@ -31,15 +31,17 @@ function totp(secret: Buffer, counter: number): string {
   const binary = digest.readUInt32BE(offset) & 0x7fffffff;
   return String(binary % 1_000_000).padStart(6, '0');
 }
-function verifyTotp(secret: Buffer, code: string, now = Date.now()): boolean {
-  if (!/^\d{6}$/.test(code)) return false;
+function matchingTotpCounter(secret: Buffer, code: string, now = Date.now()): number | null {
+  if (!/^\\d{6}$/.test(code)) return null;
   const counter = Math.floor(now / 30_000);
   for (let drift = -1; drift <= 1; drift++) {
-    const expected = Buffer.from(totp(secret, counter + drift));
+    const candidate = counter + drift;
+    if (candidate < 0) continue;
+    const expected = Buffer.from(totp(secret, candidate));
     const actual = Buffer.from(code);
-    if (expected.length === actual.length && timingSafeEqual(expected, actual)) return true;
+    if (expected.length === actual.length && timingSafeEqual(expected, actual)) return candidate;
   }
-  return false;
+  return null;
 }
 
 @Injectable()
@@ -102,17 +104,18 @@ export class MfaService {
       include: { user: { include: { mfaCredential: { include: { backupCodes: true } } } } },
     });
     const now = new Date();
-    if (!challenge || challenge.consumedAt || challenge.expiresAt <= now || !challenge.user.mfaCredential?.enabledAt) {
+    const credential = challenge?.user.mfaCredential;
+    if (!challenge || challenge.consumedAt || challenge.expiresAt <= now || !credential?.enabledAt) {
       throw new UnauthorizedException('MFA challenge is invalid or expired');
     }
-    const factor = this.identifyFactor(challenge.user.mfaCredential, code);
+    const factor = this.identifyFactor(credential, code);
     if (!factor) throw new UnauthorizedException('Authenticator or backup code is invalid');
     await this.prisma.$transaction(async (tx) => {
       const consumed = await tx.mfaLoginChallenge.updateMany({
         where: { id: challenge.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now },
       });
       if (consumed.count !== 1) throw new UnauthorizedException('MFA challenge has already been used');
-      await this.consumeFactor(tx, challenge.user.mfaCredential.id, factor);
+      await this.consumeFactor(tx, credential.id, factor);
     });
     return { id: challenge.user.id, email: challenge.user.email, displayName: challenge.user.displayName, role: challenge.user.role };
   }
