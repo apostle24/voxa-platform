@@ -13,6 +13,8 @@ describe('LiveService access boundaries', () => {
     prisma = {
       userBlock: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       liveRoom: { findUnique: jest.fn(), findMany: jest.fn(), create: jest.fn(), updateMany: jest.fn(), update: jest.fn() },
+      liveRoomModerator: { findUnique: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn(), deleteMany: jest.fn() },
+      user: { findUnique: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn(), findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
@@ -285,6 +287,52 @@ describe('LiveService access boundaries', () => {
     prisma.liveViewerSession.updateMany.mockResolvedValue({ count: 1 });
     const result = await service.leaveViewer('viewer-1', 'room-1', 'session_1234567890123456');
     expect(result).toEqual({ left: true });
+  });
+
+
+  it('lets the host assign a moderator to their room', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    prisma.user.findUnique.mockResolvedValue({ id: 'moderator-1', displayName: 'Moderator One' });
+    prisma.liveRoomModerator.upsert.mockResolvedValue({ id: 'assignment-1', userId: 'moderator-1' });
+    await expect(service.addRoomModerator('host-1', 'room-1', 'moderator-1'))
+      .resolves.toMatchObject({ id: 'assignment-1', userId: 'moderator-1', displayName: 'Moderator One' });
+    expect(prisma.liveRoomModerator.upsert).toHaveBeenCalled();
+  });
+
+  it('prevents non-hosts from assigning room moderators', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    await expect(service.addRoomModerator('listener-1', 'room-1', 'moderator-1'))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.liveRoomModerator.upsert).not.toHaveBeenCalled();
+  });
+
+  it('allows an assigned moderator to remove chat messages from their room', async () => {
+    prisma.liveChatMessage.findFirst.mockResolvedValue({ id: 'message-1', userId: 'viewer-1', room: { hostId: 'host-1' } });
+    prisma.liveRoomModerator.findUnique.mockResolvedValue({ id: 'assignment-1' });
+    prisma.liveChatMessage.update.mockResolvedValue({});
+    await expect(service.deleteChatMessage('moderator-1', 'room-1', 'message-1')).resolves.toEqual({ deleted: true });
+    expect(prisma.liveChatMessage.update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'message-1' }, data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+    }));
+  });
+
+  it('does not let an unassigned viewer moderate another user chat message', async () => {
+    prisma.liveChatMessage.findFirst.mockResolvedValue({ id: 'message-1', userId: 'viewer-1', room: { hostId: 'host-1' } });
+    prisma.liveRoomModerator.findUnique.mockResolvedValue(null);
+    await expect(service.deleteChatMessage('stranger-1', 'room-1', 'message-1'))
+      .rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.liveChatMessage.update).not.toHaveBeenCalled();
+  });
+
+  it('returns moderator stage controls only to the assigned room moderator', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', scheduledAt: null });
+    prisma.liveRoomModerator.findUnique.mockResolvedValue({ id: 'assignment-1' });
+    prisma.stageRequest.findMany.mockResolvedValue([{ id: 'request-1', userId: 'listener-1' }]);
+    prisma.liveStageMember.findMany.mockResolvedValue([]);
+    prisma.stageRequest.findUnique.mockResolvedValue(null);
+    prisma.liveRoomModerator.findMany.mockResolvedValue([{ userId: 'moderator-1' }]);
+    const state = await service.getStageState('moderator-1', 'room-1');
+    expect(state).toMatchObject({ isHost: false, isModerator: true, requests: [{ id: 'request-1' }] });
   });
 
 });

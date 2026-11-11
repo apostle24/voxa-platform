@@ -27,6 +27,46 @@ export class LiveService {
     return new RoomServiceClient(host, apiKey, apiSecret);
   }
 
+  private async canModerateRoom(roomId: string, userId: string, hostId: string) {
+    if (userId === hostId) return true;
+    const assignment = await this.prisma.liveRoomModerator.findUnique({ where: { roomId_userId: { roomId, userId } }, select: { id: true } });
+    return Boolean(assignment);
+  }
+
+  async listRoomModerators(hostId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the host can manage room moderators');
+    return this.prisma.liveRoomModerator.findMany({ where: { roomId }, orderBy: { assignedAt: 'asc' }, select: { id: true, userId: true, assignedAt: true } });
+  }
+
+  async addRoomModerator(hostId: string, roomId: string, moderatorUserId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the host can manage room moderators');
+    const targetId = moderatorUserId?.trim();
+    if (!targetId) throw new BadRequestException('Enter a valid VOXA user ID');
+    if (targetId === hostId) throw new ConflictException('The room host already has full room permissions');
+    const target = await this.prisma.user.findUnique({ where: { id: targetId }, select: { id: true, displayName: true } });
+    if (!target) throw new NotFoundException('VOXA user not found');
+    const assignment = await this.prisma.liveRoomModerator.upsert({
+      where: { roomId_userId: { roomId, userId: targetId } },
+      create: { roomId, userId: targetId },
+      update: {},
+      select: { id: true, userId: true, assignedAt: true },
+    });
+    return { ...assignment, displayName: target.displayName };
+  }
+
+  async removeRoomModerator(hostId: string, roomId: string, moderatorUserId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the host can manage room moderators');
+    const result = await this.prisma.liveRoomModerator.deleteMany({ where: { roomId, userId: moderatorUserId } });
+    if (!result.count) throw new NotFoundException('Room moderator not found');
+    return { roomId, userId: moderatorUserId, removed: true };
+  }
+
   async getChatMessages(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, visibility: true } });
     if (!room) throw new NotFoundException('Live room not found');
@@ -66,7 +106,7 @@ export class LiveService {
       select: { id: true, userId: true, room: { select: { hostId: true } } },
     });
     if (!message) throw new NotFoundException('Chat message not found');
-    if (message.userId !== userId && message.room.hostId !== userId) throw new ForbiddenException('You can only remove your own message or moderate your room');
+    if (message.userId !== userId && !(await this.canModerateRoom(roomId, userId, message.room.hostId))) throw new ForbiddenException('You can only remove your own message or moderate your room');
     await this.prisma.liveChatMessage.update({ where: { id: messageId }, data: { content: '[deleted]', deletedAt: new Date() } });
     return { deleted: true };
   }
@@ -480,8 +520,9 @@ export class LiveService {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, scheduledAt: true } });
     if (!room) throw new NotFoundException('Live room not found');
     const isHost = room.hostId === userId;
-    const [requests, speakers, ownRequest] = await Promise.all([
-      isHost ? this.prisma.stageRequest.findMany({
+    const isModerator = !isHost && await this.canModerateRoom(roomId, userId, room.hostId);
+    const [requests, speakers, ownRequest, moderators] = await Promise.all([
+      isHost || isModerator ? this.prisma.stageRequest.findMany({
         where: { roomId, status: 'PENDING' },
         orderBy: { requestedAt: 'asc' },
         select: { id: true, userId: true, status: true, requestedAt: true },
@@ -495,8 +536,9 @@ export class LiveService {
         where: { roomId_userId: { roomId, userId } },
         select: { status: true, requestedAt: true },
       }) : Promise.resolve(null),
+      this.prisma.liveRoomModerator.findMany({ where: { roomId }, orderBy: { assignedAt: 'asc' }, select: { userId: true, assignedAt: true } }),
     ]);
-    return { isHost, hostId: room.hostId, requests, speakers, ownRequest, status: room.status, scheduledAt: room.scheduledAt };
+    return { isHost, isModerator, hostId: room.hostId, requests: isHost || isModerator ? requests : [], speakers, moderators, ownRequest, status: room.status, scheduledAt: room.scheduledAt };
   }
 
   async joinToken(userId: string, roomId: string) {
@@ -508,6 +550,7 @@ export class LiveService {
     if (!room) throw new NotFoundException('Live room not found');
     const isHost = room.hostId === userId;
     const isSpeaker = room.stage.some((member) => member.userId === userId);
+    const isModerator = !isHost && await this.canModerateRoom(roomId, userId, room.hostId);
     if (room.status === LiveRoomStatus.ENDED || room.status === LiveRoomStatus.CANCELLED) {
       throw new ConflictException('This live room has ended');
     }
@@ -527,7 +570,7 @@ export class LiveService {
     const token = new AccessToken(apiKey, apiSecret, {
       identity: userId,
       ttl: '10m',
-      metadata: JSON.stringify({ voxaUserId: userId, roomId, role: isHost ? 'HOST' : isSpeaker ? 'SPEAKER' : 'AUDIENCE' }),
+      metadata: JSON.stringify({ voxaUserId: userId, roomId, role: isHost ? 'HOST' : isModerator ? 'MODERATOR' : isSpeaker ? 'SPEAKER' : 'AUDIENCE' }),
     });
     token.addGrant({
       roomJoin: true,
@@ -567,7 +610,7 @@ export class LiveService {
   async removeSpeaker(hostId: string, roomId: string, speakerId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');
-    if (room.hostId !== hostId) throw new ForbiddenException('Only the host can remove speakers');
+    if (!(await this.canModerateRoom(roomId, hostId, room.hostId))) throw new ForbiddenException('Only the host or an assigned room moderator can remove speakers');
     if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Room is not live');
     if (speakerId === hostId) throw new ConflictException('The host cannot remove themselves from the stage');
 
@@ -609,7 +652,7 @@ export class LiveService {
   async decideStageRequest(hostId: string, roomId: string, requestId: string, approve: boolean) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');
-    if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can approve speakers');
+    if (!(await this.canModerateRoom(roomId, hostId, room.hostId))) throw new ForbiddenException('Only the host or an assigned room moderator can manage stage requests');
     if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Room is not live');
     const request = await this.prisma.stageRequest.findFirst({ where: { id: requestId, roomId, status: 'PENDING' } });
     if (!request) throw new NotFoundException('Pending stage request not found');
