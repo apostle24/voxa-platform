@@ -89,6 +89,17 @@ export default function CreatorStudioPage() {
     void loadWorkspace().catch(reason => setError(reason instanceof Error ? reason.message : 'Unable to load creator studio'));
   }, [token]);
 
+  useEffect(() => {
+    const hasProcessingMedia = shows.some(show => show.episodes.some(episode =>
+      ['QUEUED', 'PROCESSING'].includes(episode.mediaAssets?.[0]?.status || ''),
+    ));
+    if (!token || !hasProcessingMedia) return;
+    const timer = window.setInterval(() => {
+      void loadShows().catch(reason => setError(reason instanceof Error ? reason.message : 'Unable to refresh media processing status'));
+    }, 10000);
+    return () => window.clearInterval(timer);
+  }, [token, shows]);
+
   async function previewDraft(episodeId: string) {
     setError('');
     try {
@@ -192,7 +203,7 @@ export default function CreatorStudioPage() {
         method: 'POST', body: JSON.stringify({ objectKey: signed.objectKey }),
       });
       await loadShows();
-      setNotice('Media uploaded. The current release stores the original file; transcoding and adaptive streaming are not yet enabled.');
+      setNotice('Media uploaded and submitted to the processing queue. This page will refresh its status automatically while processing is underway.');
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Upload failed'); }
     finally { setUploadingId(''); }
   }
