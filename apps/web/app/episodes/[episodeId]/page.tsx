@@ -163,6 +163,22 @@ export default function EpisodePage() {
   const [transcriptError, setTranscriptError] = useState('');
   const [chapters, setChapters] = useState<Array<{ id: string; title: string; startSeconds: number }>>([]);
 
+  const replayPlaybackTime = mediaType.startsWith('video/')
+    ? videoCurrentTime
+    : currentTrack?.episodeId === episode?.id ? currentTime : -1;
+
+  useEffect(() => {
+    if (!episode?.isLiveReplay || replayPlaybackTime < 0) {
+      setSelectedChapterId(null);
+      return;
+    }
+    if (chapters.length === 0) return;
+    const activeChapter = [...chapters]
+      .filter(chapter => Number.isFinite(chapter.startSeconds) && chapter.startSeconds <= replayPlaybackTime)
+      .sort((a, b) => b.startSeconds - a.startSeconds)[0];
+    setSelectedChapterId(activeChapter?.id ?? null);
+  }, [episode?.id, episode?.isLiveReplay, replayPlaybackTime, chapters]);
+
   const saveProgress = useCallback(async (positionSeconds: number, force = false) => {
     if (!token || !episodeId || (!force && Date.now() - lastSavedAt.current < 15000)) return;
     lastSavedAt.current = Date.now();
@@ -453,7 +469,7 @@ export default function EpisodePage() {
             language={transcript.language}
             content={transcript.content}
             segments={transcript.segments}
-            currentTime={mediaType.startsWith('video/') ? videoCurrentTime : currentTrack?.episodeId === episode.id ? currentTime : -1}
+            currentTime={replayPlaybackTime}
             onSeek={seconds => seekReplay(seconds)}
             onShare={seconds => void shareReplayMoment(seconds)}
             onDiscuss={seconds => {
