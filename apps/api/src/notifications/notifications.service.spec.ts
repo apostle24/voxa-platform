@@ -10,6 +10,7 @@ describe('NotificationsService', () => {
     prisma = {
       notification: { findMany: jest.fn(), count: jest.fn(), updateMany: jest.fn(), findFirst: jest.fn() },
       notificationPreference: { upsert: jest.fn() },
+      notificationDevice: { upsert: jest.fn(), deleteMany: jest.fn() },
     };
     service = new NotificationsService(prisma as unknown as PrismaService);
   });
@@ -42,6 +43,24 @@ describe('NotificationsService', () => {
     expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith(expect.objectContaining({
       where: { userId: 'user-1' }, update: { follows: false },
     }));
+  });
+
+  it('registers a device token to the authenticated user and re-enables it', async () => {
+    prisma.notificationDevice.upsert.mockResolvedValue({ id: 'device-1', enabled: true });
+    await service.registerDevice('user-1', { expoPushToken: 'ExponentPushToken[test]', platform: 'ios' });
+    expect(prisma.notificationDevice.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { expoPushToken: 'ExponentPushToken[test]' },
+      create: expect.objectContaining({ userId: 'user-1', platform: 'ios', enabled: true }),
+      update: expect.objectContaining({ userId: 'user-1', enabled: true }),
+    }));
+  });
+
+  it('removes only the signed-in user device token', async () => {
+    prisma.notificationDevice.deleteMany.mockResolvedValue({ count: 1 });
+    await expect(service.unregisterDevice('user-1', 'ExponentPushToken[test]')).resolves.toEqual({ removed: true });
+    expect(prisma.notificationDevice.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', expoPushToken: 'ExponentPushToken[test]' },
+    });
   });
 
   it('marks a notification read only for its recipient', async () => {
