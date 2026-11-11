@@ -323,6 +323,7 @@ model LiveRoom {
   scheduledAt DateTime?
   startedAt   DateTime?
   endedAt     DateTime?
+  peakAudienceCount Int @default(0)
   createdAt   DateTime           @default(now())
   host        User               @relation("RoomHost", fields: [hostId], references: [id])
   stage       LiveStageMember[]
