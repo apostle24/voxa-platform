@@ -30,7 +30,7 @@ describe('MfaService', () => {
   beforeEach(() => {
     process.env.MFA_ENCRYPTION_KEY = key;
     prisma = {
-      mfaCredential: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn(), delete: jest.fn() },
+      mfaCredential: { findUnique: jest.fn(), upsert: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
       mfaBackupCode: { deleteMany: jest.fn(), createMany: jest.fn(), updateMany: jest.fn() },
       mfaLoginChallenge: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
       authSession: { updateMany: jest.fn() },
@@ -40,6 +40,7 @@ describe('MfaService', () => {
     prisma.mfaCredential.upsert.mockImplementation(async ({ create }: any) => ({ id: 'credential-1', ...create, enabledAt: null }));
     prisma.$transaction.mockImplementation((callback: any) => callback(prisma));
     prisma.mfaCredential.update.mockResolvedValue({});
+    prisma.mfaCredential.updateMany.mockResolvedValue({ count: 1 });
     prisma.mfaBackupCode.deleteMany.mockResolvedValue({ count: 0 });
     prisma.mfaBackupCode.createMany.mockResolvedValue({ count: 10 });
     prisma.authSession.updateMany.mockResolvedValue({ count: 2 });
@@ -81,7 +82,7 @@ describe('MfaService', () => {
     expect(result.enabled).toBe(true);
     expect(result.backupCodes).toHaveLength(10);
     expect(prisma.mfaCredential.update).toHaveBeenCalledWith({
-      where: { id: 'credential-1' }, data: { enabledAt: expect.any(Date) },
+      where: { id: 'credential-1' }, data: { enabledAt: expect.any(Date), lastTotpCounter: expect.any(Number) },
     });
     const savedCodes = prisma.mfaBackupCode.createMany.mock.calls[0][0].data;
     expect(savedCodes).toHaveLength(10);
@@ -167,3 +168,4 @@ describe('MfaService', () => {
     await expect(service.verifyLoginChallenge(challenge.challengeToken, backupCode)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
+
