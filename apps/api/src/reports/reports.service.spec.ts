@@ -19,7 +19,7 @@ describe('ReportsService', () => {
       liveRoom: { findFirst: jest.fn() },
       contentReport: { findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
       moderationAction: { findFirst: jest.fn(), create: jest.fn() },
-      communityPost: { findFirst: jest.fn() },
+      communityPost: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
       userBlock: { upsert: jest.fn(), deleteMany: jest.fn(), findMany: jest.fn() },
       $transaction: jest.fn(async (callback: any) => callback(prisma)),
     };
@@ -112,6 +112,21 @@ describe('ReportsService', () => {
     expect(prisma.moderationAction.create).toHaveBeenCalledWith({ data: expect.objectContaining({
       actorId: 'moderator-1', reportId: 'report-1', targetType: 'EPISODE', targetId: 'episode-1', action: 'HIDE_EPISODE',
     }) });
+  });
+
+  it('hides a reported community post and records a reversible action', async () => {
+    prisma.user.findUnique.mockResolvedValue({ role: 'MODERATOR' });
+    prisma.contentReport.findUnique.mockResolvedValue({ id: 'report-post', status: 'REVIEWING', targetType: 'COMMUNITY_POST', targetId: 'post-1' });
+    prisma.communityPost.findUnique.mockResolvedValue({ id: 'post-1', deletedAt: null });
+    prisma.communityPost.update.mockResolvedValue({ id: 'post-1', deletedAt: new Date() });
+    prisma.moderationAction.create.mockResolvedValue({ id: 'action-post' });
+    prisma.contentReport.update.mockResolvedValue({ id: 'report-post', status: 'ACTIONED' });
+    await expect(service.applyContentAction('moderator-1', 'report-post', {
+      action: 'HIDE_COMMUNITY_POST', reason: 'Spam discussion after review',
+    })).resolves.toMatchObject({ action: 'HIDE_COMMUNITY_POST', status: 'ACTIONED' });
+    expect(prisma.communityPost.update).toHaveBeenCalledWith({
+      where: { id: 'post-1' }, data: { deletedAt: expect.any(Date) },
+    });
   });
 
   it('suspends a reported account, revokes sessions and records the action atomically', async () => {
