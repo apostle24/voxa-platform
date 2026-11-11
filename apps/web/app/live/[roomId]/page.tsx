@@ -56,6 +56,8 @@ export default function LiveRoomPage() {
   const [recordingConsent, setRecordingConsent] = useState(false);
   const [replayDraft, setReplayDraft] = useState<{ episodeId: string; processingStatus: string } | null>(null);
   const [reactions, setReactions] = useState<{ id: number; emoji: string; userId: string }[]>([]);
+  const [captionsEnabled, setCaptionsEnabled] = useState(true);
+  const [liveCaptions, setLiveCaptions] = useState<{ id: string; text: string; speaker: string; final: boolean }[]>([]);
   const [reporting, setReporting] = useState(false);
   const [reported, setReported] = useState(false);
   const [interactions, setInteractions] = useState<any>({ polls: [], questions: [], isModerator: false });
@@ -158,6 +160,25 @@ export default function LiveRoomPage() {
       const isStageSpeaker = roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity);
       room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? (isHostRef.current ? 'Connected · Hosting' : isCoHostRef.current ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening'));
       room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting to live media…'));
+      room.on(RoomEvent.TranscriptionReceived, (segments, participant) => {
+        setLiveCaptions(current => {
+          const next = [...current];
+          for (const segment of segments) {
+            const id = String(segment.id);
+            const caption = {
+              id,
+              text: String(segment.text || '').trim(),
+              speaker: participant?.name || participant?.identity || 'Speaker',
+              final: Boolean(segment.final),
+            };
+            if (!caption.text) continue;
+            const existingIndex = next.findIndex(item => item.id === id);
+            if (existingIndex >= 0) next[existingIndex] = caption;
+            else next.push(caption);
+          }
+          return next.slice(-8);
+        });
+      });
       room.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
           const packet = JSON.parse(new TextDecoder().decode(payload));
@@ -576,10 +597,15 @@ export default function LiveRoomPage() {
     <section className="stagePage">
       <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{displayedStatus}</p>{stage?.status === 'SCHEDULED' && stage.scheduledAt && <p className="helperText">Scheduled for {new Date(stage.scheduledAt).toLocaleString()}</p>}</div>
       <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />
-        {reactions.length > 0 && <div aria-live="polite" aria-label="Live audience reactions" style={{ position: 'absolute', top: 16, right: 16, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', maxWidth: '45%' }}>{reactions.slice(-8).map(reaction => <span key={reaction.id} style={{ fontSize: 26, padding: '5px 9px', borderRadius: 20, background: 'rgba(0,0,0,.55)' }}>{reaction.emoji}</span>)}</div>}{stage?.status === 'CANCELLED' && <><div className="stageMark">V<span>.</span></div><h2>Room cancelled</h2><p>This live session will not take place.</p></>}{stage?.status === 'SCHEDULED' && status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>{stage?.isHost ? 'Your room is ready.' : 'Coming up on VOXA LIVE.'}</h2><p>{stage?.isHost ? 'Return at the scheduled time and start the conversation.' : 'The host will open this room at the scheduled time.'}</p></>}<div className="connectionStatus"><i /> {displayedStatus}</div></div>
+        {reactions.length > 0 && <div aria-live="polite" aria-label="Live audience reactions" style={{ position: 'absolute', top: 16, right: 16, display: 'flex', flexWrap: 'wrap', gap: 8, justifyContent: 'flex-end', maxWidth: '45%' }}>{reactions.slice(-8).map(reaction => <span key={reaction.id} style={{ fontSize: 26, padding: '5px 9px', borderRadius: 20, background: 'rgba(0,0,0,.55)' }}>{reaction.emoji}</span>)}</div>}{stage?.status === 'CANCELLED' && <><div className="stageMark">V<span>.</span></div><h2>Room cancelled</h2><p>This live session will not take place.</p></>}{stage?.status === 'SCHEDULED' && status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>{stage?.isHost ? 'Your room is ready.' : 'Coming up on VOXA LIVE.'}</h2><p>{stage?.isHost ? 'Return at the scheduled time and start the conversation.' : 'The host will open this room at the scheduled time.'}</p></>}{captionsEnabled && <div aria-live="polite" aria-label="Live captions" style={{ position: 'absolute', left: 16, right: 16, bottom: 54, zIndex: 3, maxHeight: 150, overflowY: 'auto', padding: 12, borderRadius: 12, background: 'rgba(0,0,0,.72)', color: '#fff', textAlign: 'left' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, opacity: .75, marginBottom: 6 }}>LIVE CAPTIONS</div>
+          {liveCaptions.length ? liveCaptions.slice(-4).map(caption => <p key={caption.id} style={{ margin: '4px 0', fontSize: 14, lineHeight: 1.45, opacity: caption.final ? 1 : .72 }}><strong>{caption.speaker}: </strong>{caption.text}</p>) : <p style={{ margin: 0, fontSize: 12, opacity: .8 }}>Captions will appear when a transcription-enabled LiveKit agent is connected.</p>}
+        </div>}
+        <div className="connectionStatus"><i /> {displayedStatus}</div></div>
       {error && <p className="errorText">{error}</p>}
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
+          <button className={captionsEnabled ? 'controlButton on' : 'controlButton'} aria-pressed={captionsEnabled} onClick={() => setCaptionsEnabled(value => !value)}>{captionsEnabled ? 'Captions on' : 'Captions off'}</button>
           <button className={mic ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleMic()} disabled={!isHost && !canPublish}>{mic ? 'Mic on' : 'Mic off'}</button>
           <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !isCoHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
           {!isHost && !isCoHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
