@@ -55,6 +55,24 @@ export class LiveController {
     return this.live.endRoom(req.user.id, roomId);
   }
 
+  @Get('rooms/:roomId/moderators')
+  @UseGuards(JwtAuthGuard)
+  listRoomModerators(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.listRoomModerators(req.user.id, roomId);
+  }
+
+  @Post('rooms/:roomId/moderators')
+  @UseGuards(JwtAuthGuard)
+  addRoomModerator(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body('userId') userId: string) {
+    return this.live.addRoomModerator(req.user.id, roomId, userId);
+  }
+
+  @Post('rooms/:roomId/moderators/:moderatorId/remove')
+  @UseGuards(JwtAuthGuard)
+  removeRoomModerator(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('moderatorId') moderatorId: string) {
+    return this.live.removeRoomModerator(req.user.id, roomId, moderatorId);
+  }
+
   @Get('rooms/:roomId/chat')
   @UseGuards(JwtAuthGuard)
   getChatMessages(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
