@@ -203,7 +203,7 @@ export class CreatorsService {
       await createUserNotification(this.prisma, {
         recipientId: creator.userId, actorId: userId, type: 'NEW_FOLLOWER',
         title: 'You have a new follower', body: 'Someone started following your creator profile.',
-        resourceType: 'creator', resourceId: creator.id, category: 'follows',
+        resourceType: 'creator', resourceId: creator.handle, category: 'follows',
       });
     }
     return { following: true, creatorHandle: handle.toLowerCase() };
