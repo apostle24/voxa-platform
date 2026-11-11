@@ -8,7 +8,7 @@ async function bootstrap() {
   app.setGlobalPrefix('v1');
   app.enableShutdownHooks();
   app.enableCors({
-    origin: process.env.CORS_ORIGINS?.split(',') ?? false,
+    origin: process.env.CORS_ORIGINS?.split(',').map((origin) => origin.trim()).filter(Boolean) ?? false,
     credentials: true,
   });
   app.useGlobalPipes(new ValidationPipe({
