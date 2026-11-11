@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Room, RoomEvent } from 'livekit-client';
+import { ReportContent } from '../../../components/report-content';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type StageState = {
@@ -228,7 +229,7 @@ export default function LiveRoomPage() {
   return <main className="appShell">
     <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> LIVE</span></nav>
     <section className="stagePage">
-      <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{status}</p></div>
+      <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{status}</p><ReportContent targetType="LIVE_ROOM" targetId={roomId} /></div>
       <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" /><div className="stageMark">V<span>.</span></div><h2>The room is yours.</h2><p>Live participant audio and video will appear here.</p><div className="connectionStatus"><i /> {status}</div></div>
       {error && <p className="errorText">{error}</p>}
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
