@@ -46,7 +46,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
-  const [queueOpen, setQueueOpen] = useState(false);
+  const [queueOpen, setQueueOpen] = useState(false);\n  const restored = useRef(false);\n\n  const refreshTrack = useCallback(async (saved: VoxaTrack): Promise<VoxaTrack> => {\n    const episodeResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(saved.episodeId));\n    const episode = await episodeResponse.json();\n    if (!episodeResponse.ok) throw new Error(episode.message || 'This episode is no longer available');\n    const token = sessionStorage.getItem('voxa_access_token') || '';\n    if (episode.membershipRequired && !token) throw new Error('Sign in and join the creator membership to continue this episode');\n    const playbackResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(saved.episodeId) + (episode.membershipRequired ? '/member-playback-url' : '/playback-url'), {\n      headers: episode.membershipRequired ? { Authorization: 'Bearer ' + token } : undefined,\n    });\n    const playback = await playbackResponse.json();\n    if (!playbackResponse.ok) throw new Error(playback.message || 'Unable to refresh the playback link');\n    return { ...saved, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, durationSeconds: episode.durationSeconds, contentType: playback.contentType || 'audio/mpeg', url: playback.url };\n  }, []);\n\n  useEffect(() => {\n    let active = true;\n    async function restore() {\n      try {\n        const raw = sessionStorage.getItem('voxa_player_state');\n        if (!raw) return;\n        const saved = JSON.parse(raw) as { currentTrack?: VoxaTrack | null; queue?: VoxaTrack[]; currentTime?: number };\n        const queued = Array.isArray(saved.queue) ? saved.queue : [];\n        const restoredQueue = await Promise.all(queued.slice(0, 50).map(async track => {\n          try { return await refreshTrack(track); } catch { return null; }\n        }));\n        if (!active) return;\n        setQueue(restoredQueue.filter((track): track is VoxaTrack => track !== null));\n        if (saved.currentTrack) {\n          try {\n            const track = await refreshTrack({ ...saved.currentTrack, resumeAt: Math.max(0, Number(saved.currentTime) || saved.currentTrack.resumeAt || 0) });\n            if (!active) return;\n            setCurrentTrack(track);\n            setCurrentTime(track.resumeAt || 0);\n          } catch {\n            sessionStorage.removeItem('voxa_player_state');\n          }\n        }\n      } catch {\n        sessionStorage.removeItem('voxa_player_state');\n      } finally {\n        restored.current = true;\n      }\n    }\n    void restore();\n    return () => { active = false; };\n  }, [refreshTrack]);\n\n  useEffect(() => {\n    if (!restored.current) return;\n    const safeTrack = currentTrack ? { ...currentTrack, url: '' } : null;\n    const safeQueue = queue.map(({ url: _url, ...track }) => track);\n    sessionStorage.setItem('voxa_player_state', JSON.stringify({ currentTrack: safeTrack, queue: safeQueue, currentTime }));\n  }, [currentTrack, queue, currentTime]);
 
   const playTrack = useCallback((track: VoxaTrack) => {
     const audio = audioRef.current;
@@ -75,7 +75,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     const [next, ...rest] = queue;
     setQueue(rest);
     playTrack(next);
-  }, [queue, playTrack]);
+  }, [queue, playTrack, refreshTrack]);
 
   const togglePlayback = useCallback(() => {
     const audio = audioRef.current;
@@ -160,7 +160,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       </div>
       {queueOpen && <div className="voxaQueue">
         <div className="voxaQueueHeading"><b>Up next</b><button onClick={() => setQueue([])}>Clear</button></div>
-        {queue.length ? queue.map((item, index) => <button className="voxaQueueItem" key={item.episodeId} onClick={() => { setQueue(items => items.filter((_, i) => i !== index)); playTrack(item); }}>
+        {queue.length ? queue.map((item, index) => <button className="voxaQueueItem" key={item.episodeId} onClick={() => { setQueue(items => items.filter((_, i) => i !== index)); void refreshTrack(item).then(playTrack).catch(() => setIsPlaying(false)); }}>
           <span>{index + 1}. {item.title}</span><small>{item.creatorName}</small>
         </button>) : <p>Your queue is empty. Add an episode to keep listening.</p>}
       </div>}
