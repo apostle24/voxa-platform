@@ -72,12 +72,13 @@ export class ReportsService {
     });
     const reportedUserIds = [...new Set(reports.filter(report => report.targetType === 'USER').map(report => report.targetId))];
     const reportedUsers = reportedUserIds.length
-      ? await this.prisma.user.findMany({ where: { id: { in: reportedUserIds } }, select: { id: true, displayName: true } })
+      ? await this.prisma.user.findMany({ where: { id: { in: reportedUserIds } }, select: { id: true, displayName: true, suspendedUntil: true } })
       : [];
     const userNames = new Map(reportedUsers.map(user => [user.id, user.displayName]));
     return reports.map(report => ({
       ...report,
       targetLabel: report.targetType === 'USER' ? (userNames.get(report.targetId) || 'Account no longer available') : null,
+      targetSuspendedUntil: report.targetType === 'USER' ? (reportedUsers.find(user => user.id === report.targetId)?.suspendedUntil || null) : null,
     }));
   }
 
