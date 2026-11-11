@@ -43,6 +43,9 @@ importers:
       class-validator:
         specifier: ^0.14.1
         version: 0.14.4
+      express:
+        specifier: ^4.22.1
+        version: 4.22.1
       livekit-server-sdk:
         specifier: ^2.9.6
         version: 2.19.3
