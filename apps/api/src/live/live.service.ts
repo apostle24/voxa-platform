@@ -130,6 +130,8 @@ export class LiveService {
       const leftAt = ended.endedAt ?? new Date();
       await tx.liveStageMember.updateMany({ where: { roomId, leftAt: null }, data: { leftAt } });
       await tx.liveViewerSession.updateMany({ where: { roomId, leftAt: null }, data: { leftAt } });
+      await tx.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt: leftAt } });
+      await tx.liveAgendaItem.updateMany({ where: { roomId, status: 'ACTIVE' }, data: { status: 'COMPLETED', completedAt: leftAt } });
       return ended;
     });
   }
@@ -768,6 +770,7 @@ export class LiveService {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the host can end the active speaker turn');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('The room is not live');
     const active = await this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, select: { speakerId: true } });
     if (!active) throw new NotFoundException('There is no active speaker turn');
     const stageMembers = await this.prisma.liveStageMember.findMany({ where: { roomId, leftAt: null }, select: { userId: true } });
