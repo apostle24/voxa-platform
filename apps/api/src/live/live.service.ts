@@ -130,7 +130,7 @@ export class LiveService {
     if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Viewer presence is available only while the room is live');
     const stageMember = await this.prisma.liveStageMember.findUnique({ where: { roomId_userId: { roomId, userId } }, select: { leftAt: true } });
     if (room.hostId === userId || (stageMember && stageMember.leftAt === null)) {
-      await this.prisma.liveViewerSession.updateMany({ where: { roomId, sessionId, userId, leftAt: null }, data: { leftAt: new Date() } });
+      await this.prisma.liveViewerSession.updateMany({ where: { roomId, userId, leftAt: null }, data: { leftAt: new Date() } });
       return { tracked: false, reason: 'HOST_OR_SPEAKER' };
     }
     const now = new Date();
@@ -179,11 +179,13 @@ export class LiveService {
       currentlyOnStage: member.leftAt === null,
     }));
     const requests = Object.fromEntries(requestCounts.map(item => [item.status.toLowerCase(), item._count._all]));
+    const stageUserIds = new Set([room.hostId, ...stageMembers.filter(member => member.leftAt === null).map(member => member.userId)]);
+    const concurrentViewers = activeViewerUsers.filter(viewer => !stageUserIds.has(viewer.userId)).length;
     return {
       room: { id: room.id, title: room.title, status: room.status, startedAt: room.startedAt, endedAt: room.endedAt, durationSeconds },
       stage: { totalSpeakerSessions: speakers.length, activeSpeakers: speakers.filter(speaker => speaker.currentlyOnStage).length, speakers },
       requests: { pending: requests.pending ?? 0, approved: requests.approved ?? 0, rejected: requests.rejected ?? 0 },
-      audience: { concurrentViewers: activeViewerUsers.length, peakConcurrentViewers: room.peakAudienceCount },
+      audience: { concurrentViewers, peakConcurrentViewers: room.peakAudienceCount },
       chat: { totalMessages: chatMessageCount, removedMessages: deletedMessageCount, visibleMessages: chatMessageCount - deletedMessageCount },
       measurementNote: 'Concurrent and peak audience counts use authenticated viewer heartbeats. A viewer is present for 45 seconds after their latest heartbeat; brief network interruptions may affect the estimate.',
     };
