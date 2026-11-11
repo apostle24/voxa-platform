@@ -670,16 +670,34 @@ export class ShowsService {
       { description: { contains: params.q, mode: 'insensitive' } },
       { show: { title: { contains: params.q, mode: 'insensitive' } } },
       { membershipRequired: false, transcript: { is: { content: { contains: params.q, mode: 'insensitive' } } } },
+      { membershipRequired: false, intelligence: { is: { summary: { contains: params.q, mode: 'insensitive' } } } },
     ];
     const items = await this.prisma.episode.findMany({
       where, take: limit + 1, ...(params.cursor ? { skip: 1, cursor: { id: params.cursor } } : {}),
       orderBy: [{ publishedAt: 'desc' }, { id: 'desc' }],
-      select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, isLiveReplay: true, publishedAt: true,
+      select: { id: true, title: true, description: true, artworkUrl: true, durationSeconds: true, isExplicit: true, isLiveReplay: true, membershipRequired: true, publishedAt: true,
+        transcript: { select: { segments: true } },
         show: { select: { id: true, title: true, category: true, language: true, creator: { select: { handle: true, user: { select: { displayName: true } } } } } } },
     });
     const hasMore = items.length > limit;
     const page = hasMore ? items.slice(0, limit) : items;
-    return { items: page, nextCursor: hasMore ? page[page.length - 1].id : null };
+    const term = params.q?.trim().toLocaleLowerCase();
+    const results = page.map(item => {
+      const rawSegments = item.transcript?.segments;
+      const segments = Array.isArray(rawSegments) ? rawSegments as Array<{ startSeconds?: number; endSeconds?: number; text?: string; speaker?: string }> : [];
+      const matchingMoments = !term || item.membershipRequired ? [] : segments
+        .filter(segment => typeof segment.text === 'string' && segment.text.toLocaleLowerCase().includes(term))
+        .slice(0, 5)
+        .map(segment => ({
+          startSeconds: Math.max(0, Number(segment.startSeconds) || 0),
+          endSeconds: Math.max(0, Number(segment.endSeconds) || 0),
+          text: String(segment.text).slice(0, 500),
+          speaker: String(segment.speaker || 'Speaker').slice(0, 40),
+        }));
+      const { transcript, ...episode } = item;
+      return { ...episode, matchingMoments };
+    });
+    return { items: results, nextCursor: hasMore ? page[page.length - 1].id : null };
   }
 
   async discoveryCategories() {
