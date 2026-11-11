@@ -1030,7 +1030,11 @@ export class LiveService {
     });
     if (validBooking) return;
     const stageMembers = await this.prisma.liveStageMember.findMany({ where: { roomId, leftAt: null }, select: { userId: true } });
-    await this.applySpeakerPublishPermissions(roomId, stageMembers.map(item => item.userId).filter(id => id !== hostId), null, active.speakerId);
+    try {
+      await this.applySpeakerPublishPermissions(roomId, stageMembers.map(item => item.userId).filter(id => id !== hostId), null, active.speakerId);
+    } catch {
+      return;
+    }
     await this.prisma.liveSpeakerTurn.updateMany({
       where: { roomId, speakerId: active.speakerId, status: 'ACTIVE' },
       data: { status: 'COMPLETED', endedAt: now },
