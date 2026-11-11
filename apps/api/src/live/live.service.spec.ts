@@ -449,6 +449,23 @@ describe('LiveService access boundaries', () => {
     expect(prisma.liveRoomCoHost.upsert).not.toHaveBeenCalled();
   });
 
+
+  it('removes co-host privileges and closes that participant active speaker turn', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    prisma.liveRoomCoHost.deleteMany.mockResolvedValue({ count: 1 });
+    const liveKitClient = {
+      listParticipants: jest.fn().mockResolvedValue([{ identity: 'cohost-1' }]),
+      updateParticipant: jest.fn().mockResolvedValue({}),
+    };
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue(liveKitClient);
+    await expect(service.removeRoomCoHost('host-1', 'room-1', 'cohost-1'))
+      .resolves.toMatchObject({ removed: true, userId: 'cohost-1' });
+    expect(prisma.liveSpeakerTurn.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { roomId: 'room-1', status: 'ACTIVE', speakerId: 'cohost-1' },
+    }));
+    expect(liveKitClient.updateParticipant).toHaveBeenCalledWith('room-1', 'cohost-1', undefined, expect.objectContaining({ canPublish: false }));
+  });
+
   it('transfers ownership only to an appointed co-host and preserves the former host as co-host', async () => {
     prisma.liveRoom.findUnique
       .mockResolvedValueOnce({ id: 'room-1', hostId: 'host-1', status: 'LIVE' })
