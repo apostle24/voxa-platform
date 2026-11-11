@@ -128,7 +128,7 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack, currentTime, playbackRate, changePlaybackRate } = useVoxaPlayer();
+  const { playTrack, enqueueTrack, playTrackNext, seek, currentTrack, currentTime, playbackRate, changePlaybackRate, isPlaying, togglePlayback } = useVoxaPlayer();
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
   const latestVideoTime = useRef(0);
@@ -287,6 +287,7 @@ export default function EpisodePage() {
     }
     if (currentTrack?.episodeId === episode?.id) {
       seek(safeSeconds);
+      if (shouldPlay && !isPlaying) togglePlayback();
       return;
     }
     if (episode && audioUrl) {
@@ -403,7 +404,7 @@ export default function EpisodePage() {
                   src={audioUrl}
                   style={{ width: '100%', maxHeight: 560, borderRadius: 12, background: '#000' }}
                   onLoadedMetadata={() => {
-                    if (videoRef.current) setVideoDuration(Number.isFinite(videoRef.current.duration) ? videoRef.current.duration : 0);
+                    if (videoRef.current) { setVideoDuration(Number.isFinite(videoRef.current.duration) ? videoRef.current.duration : 0); videoRef.current.playbackRate = videoPlaybackRate; }
                   }}
                   onTimeUpdate={() => {
                     if (videoRef.current) { latestVideoTime.current = videoRef.current.currentTime; setVideoCurrentTime(videoRef.current.currentTime); void saveProgress(videoRef.current.currentTime); }
@@ -432,10 +433,7 @@ export default function EpisodePage() {
               </>
               : <div style={{ display: 'grid', gap: 12 }}>
                   <div className="episodePlayerActions">
-                    <button className="button" onClick={() => {
-                      if (currentTrack?.episodeId === episode.id) seek(resumeAt);
-                      else playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt });
-                    }}>{currentTrack?.episodeId === episode.id ? '↻ Resume from saved position' : '▶ Play episode'}</button>
+                    <button className="button" onClick={() => playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>▶ Play episode</button>
                     <button className="ghostButton" onClick={() => playTrackNext({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>⇥ Play next</button>
                     <button className="ghostButton" onClick={() => enqueueTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt })}>＋ Add to queue</button>
                   </div>
@@ -450,7 +448,7 @@ export default function EpisodePage() {
                   </div>
                 </div>}
             <p style={{ color: 'var(--muted, #a1a1aa)', fontSize: 13, marginBottom: 0 }}>
-              {resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
+              {mediaType.startsWith('video/') ? 'Replay position: ' + formatTime(videoCurrentTime || resumeAt) : currentTrack?.episodeId === episode.id ? 'Replay position: ' + formatTime(currentTime) : resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
               {saving ? ' · Saving progress…' : ''}
             </p>
           </section>}
