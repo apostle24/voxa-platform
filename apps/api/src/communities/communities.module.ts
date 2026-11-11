@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
-import { JwtModule } from '@nestjs/jwt';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { AuthModule } from '../auth/auth.module';
 import { CommunitiesController } from './communities.controller';
 import { CommunitiesService } from './communities.service';
 
 @Module({
-  imports: [JwtModule.register({ secret: process.env.JWT_SECRET, signOptions: { issuer: 'voxa-api', audience: 'voxa-clients' } })],
+  imports: [AuthModule],
   controllers: [CommunitiesController],
-  providers: [CommunitiesService, JwtAuthGuard],
+  providers: [CommunitiesService],
 })
 export class CommunitiesModule {}
