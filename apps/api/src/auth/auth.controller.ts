@@ -45,8 +45,8 @@ export class AuthController {
   async login(@Body() input: LoginDto, @Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
     const result = await this.auth.login(input);
-    if ('mfaRequired' in result && result.mfaRequired) return result;
-    return this.withRefreshCookie(result, response);
+    if ('refreshToken' in result) return this.withRefreshCookie(result, response);
+    return result;
   }
 
   @Post('mfa/setup')
