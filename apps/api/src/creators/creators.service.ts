@@ -135,6 +135,20 @@ export class CreatorsService {
   }
 
 
+  async getMyAudience(userId: string, query?: string) {
+    const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true, handle: true } });
+    if (!creator) throw new NotFoundException('Create a creator profile first');
+    const search = query?.trim();
+    const where = { creatorId: creator.id, ...(search ? { follower: { displayName: { contains: search, mode: 'insensitive' as const } } } : {}) };
+    const [total, follows] = await Promise.all([
+      this.prisma.follow.count({ where }),
+      this.prisma.follow.findMany({
+        where, orderBy: { createdAt: 'desc' }, take: 100,
+        select: { createdAt: true, follower: { select: { id: true, displayName: true, createdAt: true } } },
+      }),
+    ]);
+    return { creator, total, returned: follows.length, hasMore: total > follows.length, followers: follows.map(({ createdAt, follower }) => ({ ...follower, followedAt: createdAt })) };
+  }
   async getMyAnalytics(userId: string) {
     const creator = await this.prisma.creator.findUnique({ where: { userId }, select: { id: true, handle: true } });
     if (!creator) throw new NotFoundException('Create a creator profile first');
