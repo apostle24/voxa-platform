@@ -731,12 +731,14 @@ const REPORT_REASONS = [
 function SafetyActions({ targetType, targetId, allowBlock = false }: { targetType: 'EPISODE' | 'MOMENT' | 'LIVE_ROOM' | 'USER' | 'COMMUNITY_POST'; targetId: string; allowBlock?: boolean }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [reportOpen, setReportOpen] = useState(false);
   async function report(reason: string) {
     if (busy) return;
     setBusy(true); setNotice('');
     try {
       const result = await api<any>('/reports', { method: 'POST', body: JSON.stringify({ targetType, targetId, reason }) });
       setNotice(result.duplicate ? 'You have already reported this item recently.' : 'Report sent to the VOXA safety team.');
+      setReportOpen(false);
     } catch (error) { setNotice(error instanceof Error ? error.message : 'Report could not be sent.'); }
     finally { setBusy(false); }
   }
@@ -753,11 +755,12 @@ function SafetyActions({ targetType, targetId, allowBlock = false }: { targetTyp
     ]);
   }
   return <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10, marginTop: 8 }}>
-    <Pressable disabled={busy} onPress={() => Alert.alert('Report this item', 'Choose the reason that best describes the issue.', [
-      ...REPORT_REASONS.map(reason => ({ text: reason.label, onPress: () => void report(reason.value) })),
-      { text: 'Cancel', style: 'cancel' as const },
-    ])}><Text style={styles.backLink}>{busy ? 'Please wait…' : '⚑ Report'}</Text></Pressable>
+    <Pressable disabled={busy} onPress={() => setReportOpen(value => !value)}><Text style={styles.backLink}>{busy ? 'Please wait…' : reportOpen ? 'Cancel report' : '⚑ Report'}</Text></Pressable>
     {allowBlock && <Pressable disabled={busy} onPress={() => void block()}><Text style={styles.backLink}>Block account</Text></Pressable>}
+    {reportOpen && <View style={{ width: '100%', gap: 6, marginTop: 6 }}>
+      <Text style={styles.smallMuted}>Choose a report reason:</Text>
+      {REPORT_REASONS.map(reason => <Pressable key={reason.value} disabled={busy} onPress={() => void report(reason.value)} style={styles.replyCard}><Text style={styles.muted}>{reason.label}</Text></Pressable>)}
+    </View>}
     {!!notice && <Text style={styles.smallMuted}>{notice}</Text>}
   </View>;
 }
