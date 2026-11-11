@@ -130,6 +130,7 @@ export class ShowsService {
     if (show.status !== PublicationStatus.PUBLISHED) throw new ConflictException('Publish the show before publishing episodes');
     const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId } });
     if (!episode) throw new NotFoundException('Episode not found');
+    if (episode.status === PublicationStatus.ARCHIVED) throw new ConflictException('This episode is hidden by Trust & Safety and cannot be republished until restored by a moderator');
     if (!episode.mediaKey) throw new ConflictException('A media asset must be attached before publishing');
     if (!episode.durationSeconds) throw new ConflictException('Episode duration is required before publishing');
     const readyAsset = await this.prisma.mediaAsset.findFirst({
@@ -379,6 +380,7 @@ export class ShowsService {
       select: { id: true, status: true },
     });
     if (!moment) throw new NotFoundException('Moment not found');
+    if (moment.status === PublicationStatus.ARCHIVED) throw new ConflictException('This Moment is hidden by Trust & Safety and cannot be republished until restored by a moderator');
     if (moment.status === PublicationStatus.PUBLISHED) return moment;
     return this.prisma.moment.update({
       where: { id: momentId },

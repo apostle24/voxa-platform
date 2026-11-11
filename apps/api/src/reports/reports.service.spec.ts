@@ -13,6 +13,8 @@ describe('ReportsService', () => {
       moment: { findFirst: jest.fn() },
       liveRoom: { findFirst: jest.fn() },
       contentReport: { findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+      moderationAction: { findFirst: jest.fn(), create: jest.fn() },
+      $transaction: jest.fn(async (callback: any) => callback(prisma)),
     };
     service = new ReportsService(prisma as unknown as PrismaService);
   });
@@ -67,5 +69,20 @@ describe('ReportsService', () => {
     await expect(service.review('admin-1', 'report-1', { status: 'REVIEWING' }))
       .rejects.toBeInstanceOf(BadRequestException);
     expect(prisma.contentReport.update).not.toHaveBeenCalled();
+  });
+  it('hides a reported published episode and writes an audit record atomically', async () => {
+    prisma.user.findUnique.mockResolvedValue({ role: 'MODERATOR' });
+    prisma.contentReport.findUnique.mockResolvedValue({ id: 'report-1', status: 'REVIEWING', targetType: 'EPISODE', targetId: 'episode-1' });
+    prisma.episode.findUnique = jest.fn().mockResolvedValue({ id: 'episode-1', status: 'PUBLISHED' });
+    prisma.episode.update = jest.fn().mockResolvedValue({ id: 'episode-1', status: 'ARCHIVED' });
+    prisma.moderationAction.create.mockResolvedValue({ id: 'action-1' });
+    prisma.contentReport.update.mockResolvedValue({ id: 'report-1', status: 'ACTIONED' });
+    await expect(service.applyContentAction('moderator-1', 'report-1', {
+      action: 'HIDE_EPISODE', reason: 'Confirmed policy violation after review',
+    })).resolves.toMatchObject({ action: 'HIDE_EPISODE', status: 'ACTIONED' });
+    expect(prisma.episode.update).toHaveBeenCalledWith({ where: { id: 'episode-1' }, data: { status: 'ARCHIVED' } });
+    expect(prisma.moderationAction.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      actorId: 'moderator-1', reportId: 'report-1', targetType: 'EPISODE', targetId: 'episode-1', action: 'HIDE_EPISODE',
+    }) });
   });
 });

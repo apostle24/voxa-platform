@@ -117,6 +117,7 @@ model User {
   mfaChallenges MfaLoginChallenge[]
   submittedReports ContentReport[] @relation("ReportSubmitter")
   reviewedReports ContentReport[] @relation("ReportReviewer")
+  moderationActions ModerationAction[]
 }
 
 model Creator {
@@ -725,4 +726,21 @@ model ContentReport {
   @@index([status, createdAt])
   @@index([targetType, targetId, createdAt])
   @@index([reporterId, createdAt])
+}
+
+
+model ModerationAction {
+  id        String   @id @default(cuid())
+  actorId   String
+  reportId  String
+  targetType String
+  targetId  String
+  action    String
+  reason    String
+  createdAt DateTime @default(now())
+  actor     User     @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([reportId, createdAt])
+  @@index([targetType, targetId, createdAt])
+  @@index([actorId, createdAt])
 }

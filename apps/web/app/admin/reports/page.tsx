@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type Report = {
-  id: string; targetType: string; targetId: string; reason: string; details?: string | null;
+  id: string; targetType: string; targetId: string; targetLabel?: string | null; reason: string; details?: string | null;
   status: string; moderatorNote?: string | null; createdAt: string;
   reporter: { id: string; displayName: string };
   reviewer?: { id: string; displayName: string } | null;
@@ -34,6 +34,26 @@ export default function AdminReportsPage() {
       .finally(() => setLoading(false));
   }, [load]);
 
+
+  async function applyAction(report: Report, action: 'HIDE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_EPISODE' | 'RESTORE_MOMENT') {
+    const reason = notes[report.id]?.trim();
+    if (!reason) { setError('Enter a moderator note explaining this action first.'); return; }
+    if (!window.confirm(action.startsWith('HIDE_') ? 'Hide this reported content?' : 'Restore this content to public availability?')) return;
+    setBusy(report.id); setError(''); setNotice('');
+    try {
+      const response = await apiFetch(API + '/admin/reports/' + report.id + '/actions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, moderatorNote: reason }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.message || 'Unable to apply moderation action');
+      setNotice(action.startsWith('HIDE_') ? 'Content hidden and moderation audit record saved.' : 'Content restored and moderation audit record saved.');
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Unable to apply moderation action');
+    } finally { setBusy(''); }
+  }
+
   async function review(report: Report, nextStatus: 'REVIEWING' | 'ACTIONED' | 'DISMISSED') {
     setBusy(report.id); setError(''); setNotice('');
     try {
@@ -60,7 +80,7 @@ export default function AdminReportsPage() {
       <div className="communityHeader"><div><h1>Moderation queue</h1><p>Review user reports, document decisions and keep a clear moderation record.</p></div></div>
       <div className="emptyState" style={{ marginBottom: 20 }}>
         <strong>Review carefully</strong>
-        <p>Reports are allegations, not findings. Review the underlying content and relevant context before taking action. This queue records decisions; it does not automatically remove content or suspend accounts.</p>
+        <p>Reports are allegations, not findings. Review the underlying content and relevant context before taking action. Reports never trigger automatic punishment. Authorized moderators can hide reported episodes and Moments after review; each action is recorded.</p>
       </div>
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
         <select value={status} onChange={e => setStatus(e.target.value)}>
@@ -77,15 +97,17 @@ export default function AdminReportsPage() {
         {reports.map(report => <article className="earningRow" key={report.id} style={{ alignItems: 'flex-start', gap: 18 }}>
           <div style={{ flex: 1, minWidth: 240 }}>
             <b>{report.targetType.replaceAll('_', ' ')} · {report.reason.replaceAll('_', ' ')}</b>
-            <small>Target: {report.targetId}</small>
+            <small>Target: {report.targetLabel || report.targetId}</small>{report.targetType === 'USER' && <small>Account ID: {report.targetId}</small>}
             <small>Reported by {report.reporter.displayName} · {new Date(report.createdAt).toLocaleString()}</small>
             {report.details && <p style={{ whiteSpace: 'pre-wrap', marginTop: 10 }}>{report.details}</p>}
             {report.moderatorNote && <small>Previous note: {report.moderatorNote}</small>}
           </div>
           <div style={{ display: 'grid', gap: 8, minWidth: 240, flex: 1 }}>
             <textarea value={notes[report.id] ?? report.moderatorNote ?? ''} onChange={e => setNotes(v => ({ ...v, [report.id]: e.target.value }))} placeholder="Moderator notes (optional)" rows={3} />
+            {report.status === 'ACTIONED' && (report.targetType === 'EPISODE' || report.targetType === 'MOMENT') && <button className="ghostButton" disabled={busy === report.id} onClick={() => applyAction(report, report.targetType === 'EPISODE' ? 'RESTORE_EPISODE' : 'RESTORE_MOMENT')}>Restore content</button>}
             {report.status !== 'ACTIONED' && report.status !== 'DISMISSED' && <>
               {report.status === 'NEW' && <button className="ghostButton" disabled={busy === report.id} onClick={() => review(report, 'REVIEWING')}>Mark under review</button>}
+              {(report.targetType === 'EPISODE' || report.targetType === 'MOMENT') && <button className="primaryButton" disabled={busy === report.id} onClick={() => applyAction(report, report.targetType === 'EPISODE' ? 'HIDE_EPISODE' : 'HIDE_MOMENT')}>Hide reported content</button>}
               <button className="primaryButton" disabled={busy === report.id} onClick={() => review(report, 'ACTIONED')}>{busy === report.id ? 'Saving…' : 'Mark actioned'}</button>
               <button className="ghostButton" disabled={busy === report.id} onClick={() => review(report, 'DISMISSED')}>Dismiss report</button>
             </>}

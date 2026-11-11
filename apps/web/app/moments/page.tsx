@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../lib/api';
+import { ReportContent } from '../../components/report-content';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/[/]$/, '');
 
@@ -134,6 +135,7 @@ export default function MomentsPage() {
             <p style={{ fontSize: 14, lineHeight: 1.6 }}>{moment.caption}</p>
             <small>By {moment.creator.user.displayName} · @{moment.creator.handle}</small>
             <p style={{ marginBottom: 0 }}><Link className="textLink" href={'/episodes/' + moment.episodeId}>From: {moment.episode.title} ↗</Link></p>
+            <ReportContent targetType="MOMENT" targetId={moment.id} />
             <MomentCommunity momentId={moment.id} token={token} />
           </article>)}
         </div>
