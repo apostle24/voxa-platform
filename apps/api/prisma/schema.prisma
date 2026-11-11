@@ -302,6 +302,7 @@ model Moment {
   episode      Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
   likes        MomentLike[]
   comments     MomentComment[]
+  renders      MomentRender[]
 
   @@index([status, publishedAt])
   @@index([creatorId, createdAt])
@@ -907,4 +908,26 @@ model EpisodeEmbedding {
   episode     Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
 
   @@index([updatedAt])
+}
+
+
+model MomentRender {
+  id            String   @id @default(cuid())
+  momentId      String
+  status        String   @default("QUEUED")
+  aspectRatio   String   @default("9:16")
+  subtitles     Json?
+  playbackKey   String?
+  contentType   String?
+  sizeBytes     BigInt?
+  failureReason String?
+  attempts      Int      @default(0)
+  startedAt     DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  completedAt   DateTime?
+  moment        Moment   @relation(fields: [momentId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([momentId, createdAt])
 }
