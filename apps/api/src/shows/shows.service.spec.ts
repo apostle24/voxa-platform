@@ -10,12 +10,29 @@ describe('ShowsService publishing and playback progress', () => {
     prisma = {
       creator: { findUnique: jest.fn() },
       show: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn(), update: jest.fn() },
-      episode: { findFirst: jest.fn(), update: jest.fn() },
+      episode: { findFirst: jest.fn(), findMany: jest.fn(), update: jest.fn() },
       mediaAsset: { findFirst: jest.fn() },
       moment: { create: jest.fn(), findFirst: jest.fn(), update: jest.fn(), delete: jest.fn(), findMany: jest.fn() },
       playbackProgress: { upsert: jest.fn() },
     };
     service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+
+  it('includes the live replay marker in public episode discovery results', async () => {
+    prisma.episode.findMany.mockResolvedValue([{
+      id: 'episode-live-1',
+      title: 'Community Q&A',
+      isLiveReplay: true,
+      show: { id: 'show-1', title: 'VOXA LIVE Replays' },
+    }]);
+
+    const result = await service.discoverEpisodes({ limit: 10 });
+
+    expect(prisma.episode.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ isLiveReplay: true }),
+    }));
+    expect(result.items[0].isLiveReplay).toBe(true);
   });
 
   it('requires the parent show to be published before publishing an episode', async () => {
