@@ -102,14 +102,15 @@ export class LiveService {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (!(await this.canManageLiveSession(roomId, userId, room.hostId))) throw new ForbiddenException('Only the host and appointed co-hosts can view the room leadership team');
-    const [coHosts, host] = await Promise.all([
+    const [coHosts, host, transfers] = await Promise.all([
       this.prisma.liveRoomCoHost.findMany({
         where: { roomId }, orderBy: { assignedAt: 'asc' },
         select: { id: true, userId: true, assignedAt: true, user: { select: { displayName: true } }, assignedBy: { select: { displayName: true } } },
       }),
       this.prisma.user.findUnique({ where: { id: room.hostId }, select: { id: true, displayName: true } }),
+      this.prisma.liveRoomHostTransfer.findMany({ where: { roomId }, orderBy: { transferredAt: 'desc' }, take: 20, select: { id: true, previousHostId: true, newHostId: true, transferredAt: true, previousHost: { select: { displayName: true } }, newHost: { select: { displayName: true } } } }),
     ]);
-    return { host, coHosts };
+    return { host, coHosts, transfers };
   }
 
   async addRoomCoHost(hostId: string, roomId: string, coHostUserId: string) {
@@ -162,6 +163,7 @@ export class LiveService {
       if (claimedCoHost.count !== 1) throw new ConflictException('The selected co-host is no longer assigned to this room');
       const claimed = await tx.liveRoom.updateMany({ where: { id: roomId, hostId }, data: { hostId: targetId } });
       if (claimed.count !== 1) throw new ConflictException('Room ownership changed; refresh and try again');
+      await tx.liveRoomHostTransfer.create({ data: { roomId, previousHostId: hostId, newHostId: targetId } });
       await tx.liveRoomCoHost.upsert({
         where: { roomId_userId: { roomId, userId: hostId } },
         create: { roomId, userId: hostId, assignedById: targetId },
