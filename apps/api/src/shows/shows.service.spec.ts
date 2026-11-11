@@ -11,6 +11,7 @@ describe('ShowsService publishing and playback progress', () => {
       creator: { findUnique: jest.fn() },
       show: { findFirst: jest.fn(), findUniqueOrThrow: jest.fn(), update: jest.fn() },
       episode: { findFirst: jest.fn(), update: jest.fn() },
+      mediaAsset: { findFirst: jest.fn() },
       playbackProgress: { upsert: jest.fn() },
     };
     service = new ShowsService(prisma as unknown as PrismaService);
@@ -29,6 +30,18 @@ describe('ShowsService publishing and playback progress', () => {
     prisma.episode.findFirst.mockResolvedValue({
       id: 'episode-1', mediaKey: null, durationSeconds: 120,
     });
+    await expect(service.publishEpisode('creator-user', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.episode.update).not.toHaveBeenCalled();
+  });
+
+  it('requires media processing to reach READY before publishing an episode', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', mediaKey: 'users/u/episodes/e/source.mp3', durationSeconds: 120,
+    });
+    prisma.mediaAsset.findFirst.mockResolvedValue(null);
+
     await expect(service.publishEpisode('creator-user', 'show-1', 'episode-1'))
       .rejects.toBeInstanceOf(ConflictException);
     expect(prisma.episode.update).not.toHaveBeenCalled();
