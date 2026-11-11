@@ -65,7 +65,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' });
+    void setAudioModeAsync({ playsInSilentMode: true, shouldPlayInBackground: true, interruptionMode: 'doNotMix' }).catch(() => undefined);
   }, []);
 
   async function authenticate() {
@@ -144,7 +144,7 @@ export default function App() {
       {tab === 'Communities' && <Communities />}
       {tab === 'LIVE' && <Live />}
       {tab === 'Creator' && <Creator />}
-      {tab === 'Profile' && <Profile user={user} onSignOut={async () => { await signOut(); setUser(null); }} />}
+      {tab === 'Profile' && <Profile user={user} onSignOut={async () => { audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setUser(null); }} />}
     </View>
     {player && <View style={styles.miniPlayer}>
       <View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.playerTitle}>{player.title}</Text><Text style={styles.smallMuted}>{player.show}</Text></View>
