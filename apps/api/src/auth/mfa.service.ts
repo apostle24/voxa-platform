@@ -64,10 +64,11 @@ export class MfaService {
   async enable(userId: string, code: string) {
     const credential = await this.prisma.mfaCredential.findUnique({ where: { userId } });
     if (!credential || credential.enabledAt) throw new UnauthorizedException('MFA setup is not pending');
-    if (!verifyTotp(base32Decode(this.decrypt(credential.encryptedSecret)), code)) throw new UnauthorizedException('Authenticator code is invalid');
+    const matchedCounter = matchingTotpCounter(base32Decode(this.decrypt(credential.encryptedSecret)), code);
+    if (matchedCounter === null) throw new UnauthorizedException('Authenticator code is invalid');
     const codes = Array.from({ length: 10 }, () => randomBytes(5).toString('hex').toUpperCase());
     await this.prisma.$transaction(async (tx) => {
-      await tx.mfaCredential.update({ where: { id: credential.id }, data: { enabledAt: new Date() } });
+      await tx.mfaCredential.update({ where: { id: credential.id }, data: { enabledAt: new Date(), lastTotpCounter: matchedCounter } });
       await tx.mfaBackupCode.deleteMany({ where: { credentialId: credential.id } });
       await tx.mfaBackupCode.createMany({ data: codes.map(code => ({ credentialId: credential.id, codeHash: hash(code) })) });
       // Existing long-lived sessions were created before MFA was enabled; require a fresh MFA login on every device.
@@ -78,8 +79,14 @@ export class MfaService {
 
   async disable(userId: string, code: string) {
     const credential = await this.prisma.mfaCredential.findUnique({ where: { userId }, include: { backupCodes: true } });
-    if (!credential?.enabledAt || !(await this.verifyCredential(credential, code))) throw new UnauthorizedException('Authenticator or backup code is invalid');
-    await this.prisma.mfaCredential.delete({ where: { id: credential.id } });
+    if (!credential?.enabledAt) throw new UnauthorizedException('Authenticator or backup code is invalid');
+    const factor = this.identifyFactor(credential, code);
+    if (!factor) throw new UnauthorizedException('Authenticator or backup code is invalid');
+    await this.prisma.$transaction(async (tx) => {
+      await this.consumeFactor(tx, credential.id, factor);
+      await tx.mfaCredential.delete({ where: { id: credential.id } });
+      await tx.authSession.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+    });
     return { disabled: true };
   }
 
@@ -98,11 +105,15 @@ export class MfaService {
     if (!challenge || challenge.consumedAt || challenge.expiresAt <= now || !challenge.user.mfaCredential?.enabledAt) {
       throw new UnauthorizedException('MFA challenge is invalid or expired');
     }
-    if (!(await this.verifyCredential(challenge.user.mfaCredential, code))) throw new UnauthorizedException('Authenticator or backup code is invalid');
-    const consumed = await this.prisma.mfaLoginChallenge.updateMany({
-      where: { id: challenge.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now },
+    const factor = this.identifyFactor(challenge.user.mfaCredential, code);
+    if (!factor) throw new UnauthorizedException('Authenticator or backup code is invalid');
+    await this.prisma.$transaction(async (tx) => {
+      const consumed = await tx.mfaLoginChallenge.updateMany({
+        where: { id: challenge.id, consumedAt: null, expiresAt: { gt: now } }, data: { consumedAt: now },
+      });
+      if (consumed.count !== 1) throw new UnauthorizedException('MFA challenge has already been used');
+      await this.consumeFactor(tx, challenge.user.mfaCredential.id, factor);
     });
-    if (consumed.count !== 1) throw new UnauthorizedException('MFA challenge has already been used');
     return { id: challenge.user.id, email: challenge.user.email, displayName: challenge.user.displayName, role: challenge.user.role };
   }
 
@@ -111,16 +122,23 @@ export class MfaService {
     return Boolean(credential?.enabledAt);
   }
 
-  private async verifyCredential(credential: any, code: string) {
-    if (verifyTotp(base32Decode(this.decrypt(credential.encryptedSecret)), code)) return true;
-    if (!/^[A-F0-9]{20}$/.test(code.toUpperCase())) return false;
+  private identifyFactor(credential: any, code: string): { kind: 'totp'; counter: number } | { kind: 'backup'; id: string } | null {
+    const counter = matchingTotpCounter(base32Decode(this.decrypt(credential.encryptedSecret)), code);
+    if (counter !== null) return { kind: 'totp', counter };
+    if (!/^[A-F0-9]{20}$/.test(code.toUpperCase())) return null;
     const codeHash = hash(code.toUpperCase());
     const backup = credential.backupCodes?.find((item: any) => item.codeHash === codeHash && !item.consumedAt);
-    if (!backup) return false;
-    const consumed = await this.prisma.mfaBackupCode.updateMany({
-      where: { id: backup.id, consumedAt: null }, data: { consumedAt: new Date() },
-    });
-    return consumed.count === 1;
+    return backup ? { kind: 'backup', id: backup.id } : null;
+  }
+
+  private async consumeFactor(tx: any, credentialId: string, factor: { kind: 'totp'; counter: number } | { kind: 'backup'; id: string }) {
+    const result = factor.kind === 'totp'
+      ? await tx.mfaCredential.updateMany({
+          where: { id: credentialId, OR: [{ lastTotpCounter: null }, { lastTotpCounter: { lt: factor.counter } }] },
+          data: { lastTotpCounter: factor.counter },
+        })
+      : await tx.mfaBackupCode.updateMany({ where: { id: factor.id, credentialId, consumedAt: null }, data: { consumedAt: new Date() } });
+    if (result.count !== 1) throw new UnauthorizedException('Authenticator code has already been used');
   }
 
   private encrypt(value: string) {
