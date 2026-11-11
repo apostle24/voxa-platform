@@ -375,7 +375,7 @@ function Communities({ userId, targetCommunityId }: { userId: string; targetComm
       <Text style={styles.cardDesc}>{post.content}</Text>
       <Text style={styles.smallMuted}>{post.comments?.length || 0} replies</Text>
       <SafetyActions targetType="COMMUNITY_POST" targetId={post.id} />
-      {!!post.author?.id && <SafetyActions targetType="USER" targetId={post.author.id} allowBlock />>
+      {!!post.author?.id && post.author.id !== userId && <SafetyActions targetType="USER" targetId={post.author.id} allowBlock />}
       {(post.comments || []).map((comment: any) => <View key={comment.id} style={styles.replyCard}>
         <Text style={styles.cardTitle}>{comment.author?.displayName || 'Member'}</Text><Text style={styles.muted}>{comment.content}</Text>
       </View>)}
@@ -440,7 +440,7 @@ function Live({ userId, targetRoomId }: { userId: string; targetRoomId?: string 
       <Text numberOfLines={2} style={styles.cardDesc}>{item.description || 'Join the conversation.'}</Text>
       <Button title={busy === item.id ? 'Joining…' : 'Join room'} onPress={() => join(item)} disabled={!!busy} />
       <SafetyActions targetType="LIVE_ROOM" targetId={item.id} />
-      {!!item.host?.id && item.host.id !== userId && <SafetyActions targetType="USER" targetId={item.host.id} allowBlock />>
+      {!!item.host?.id && item.host.id !== userId && <SafetyActions targetType="USER" targetId={item.host.id} allowBlock />}
     </View>)}
     {!loading && !items.length && <Empty text="No public live rooms right now. Check back soon." />}
   </ScrollView>;
