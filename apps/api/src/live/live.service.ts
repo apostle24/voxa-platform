@@ -526,11 +526,20 @@ export class LiveService {
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can stop recording');
     if (room.recordingStatus !== 'RECORDING' || !room.recordingEgressId) throw new ConflictException('This room has no active recording');
-    await this.prisma.liveRoom.update({ where: { id: roomId }, data: { recordingStatus: 'STOPPING' } });
+    const claimed = await this.prisma.liveRoom.updateMany({
+      where: { id: roomId, recordingStatus: 'RECORDING', recordingEgressId: room.recordingEgressId },
+      data: { recordingStatus: 'STOPPING' },
+    });
+    if (claimed.count !== 1) throw new ConflictException('Recording state changed; refresh and try again');
     try {
       await this.egressClient().stopEgress(room.recordingEgressId);
       return { roomId, recordingStatus: 'STOPPING' };
     } catch {
+      // Do not leave the host stuck in STOPPING when LiveKit rejected the request.
+      await this.prisma.liveRoom.updateMany({
+        where: { id: roomId, recordingStatus: 'STOPPING', recordingEgressId: room.recordingEgressId },
+        data: { recordingStatus: 'RECORDING' },
+      });
       throw new ServiceUnavailableException('Unable to stop recording; check LiveKit Egress status before retrying');
     }
   }
