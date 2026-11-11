@@ -7,6 +7,7 @@ import { UpdateEpisodeDto } from './dto/update-episode.dto';
 import { SaveProgressDto } from './dto/save-progress.dto';
 import { SetEpisodeMembershipDto } from './dto/set-episode-membership.dto';
 import { CreateEpisodeCommentDto } from './dto/create-episode-comment.dto';
+import { CreateMomentDto } from './dto/create-moment.dto';
 import { ShowsService } from './shows.service';
 
 @Controller()
@@ -55,6 +56,29 @@ export class ShowsController {
     return this.shows.publishEpisode(req.user.id, showId, episodeId);
   }
 
+
+  @Get('discovery/moments')
+  discoverMoments(@Query('cursor') cursor?: string, @Query('limit') limit?: string) {
+    return this.shows.discoverMoments(cursor, limit ? Number(limit) : undefined);
+  }
+
+  @Post('episodes/:episodeId/moments')
+  @UseGuards(JwtAuthGuard)
+  createMoment(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string, @Body() input: CreateMomentDto) {
+    return this.shows.createMoment(req.user.id, episodeId, input.caption, input.startSeconds, input.endSeconds);
+  }
+
+  @Post('moments/:momentId/publish')
+  @UseGuards(JwtAuthGuard)
+  publishMoment(@Req() req: AuthenticatedRequest, @Param('momentId') momentId: string) {
+    return this.shows.publishMoment(req.user.id, momentId);
+  }
+
+  @Delete('moments/:momentId')
+  @UseGuards(JwtAuthGuard)
+  deleteMoment(@Req() req: AuthenticatedRequest, @Param('momentId') momentId: string) {
+    return this.shows.deleteMoment(req.user.id, momentId);
+  }
 
   @Get('discovery/shows')
   discoverShows(@Query('q') q?: string, @Query('category') category?: string, @Query('language') language?: string,
