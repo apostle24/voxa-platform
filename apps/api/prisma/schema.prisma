@@ -104,6 +104,8 @@ model User {
   playbackProgress PlaybackProgress[]
   episodeComments EpisodeComment[]
   episodeLikes EpisodeLike[]
+  momentLikes MomentLike[]
+  momentComments MomentComment[]
   notifications Notification[]
   membershipSubscriptions MembershipSubscription[] @relation("SubscriberSubscriptions")
   ledgerAccounts LedgerAccount[]
@@ -248,10 +250,42 @@ model Moment {
   updatedAt    DateTime @updatedAt
   creator      Creator  @relation(fields: [creatorId], references: [id], onDelete: Cascade)
   episode      Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  likes        MomentLike[]
+  comments     MomentComment[]
 
   @@index([status, publishedAt])
   @@index([creatorId, createdAt])
   @@index([episodeId, status])
+}
+
+model MomentLike {
+  userId    String
+  momentId  String
+  createdAt DateTime @default(now())
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  moment    Moment @relation(fields: [momentId], references: [id], onDelete: Cascade)
+
+  @@id([userId, momentId])
+  @@index([momentId, createdAt])
+}
+
+model MomentComment {
+  id        String   @id @default(cuid())
+  momentId  String
+  authorId  String
+  parentId  String?
+  content   String
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  moment    Moment   @relation(fields: [momentId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent    MomentComment? @relation("MomentCommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   MomentComment[] @relation("MomentCommentReplies")
+
+  @@index([momentId, createdAt])
+  @@index([parentId, createdAt])
+  @@index([authorId, createdAt])
 }
 
 model EpisodeBookmark {
