@@ -13,7 +13,7 @@ describe('AuthService', () => {
     process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters-long';
     prisma = {
       user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
-      authSession: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
+      authSession: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn(),
     };
     jwt = {
@@ -158,6 +158,31 @@ describe('AuthService', () => {
     jwt.verifyAsync.mockResolvedValue({ sub: 'user-4', jti: 'session-old', typ: 'access' });
     await expect(service.refresh('wrong-kind-token')).rejects.toBeInstanceOf(UnauthorizedException);
     expect(prisma.authSession.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('lists only active sessions belonging to the authenticated account', async () => {
+    const sessions = [{ id: 'session-1', createdAt: new Date(), lastUsedAt: null, expiresAt: new Date(Date.now() + 60_000) }];
+    prisma.authSession.findMany.mockResolvedValue(sessions);
+    await expect(service.listSessions('user-4')).resolves.toEqual(sessions);
+    expect(prisma.authSession.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user-4', revokedAt: null, expiresAt: { gt: expect.any(Date) } },
+      orderBy: { createdAt: 'desc' }, take: 30,
+      select: { id: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+    });
+  });
+
+  it('revokes an active session only when it belongs to the authenticated account', async () => {
+    prisma.authSession.updateMany.mockResolvedValue({ count: 1 });
+    await expect(service.revokeSession('user-4', 'session-1')).resolves.toEqual({ success: true, sessionId: 'session-1' });
+    expect(prisma.authSession.updateMany).toHaveBeenCalledWith({
+      where: { id: 'session-1', userId: 'user-4', revokedAt: null, expiresAt: { gt: expect.any(Date) } },
+      data: { revokedAt: expect.any(Date) },
+    });
+  });
+
+  it('does not reveal or revoke another account session', async () => {
+    prisma.authSession.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.revokeSession('user-4', 'someone-elses-session')).rejects.toThrow('Active session not found');
   });
 
   it('revokes every active session for the user on logout-all', async () => {
