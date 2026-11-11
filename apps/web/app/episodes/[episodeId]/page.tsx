@@ -132,6 +132,7 @@ export default function EpisodePage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
   const latestVideoTime = useRef(0);
+  const videoHasStarted = useRef(false);
   const [episode, setEpisode] = useState<Episode | null>(null);
   const [audioUrl, setAudioUrl] = useState('');
   const [mediaType, setMediaType] = useState('audio/mpeg');
@@ -248,11 +249,16 @@ export default function EpisodePage() {
   }, [episodeId]);
 
   useEffect(() => {
+    videoHasStarted.current = false;
+    latestVideoTime.current = 0;
+  }, [episodeId]);
+
+  useEffect(() => {
     if (!audioUrl || !mediaType.startsWith('video/')) return;
     const video = videoRef.current;
     if (!video) return;
     const applyResume = () => {
-      if (resumeAt > 0 && Number.isFinite(video.duration)) {
+      if (!videoHasStarted.current && resumeAt > 0 && Number.isFinite(video.duration)) {
         const position = Math.min(resumeAt, Math.max(0, video.duration - 0.25));
         video.currentTime = position;
         latestVideoTime.current = position;
@@ -407,6 +413,7 @@ export default function EpisodePage() {
                   onLoadedMetadata={() => {
                     if (videoRef.current) { setVideoDuration(Number.isFinite(videoRef.current.duration) ? videoRef.current.duration : 0); videoRef.current.playbackRate = videoPlaybackRate; }
                   }}
+                  onPlay={() => { videoHasStarted.current = true; }}
                   onTimeUpdate={() => {
                     if (videoRef.current) { latestVideoTime.current = videoRef.current.currentTime; setVideoCurrentTime(videoRef.current.currentTime); void saveProgress(videoRef.current.currentTime); }
                   }}
