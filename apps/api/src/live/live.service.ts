@@ -25,6 +25,41 @@ export class LiveService {
     return new RoomServiceClient(host, apiKey, apiSecret);
   }
 
+  async getChatMessages(userId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, visibility: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room chat is not publicly accessible');
+    const messages = await this.prisma.liveChatMessage.findMany({
+      where: { roomId }, orderBy: { createdAt: 'desc' }, take: 100,
+      select: { id: true, content: true, deletedAt: true, createdAt: true, userId: true, author: { select: { displayName: true } } },
+    });
+    return { messages: messages.reverse().map(message => ({ ...message, content: message.deletedAt ? '[deleted]' : message.content })) };
+  }
+
+  async postChatMessage(userId: string, roomId: string, content: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, visibility: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Chat is available only while the room is live');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room chat is not publicly accessible');
+    const clean = content.trim();
+    if (!clean) throw new ConflictException('Message cannot be empty');
+    return this.prisma.liveChatMessage.create({
+      data: { roomId, userId, content: clean },
+      select: { id: true, content: true, createdAt: true, userId: true, author: { select: { displayName: true } } },
+    });
+  }
+
+  async deleteChatMessage(userId: string, roomId: string, messageId: string) {
+    const message = await this.prisma.liveChatMessage.findFirst({
+      where: { id: messageId, roomId },
+      select: { id: true, userId: true, room: { select: { hostId: true } } },
+    });
+    if (!message) throw new NotFoundException('Chat message not found');
+    if (message.userId !== userId && message.room.hostId !== userId) throw new ForbiddenException('You can only remove your own message or moderate your room');
+    await this.prisma.liveChatMessage.update({ where: { id: messageId }, data: { content: '[deleted]', deletedAt: new Date() } });
+    return { deleted: true };
+  }
+
   async endRoom(userId: string, roomId: string) {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId } });
     if (!room) throw new NotFoundException('Live room not found');
