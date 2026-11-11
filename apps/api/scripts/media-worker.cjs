@@ -55,6 +55,57 @@ async function claimOne() {
   return prisma.mediaAsset.findUnique({ where: { id: candidate.id } });
 }
 
+
+async function generateTranscript(playbackFile, episodeId) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { status: 'SKIPPED', reason: 'OPENAI_API_KEY is not configured' };
+
+  // OpenAI's transcription upload limit is 25 MB. Produce a compact mono
+  // derivative so ordinary podcast episodes fit without changing playback media.
+  const transcriptFile = playbackFile.replace(/\\.[^.]+$/, '-transcription.mp3');
+  try {
+    await run('ffmpeg', [
+      '-nostdin', '-y', '-i', playbackFile, '-vn', '-ac', '1', '-ar', '16000',
+      '-c:a', 'libmp3lame', '-b:a', '32k', transcriptFile,
+    ], { timeout: 7200000, maxBuffer: 2 * 1024 * 1024 });
+    const file = await stat(transcriptFile);
+    if (!file.size || file.size > 24 * 1024 * 1024) {
+      return { status: 'SKIPPED', reason: 'Compressed audio exceeds the supported single-upload size' };
+    }
+
+    // Preserve a creator's manually written transcript; automatic generation
+    // only fills an episode that does not already have one.
+    const existing = await prisma.episodeTranscript.findUnique({ where: { episodeId }, select: { episodeId: true } });
+    if (existing) return { status: 'SKIPPED', reason: 'A transcript already exists' };
+
+    const audio = await require('node:fs/promises').readFile(transcriptFile);
+    const form = new FormData();
+    form.append('file', new Blob([audio], { type: 'audio/mpeg' }), 'episode.mp3');
+    form.append('model', process.env.OPENAI_TRANSCRIPTION_MODEL || 'whisper-1');
+    form.append('response_format', 'verbose_json');
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + apiKey },
+      body: form,
+      signal: AbortSignal.timeout(7200000),
+    });
+    if (!response.ok) {
+      const detail = (await response.text()).slice(0, 500);
+      throw new Error('Transcription provider returned ' + response.status + ': ' + detail);
+    }
+    const result = await response.json();
+    const transcript = String(result.text || '').trim();
+    if (!transcript) throw new Error('Transcription provider returned an empty transcript');
+    const language = String(result.language || 'en').slice(0, 12);
+    await prisma.episodeTranscript.create({
+      data: { episodeId, content: transcript, language },
+    });
+    return { status: 'READY', language, characters: transcript.length };
+  } finally {
+    await rm(transcriptFile, { force: true });
+  }
+}
+
 async function processAsset(asset) {
   const heartbeat = setInterval(() => {
     prisma.mediaAsset.updateMany({ where: { id: asset.id, status: 'PROCESSING' }, data: { processingStartedAt: new Date() } })
@@ -102,6 +153,15 @@ async function processAsset(asset) {
       data: { status: 'READY', playbackKey, contentType, sizeBytes: BigInt(file.size), durationSeconds: duration, processedAt: new Date(), processingStartedAt: null, failureReason: null },
     });
     await prisma.episode.update({ where: { id: asset.episodeId }, data: { durationSeconds: duration } });
+
+    // Transcription is an optional enhancement: a provider outage must never
+    // turn successfully processed media into a failed upload.
+    try {
+      const transcriptResult = await generateTranscript(output, asset.episodeId);
+      console.log(JSON.stringify({ event: 'episode_transcription', episodeId: asset.episodeId, ...transcriptResult }));
+    } catch (transcriptionError) {
+      console.error(JSON.stringify({ event: 'episode_transcription_error', episodeId: asset.episodeId, reason: String(transcriptionError.message || transcriptionError).slice(0, 500) }));
+    }
     console.log(JSON.stringify({ event: 'media_ready', assetId: asset.id, episodeId: asset.episodeId }));
   } catch (error) {
     const reason = String(error && error.message || error).slice(0, 1000);
