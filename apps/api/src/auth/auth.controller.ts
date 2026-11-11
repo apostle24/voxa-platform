@@ -5,6 +5,7 @@ import { JwtAuthGuard, AuthenticatedRequest } from './jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { UpdateAccountProfileDto } from './dto/update-account-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 type AuthHttpRequest = { headers: { cookie?: string; origin?: string } };
 type AuthHttpResponse = {
@@ -30,6 +31,12 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   updateMyProfile(@Req() request: AuthenticatedRequest, @Body() input: UpdateAccountProfileDto) {
     return this.auth.updateMyProfile(request.user.id, input.displayName);
+  }
+
+  @Patch('password')
+  @UseGuards(JwtAuthGuard)
+  changePassword(@Req() request: AuthenticatedRequest, @Body() input: ChangePasswordDto) {
+    return this.auth.changePassword(request.user.id, input.currentPassword, input.newPassword);
   }
 
   @Post('register')
