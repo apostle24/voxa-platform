@@ -1,4 +1,4 @@
-import { CanActivate, ExecutionContext, Injectable, TooManyRequestsException } from '@nestjs/common';
+import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable } from '@nestjs/common';
 type AuthRequest = { ip?: string; socket?: { remoteAddress?: string } };
 type AttemptWindow = { count: number; resetAt: number };
 
@@ -20,7 +20,7 @@ export class AuthRateLimitGuard implements CanActivate {
     }
     window.count += 1;
     if (window.count > AuthRateLimitGuard.maxAttempts) {
-      throw new TooManyRequestsException('Too many authentication attempts. Try again in 15 minutes.');
+      throw new HttpException('Too many authentication attempts. Try again in 15 minutes.', HttpStatus.TOO_MANY_REQUESTS);
     }
     if (AuthRateLimitGuard.attempts.size > 10_000) {
       for (const [key, entry] of AuthRateLimitGuard.attempts) {
