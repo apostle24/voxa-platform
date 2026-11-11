@@ -59,7 +59,7 @@ export class ReportsService {
 
   async listForModeration(userId: string, status?: 'NEW' | 'REVIEWING' | 'ACTIONED' | 'DISMISSED') {
     await this.requireModerator(userId);
-    return this.prisma.contentReport.findMany({
+    const reports = await this.prisma.contentReport.findMany({
       where: status ? { status } : { status: { in: ['NEW', 'REVIEWING'] } },
       orderBy: { createdAt: 'asc' },
       take: 100,
@@ -70,6 +70,15 @@ export class ReportsService {
         reviewer: { select: { id: true, displayName: true } },
       },
     });
+    const reportedUserIds = [...new Set(reports.filter(report => report.targetType === 'USER').map(report => report.targetId))];
+    const reportedUsers = reportedUserIds.length
+      ? await this.prisma.user.findMany({ where: { id: { in: reportedUserIds } }, select: { id: true, displayName: true } })
+      : [];
+    const userNames = new Map(reportedUsers.map(user => [user.id, user.displayName]));
+    return reports.map(report => ({
+      ...report,
+      targetLabel: report.targetType === 'USER' ? (userNames.get(report.targetId) || 'Account no longer available') : null,
+    }));
   }
 
   async review(userId: string, reportId: string, input: {
