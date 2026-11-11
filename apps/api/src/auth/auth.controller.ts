@@ -62,6 +62,7 @@ export class AuthController {
   }
 
   @Post('verification/confirm')
+  @UseGuards(AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   confirmEmailVerification(@Body() input: EmailTokenDto) {
     return this.accountSecurity.confirmEmailVerification(input.token);
@@ -75,6 +76,7 @@ export class AuthController {
   }
 
   @Post('password/reset')
+  @UseGuards(AuthRateLimitGuard)
   @HttpCode(HttpStatus.OK)
   resetPassword(@Body() input: PasswordResetDto) {
     return this.accountSecurity.resetPassword(input.token, input.password);
