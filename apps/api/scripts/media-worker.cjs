@@ -1,0 +1,130 @@
+#!/usr/bin/env node
+'use strict';
+
+// Run as a separate, isolated worker process. Requires ffmpeg, ffprobe and clamscan.
+const { PrismaClient } = require('@prisma/client');
+const { S3Client, GetObjectCommand, PutObjectCommand } = require('@aws-sdk/client-s3');
+const { pipeline } = require('node:stream/promises');
+const { createWriteStream, createReadStream } = require('node:fs');
+const { mkdtemp, stat, rm } = require('node:fs/promises');
+const { tmpdir } = require('node:os');
+const { join } = require('node:path');
+const { promisify } = require('node:util');
+const { execFile } = require('node:child_process');
+const run = promisify(execFile);
+const prisma = new PrismaClient();
+
+const bucket = process.env.S3_BUCKET;
+if (!bucket) throw new Error('S3_BUCKET is required');
+const s3 = new S3Client({
+  region: process.env.S3_REGION || 'auto',
+  ...(process.env.S3_ENDPOINT ? { endpoint: process.env.S3_ENDPOINT } : {}),
+  forcePathStyle: process.env.S3_FORCE_PATH_STYLE === 'true',
+  credentials: process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY
+    ? { accessKeyId: process.env.S3_ACCESS_KEY_ID, secretAccessKey: process.env.S3_SECRET_ACCESS_KEY }
+    : undefined,
+});
+const intervalMs = Math.max(2000, Number(process.env.MEDIA_WORKER_INTERVAL_MS || 5000));
+const staleMs = Math.max(60000, Number(process.env.MEDIA_WORKER_STALE_MS || 3600000));
+const maxAttempts = Math.max(1, Number(process.env.MEDIA_WORKER_MAX_ATTEMPTS || 3));
+let stopping = false;
+process.on('SIGTERM', () => { stopping = true; });
+process.on('SIGINT', () => { stopping = true; });
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+async function claimOne() {
+  const staleBefore = new Date(Date.now() - staleMs);
+  await prisma.mediaAsset.updateMany({
+    where: { status: 'PROCESSING', processingStartedAt: { lt: staleBefore }, processingAttempts: { lt: maxAttempts } },
+    data: { status: 'QUEUED', processingStartedAt: null, failureReason: 'Recovered stale worker lease' },
+  });
+  await prisma.mediaAsset.updateMany({
+    where: { status: 'PROCESSING', processingStartedAt: { lt: staleBefore }, processingAttempts: { gte: maxAttempts } },
+    data: { status: 'FAILED', processingStartedAt: null, failureReason: 'Worker lease expired too many times' },
+  });
+  const candidate = await prisma.mediaAsset.findFirst({
+    where: { status: 'QUEUED', processingAttempts: { lt: maxAttempts } },
+    orderBy: { createdAt: 'asc' }, select: { id: true },
+  });
+  if (!candidate) return null;
+  const claimed = await prisma.mediaAsset.updateMany({
+    where: { id: candidate.id, status: 'QUEUED' },
+    data: { status: 'PROCESSING', processingAttempts: { increment: 1 }, processingStartedAt: new Date(), failureReason: null },
+  });
+  if (!claimed.count) return null;
+  return prisma.mediaAsset.findUnique({ where: { id: candidate.id } });
+}
+
+async function processAsset(asset) {
+  const work = await mkdtemp(join(tmpdir(), 'voxa-media-'));
+  const source = join(work, 'source');
+  const output = join(work, asset.contentType.startsWith('video/') ? 'playback.mp4' : 'playback.mp3');
+  try {
+    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: asset.objectKey }));
+    if (!object.Body || typeof object.Body.pipe !== 'function') throw new Error('Storage returned no readable media stream');
+    await pipeline(object.Body, createWriteStream(source));
+
+    // Fail closed: a missing scanner or a positive malware result blocks publication.
+    await run('clamscan', ['--no-summary', source], { timeout: 120000, maxBuffer: 1024 * 1024 });
+    const probe = await run('ffprobe', [
+      '-v', 'error', '-show_entries', 'format=duration:stream=codec_type,codec_name,width,height',
+      '-of', 'json', source,
+    ], { timeout: 120000, maxBuffer: 2 * 1024 * 1024 });
+    const metadata = JSON.parse(probe.stdout);
+    const duration = Math.floor(Number(metadata.format && metadata.format.duration));
+    if (!Number.isFinite(duration) || duration < 1 || duration > 86400) throw new Error('Media duration is invalid or exceeds 24 hours');
+    const streams = metadata.streams || [];
+    const hasExpectedStream = asset.contentType.startsWith('video/')
+      ? streams.some(stream => stream.codec_type === 'video')
+      : streams.some(stream => stream.codec_type === 'audio');
+    if (!hasExpectedStream) throw new Error('Uploaded file does not contain the expected media stream');
+
+    if (asset.contentType.startsWith('video/')) {
+      await run('ffmpeg', ['-nostdin', '-y', '-i', source, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23', '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-t', '86400', output], { timeout: 7200000, maxBuffer: 4 * 1024 * 1024 });
+    } else {
+      await run('ffmpeg', ['-nostdin', '-y', '-i', source, '-map', '0:a:0', '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', '-t', '86400', output], { timeout: 7200000, maxBuffer: 4 * 1024 * 1024 });
+    }
+
+    const file = await stat(output);
+    if (!file.size) throw new Error('Transcoder produced an empty output');
+    const playbackKey = 'processed/' + asset.episodeId + '/' + asset.id + (asset.contentType.startsWith('video/') ? '.mp4' : '.mp3');
+    const contentType = asset.contentType.startsWith('video/') ? 'video/mp4' : 'audio/mpeg';
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket, Key: playbackKey, Body: createReadStream(output), ContentLength: file.size,
+      ContentType: contentType, Metadata: { mediaassetid: asset.id, episodeid: asset.episodeId },
+    }));
+    await prisma.mediaAsset.update({
+      where: { id: asset.id },
+      data: { status: 'READY', playbackKey, contentType, sizeBytes: BigInt(file.size), durationSeconds: duration, processedAt: new Date(), processingStartedAt: null, failureReason: null },
+    });
+    console.log(JSON.stringify({ event: 'media_ready', assetId: asset.id, episodeId: asset.episodeId }));
+  } catch (error) {
+    const reason = String(error && error.message || error).slice(0, 1000);
+    await prisma.mediaAsset.update({
+      where: { id: asset.id },
+      data: { status: asset.processingAttempts >= maxAttempts ? 'FAILED' : 'QUEUED', processingStartedAt: null, failureReason: reason },
+    });
+    console.error(JSON.stringify({ event: 'media_processing_error', assetId: asset.id, attempt: asset.processingAttempts, reason }));
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+}
+
+async function main() {
+  console.log('VOXA media worker started');
+  try {
+    while (!stopping) {
+      const asset = await claimOne();
+      if (asset) await processAsset(asset);
+      else await sleep(intervalMs);
+    }
+  } finally {
+    await prisma.$disconnect();
+    s3.destroy();
+  }
+}
+main().catch(async error => {
+  console.error(error);
+  await prisma.$disconnect();
+  process.exitCode = 1;
+});
