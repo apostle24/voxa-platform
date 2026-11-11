@@ -778,7 +778,8 @@ function BlockedUsersPanel() {
 }
 
 function ModerationPanel() {
-  const reports = useLoad<any>('/admin/reports');
+  const [statusFilter, setStatusFilter] = useState('NEW');
+  const reports = useLoad<any>('/admin/reports?status=' + statusFilter, [statusFilter]);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState('');
   async function review(id: string, status: 'REVIEWING' | 'ACTIONED' | 'DISMISSED') {
@@ -803,6 +804,7 @@ function ModerationPanel() {
   }
   return <View style={styles.formCard}>
     <SectionTitle>Safety moderation queue</SectionTitle>
+    <Field value={statusFilter} onChangeText={setStatusFilter} placeholder="Report status: NEW / REVIEWING / ACTIONED" autoCapitalize="characters" />
     <Button title="Refresh reports" secondary onPress={reports.refresh} />
     {reports.loading ? <ActivityIndicator color={colors.accent} /> : reports.error ? <Empty text={reports.error} /> : reports.items.length ? reports.items.map((item: any) => <View key={item.id} style={styles.discussionCard}>
       <Text style={styles.cardTitle}>{item.targetType} · {item.reason}</Text>
@@ -812,7 +814,11 @@ function ModerationPanel() {
       <Button title={busyId === item.id ? 'Saving…' : 'Mark reviewing'} secondary onPress={() => void review(item.id, 'REVIEWING')} disabled={!!busyId} />
       {item.targetType === 'EPISODE' && <Button title="Hide episode" onPress={() => void action(item.id, 'HIDE_EPISODE')} disabled={!!busyId} />}
       {item.targetType === 'MOMENT' && <Button title="Hide Moment" onPress={() => void action(item.id, 'HIDE_MOMENT')} disabled={!!busyId} />}
-      {item.targetType === 'COMMUNITY_POST' && <Button title="Hide community post" onPress={() => void action(item.id, 'HIDE_COMMUNITY_POST')} disabled={!!busyId} />}
+      {item.targetType === 'COMMUNITY_POST' && item.status !== 'ACTIONED' && <Button title="Hide community post" onPress={() => void action(item.id, 'HIDE_COMMUNITY_POST')} disabled={!!busyId} />}
+      {item.status === 'ACTIONED' && item.targetType === 'COMMUNITY_POST' && <Button title="Restore community post" secondary onPress={() => void action(item.id, 'RESTORE_COMMUNITY_POST')} disabled={!!busyId} />}
+      {item.status === 'ACTIONED' && item.targetType === 'EPISODE' && <Button title="Restore episode" secondary onPress={() => void action(item.id, 'RESTORE_EPISODE')} disabled={!!busyId} />}
+      {item.status === 'ACTIONED' && item.targetType === 'MOMENT' && <Button title="Restore Moment" secondary onPress={() => void action(item.id, 'RESTORE_MOMENT')} disabled={!!busyId} />}
+      {item.status === 'ACTIONED' && item.targetType === 'USER' && !!item.targetSuspendedUntil && <Button title="Reinstate account" secondary onPress={() => void action(item.id, 'REINSTATE_USER')} disabled={!!busyId} />}
       {item.targetType === 'USER' && <>
         <Button title="Warn account" onPress={() => void action(item.id, 'WARN_USER')} disabled={!!busyId} />
         <View style={{ flexDirection: 'row', gap: 6 }}>
