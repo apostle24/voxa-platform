@@ -20,7 +20,7 @@ export default function LiveReplayTranscript({
 }) {
   const [query, setQuery] = useState('');
   const [speaker, setSpeaker] = useState('all');
-  const speakers = useMemo(() => Array.from(new Set((segments || []).map(item => item.speaker?.trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b)), [segments]);
+  const speakers = useMemo(() => Array.from(new Set((segments || []).map(item => item.speaker?.trim()).filter((name): name is string => Boolean(name)))).sort((a, b) => a.localeCompare(b)), [segments]);
   const visible = useMemo(() => (segments || []).filter(item =>
     (!query.trim() || item.text.toLowerCase().includes(query.toLowerCase())) &&
     (speaker === 'all' || item.speaker === speaker)
