@@ -280,8 +280,8 @@ async function processMomentRender(job) {
     }
     await run('ffmpeg', [
       '-nostdin', '-y', '-ss', String(job.moment.startSeconds), '-i', source, '-t', String(duration),
-      '-vf', videoFilter, '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
-      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', '-analyzeduration', '100M', '-probesize', '100M', output,
+      '-vf', videoFilter, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', output,
     ], { timeout: 900000, maxBuffer: 4 * 1024 * 1024 });
     const file = await stat(output);
     if (!file.size) throw new Error('Clip export produced an empty file');
