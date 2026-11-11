@@ -14,6 +14,7 @@ type StageState = {
   speakers: { userId: string; role: string; joinedAt: string }[];
   ownRequest: { status: string; requestedAt: string } | null;
   status: string;
+  scheduledAt?: string | null;
 };
 
 export default function LiveRoomPage() {
@@ -60,6 +61,14 @@ export default function LiveRoomPage() {
 
   const connect = useCallback(async () => {
     try {
+      const roomState = await api('/live/rooms/' + roomId + '/stage');
+      setStage(roomState);
+      setIsHost(Boolean(roomState.isHost));
+      if (roomState.isHost && roomState.status === 'SCHEDULED' && roomState.scheduledAt && new Date(roomState.scheduledAt).getTime() > Date.now()) {
+        setStatus('Scheduled · starts ' + new Date(roomState.scheduledAt).toLocaleString());
+        setError('');
+        return;
+      }
       const data = await api('/live/rooms/' + roomId + '/join-token', 'POST');
       setError('');
       setStatus('Connecting to live media…');
@@ -226,10 +235,10 @@ export default function LiveRoomPage() {
   const pending = stage?.ownRequest?.status === 'PENDING';
 
   return <main className="appShell">
-    <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> LIVE</span></nav>
+    <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><Link href="/live" className="navBack">← All live rooms</Link><span className="livePill"><i /> {stage?.status === 'SCHEDULED' ? 'SCHEDULED' : stage?.status === 'LIVE' ? 'LIVE' : 'ROOM'}</span></nav>
     <section className="stagePage">
-      <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{status}</p></div>
-      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" /><div className="stageMark">V<span>.</span></div><h2>The room is yours.</h2><p>Live participant audio and video will appear here.</p><div className="connectionStatus"><i /> {status}</div></div>
+      <div className="stageTop"><div className="eyebrow">VOXA LIVE ROOM</div><h1>Live conversation</h1><p>{status}</p>{stage?.status === 'SCHEDULED' && stage.scheduledAt && <p className="helperText">Scheduled for {new Date(stage.scheduledAt).toLocaleString()}</p>}</div>
+      <div className="stageSurface"><div className="stageGlow" /><div id="voxa-media" className="remoteMedia" />{status.startsWith('Scheduled') && <><div className="stageMark">V<span>.</span></div><h2>Your room is ready.</h2><p>Return at the scheduled time and start the conversation.</p></>}<div className="connectionStatus"><i /> {status}</div></div>
       {error && <p className="errorText">{error}</p>}
       {!accessToken ? <div className="emptyState"><h3>Sign in required</h3><p>Sign in to listen, request the stage, or host.</p><Link className="button" href="/login">Sign in to VOXA ↗</Link></div> : <>
         <div className="stageControls">
@@ -237,6 +246,7 @@ export default function LiveRoomPage() {
           <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
           {!isHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
           {!isHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
+          {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button" disabled={!!busy || (!!stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now())} onClick={()=>void connect()}>{stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now() ? 'Starts at scheduled time' : 'Start live room ↗'}</button>}
           {status === 'Disconnected' && <button className="button" onClick={()=>void connect()}>Reconnect to live room ↻</button>}
           {isHost && <button className="button danger" disabled={busy==='end'} onClick={()=>void endRoom()}>{busy==='end'?'Ending…':'End room'}</button>}
         </div>
