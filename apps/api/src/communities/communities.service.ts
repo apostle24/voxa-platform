@@ -139,7 +139,7 @@ export class CommunitiesService {
   async createPostComment(userId: string, communityId: string, postId: string, content: string) {
     const membership = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId } }, select: { communityId: true } });
     if (!membership) throw new ForbiddenException('Join this community before replying');
-    const post = await this.prisma.communityPost.findFirst({ where: { id: postId, communityId }, select: { id: true, authorId: true } });
+    const post = await this.prisma.communityPost.findFirst({ where: { id: postId, communityId, deletedAt: null }, select: { id: true, authorId: true } });
     if (!post) throw new NotFoundException('Community post not found');
     const blocked = await this.prisma.userBlock.findFirst({ where: { OR: [
       { blockerId: userId, blockedUserId: post.authorId },
