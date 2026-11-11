@@ -36,6 +36,12 @@ export class CreatorsController {
     return this.creators.getFollowing(request.user.id);
   }
 
+  @Get('me/analytics')
+  @UseGuards(JwtAuthGuard)
+  getMyAnalytics(@Req() request: AuthenticatedRequest) {
+    return this.creators.getMyAnalytics(request.user.id);
+  }
+
   @Get(':handle')
   getByHandle(@Param('handle') handle: string) {
     return this.creators.getByHandle(handle);
