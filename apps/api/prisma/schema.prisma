@@ -735,6 +735,7 @@ model EpisodeTranscript {
   episodeId String   @unique
   content   String   @db.Text
   language  String   @default("en")
+  segments  Json?
   updatedAt DateTime @updatedAt
   episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
 }
