@@ -62,7 +62,7 @@ describe('MediaService upload safeguards', () => {
       where: { episodeId: 'episode-1', objectKey: 'users/user-1/episodes/episode-1/source.mp3', status: 'FAILED' },
       data: {
         status: 'QUEUED', failureReason: null, processingStartedAt: null,
-        processedAt: null, playbackKey: null,
+        processingAttempts: 0, processedAt: null, playbackKey: null,
       },
     });
   });
