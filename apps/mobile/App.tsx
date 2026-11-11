@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Audio } from 'expo-av';
 import * as SecureStore from 'expo-secure-store';
-import { LiveKitRoom, registerGlobals } from '@livekit/react-native';
+import { AudioSession, LiveKitRoom, registerGlobals } from '@livekit/react-native';
 import { api, clearSession, getSavedUser, imageFor, saveSession, signIn, signOut, User, ApiRecord, verifyMfa, registerAccount } from './src/api';
 import { colors } from './src/theme';
 
@@ -222,6 +222,11 @@ function Live() {
   const { items, loading, error, refresh } = useLoad<ApiRecord>('/live/rooms');
   const [room, setRoom] = useState<{ id: string; token: string; serverUrl: string; title: string } | null>(null);
   const [busy, setBusy] = useState('');
+  useEffect(() => {
+    if (!room) return;
+    void AudioSession.startAudioSession();
+    return () => { void AudioSession.stopAudioSession(); };
+  }, [room?.id]);
   async function join(item: ApiRecord) {
     setBusy(item.id);
     try {
