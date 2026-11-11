@@ -231,7 +231,7 @@ export default function App() {
       {tab === 'Communities' && <Communities targetCommunityId={deepLinkTarget?.kind === 'community' ? deepLinkTarget.id : undefined} />}
       {tab === 'LIVE' && <Live userId={user.id} targetRoomId={deepLinkTarget?.kind === 'live' ? deepLinkTarget.id : undefined} />}
       {tab === 'Creator' && <Creator />}
-      {tab === 'Profile' && (deepLinkTarget?.kind === 'creator' ? <CreatorProfile handle={deepLinkTarget.id} /> : <Profile user={user} onSignOut={async () => { if (pushToken) await api('/notifications/devices', { method: 'DELETE', body: JSON.stringify({ expoPushToken: pushToken }) }).catch(() => undefined); audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setPushToken(''); setUser(null); }} />)}
+      {tab === 'Profile' && (deepLinkTarget?.kind === 'creator' ? <CreatorProfile handle={deepLinkTarget.id} viewerId={user.id} /> : <Profile user={user} onSignOut={async () => { if (pushToken) await api('/notifications/devices', { method: 'DELETE', body: JSON.stringify({ expoPushToken: pushToken }) }).catch(() => undefined); audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setPushToken(''); setUser(null); }} />)}
     </View>
     {player && <View style={styles.miniPlayer}>
       <View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.playerTitle}>{player.title}</Text><Text style={styles.smallMuted}>{player.show}</Text></View>
@@ -682,7 +682,7 @@ function Creator() {
   </ScrollView>;
 }
 
-function CreatorProfile({ handle }: { handle: string }) {
+function CreatorProfile({ handle, viewerId }: { handle: string; viewerId: string }) {
   const [creator, setCreator] = useState<any>(null);
   const [error, setError] = useState('');
   useEffect(() => {
@@ -700,7 +700,7 @@ function CreatorProfile({ handle }: { handle: string }) {
       <Text style={styles.profileName}>{creator.user?.displayName || creator.displayName || creator.handle || handle}</Text>
       <Text style={styles.muted}>{creator.bio || 'VOXA creator'}</Text>
       {!!creator.handle && <Text style={styles.smallMuted}>@{creator.handle}</Text>}
-      {!!creator.user?.id && <SafetyActions targetType="USER" targetId={creator.user.id} allowBlock />}
+      {!!creator.user?.id && creator.user.id !== viewerId && <SafetyActions targetType="USER" targetId={creator.user.id} allowBlock />}
     </View>}
   </ScrollView>;
 }
