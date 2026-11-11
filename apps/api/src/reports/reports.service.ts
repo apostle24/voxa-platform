@@ -93,4 +93,46 @@ export class ReportsService {
       select: { id: true, status: true, moderatorNote: true, reviewedAt: true },
     });
   }
+
+  async applyContentAction(userId: string, reportId: string, input: {
+    action: 'HIDE_EPISODE' | 'RESTORE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_MOMENT';
+    reason: string;
+  }) {
+    await this.requireModerator(userId);
+    const report = await this.prisma.contentReport.findUnique({
+      where: { id: reportId },
+      select: { id: true, status: true, targetType: true, targetId: true },
+    });
+    if (!report) throw new NotFoundException('Report not found');
+    if (report.status === 'ACTIONED' || report.status === 'DISMISSED') {
+      throw new BadRequestException('This report has already been closed');
+    }
+    const expectedType = input.action.endsWith('EPISODE') ? 'EPISODE' : 'MOMENT';
+    if (report.targetType !== expectedType) throw new BadRequestException('The moderation action does not match this report target');
+    const hide = input.action.startsWith('HIDE_');
+    const result = await this.prisma.$transaction(async (tx) => {
+      if (expectedType === 'EPISODE') {
+        const target = await tx.episode.findUnique({ where: { id: report.targetId }, select: { id: true, status: true } });
+        if (!target) throw new NotFoundException('Reported episode no longer exists');
+        if (hide && target.status !== 'PUBLISHED') throw new BadRequestException('Only a published episode can be hidden');
+        if (!hide && target.status !== 'ARCHIVED') throw new BadRequestException('Only an archived episode can be restored');
+        await tx.episode.update({ where: { id: target.id }, data: { status: hide ? 'ARCHIVED' : 'PUBLISHED' } });
+      } else {
+        const target = await tx.moment.findUnique({ where: { id: report.targetId }, select: { id: true, status: true } });
+        if (!target) throw new NotFoundException('Reported Moment no longer exists');
+        if (hide && target.status !== 'PUBLISHED') throw new BadRequestException('Only a published Moment can be hidden');
+        if (!hide && target.status !== 'ARCHIVED') throw new BadRequestException('Only an archived Moment can be restored');
+        await tx.moment.update({ where: { id: target.id }, data: { status: hide ? 'ARCHIVED' : 'PUBLISHED' } });
+      }
+      await tx.moderationAction.create({ data: {
+        actorId: userId, reportId, targetType: report.targetType, targetId: report.targetId,
+        action: input.action, reason: input.reason.trim(),
+      }});
+      await tx.contentReport.update({ where: { id: reportId }, data: {
+        status: 'ACTIONED', reviewerId: userId, moderatorNote: input.reason.trim(), reviewedAt: new Date(),
+      }});
+      return { reportId, targetType: report.targetType, targetId: report.targetId, action: input.action, status: 'ACTIONED' };
+    });
+    return result;
+  }
 }
