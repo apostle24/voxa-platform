@@ -14,7 +14,7 @@ registerGlobals();
 type Tab = 'Discover' | 'Communities' | 'LIVE' | 'Creator' | 'Profile';
 type PlayerState = { title: string; show: string; url: string } | null;
 const tabs: Tab[] = ['Discover', 'Communities', 'LIVE', 'Creator', 'Profile'];
-const arrayOf = (value: any): ApiRecord[] => Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : Array.isArray(value?.data) ? value.data : [];
+const arrayOf = (value: any): ApiRecord[] => Array.isArray(value) ? value : Array.isArray(value?.items) ? value.items : Array.isArray(value?.data) ? value.data : Array.isArray(value?.messages) ? value.messages : [];
 
 function Button({ title, onPress, secondary = false, disabled = false }: { title: string; onPress: () => void; secondary?: boolean; disabled?: boolean }) {
   return <Pressable disabled={disabled} onPress={onPress} style={[styles.button, secondary && styles.secondaryButton, disabled && { opacity: .45 }]}>
