@@ -145,6 +145,19 @@ export class ShowsService {
     });
   }
 
+  async unpublishEpisode(userId: string, showId: string, episodeId: string) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true, status: true } });
+    if (!episode) throw new NotFoundException('Episode not found');
+    if (episode.status !== PublicationStatus.PUBLISHED) throw new ConflictException('Only published episodes can be unpublished');
+    const result = await this.prisma.episode.updateMany({
+      where: { id: episodeId, showId, status: PublicationStatus.PUBLISHED },
+      data: { status: PublicationStatus.DRAFT, publishedAt: null },
+    });
+    if (result.count !== 1) throw new ConflictException('Episode publication state changed. Refresh and try again.');
+    return { id: episodeId, showId, status: PublicationStatus.DRAFT, unpublished: true };
+  }
+
   async setEpisodeMembership(userId: string, showId: string, episodeId: string, required: boolean) {
     await this.requireOwnedShow(userId, showId);
     const episode = await this.prisma.episode.findFirst({
