@@ -7,6 +7,7 @@ web clients receive RoomEvent.TranscriptionReceived.
 import asyncio
 import logging
 import os
+import time
 import json
 import urllib.request
 import urllib.error
@@ -54,6 +55,7 @@ class RoomTranscriber:
         self.sessions: dict[str, AgentSession] = {}
         self.starting: dict[str, asyncio.Task] = {}
         self.tasks: set[asyncio.Task] = set()
+        self.started_at = time.monotonic()
         self.pending_segments: list[dict] = []
         self.flush_lock = asyncio.Lock()
 
@@ -122,7 +124,8 @@ class RoomTranscriber:
         text = str(getattr(event, "transcript", "") or "").strip()
         if not text or not transcript_api_url or not transcript_api_secret:
             return
-        start = float(getattr(event, "start_time", 0) or 0)
+        fallback_time = time.monotonic() - self.started_at
+        start = float(getattr(event, "start_time", fallback_time) or fallback_time)
         end = float(getattr(event, "end_time", start) or start)
         stable = f"{self.ctx.room.name}:{identity}:{start:.3f}:{end:.3f}:{text}"
         self.pending_segments.append({
@@ -132,7 +135,7 @@ class RoomTranscriber:
             "startSeconds": max(0, start),
             "endSeconds": max(max(0, start), end),
         })
-        if len(self.pending_segments) >= 10:
+        if self.pending_segments:
             self._track(asyncio.create_task(self._flush_transcript()))
 
     async def _flush_transcript(self) -> None:
