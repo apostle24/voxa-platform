@@ -25,9 +25,7 @@ projects:
                 value: https://voxa-staging-web-1ktg.onrender.com
               - key: FRONTEND_URL
                 value: https://voxa-staging-web-1ktg.onrender.com
-              - key: RESEND_API_KEY
                 sync: false
-              - key: EMAIL_FROM
                 sync: false
               - key: PAYSTACK_TRANSFERS_ENABLED
                 value: "false"
