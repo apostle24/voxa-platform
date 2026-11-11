@@ -3,6 +3,7 @@ import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
 import { CreateLiveChatMessageDto } from './dto/create-live-chat-message.dto';
 import { CreateLivePollDto, VoteLivePollDto, CreateLiveQuestionDto, ModerateLiveQuestionDto } from './dto/live-audience-interactions.dto';
+import { CreateLiveAgendaItemDto, UpdateLiveAgendaItemDto, HandoffLiveSpeakerDto } from './dto/live-session-agenda.dto';
 import { LiveService } from './live.service';
 
 @Controller('live')
@@ -145,6 +146,55 @@ export class LiveController {
   @UseGuards(JwtAuthGuard)
   getRoomAnalytics(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
     return this.live.getRoomAnalytics(req.user.id, roomId);
+  }
+
+
+  @Get('rooms/:roomId/session-plan')
+  @UseGuards(JwtAuthGuard)
+  getSessionPlan(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.getSessionPlan(req.user.id, roomId);
+  }
+
+  @Post('rooms/:roomId/agenda')
+  @UseGuards(JwtAuthGuard)
+  createAgendaItem(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body() input: CreateLiveAgendaItemDto) {
+    return this.live.createAgendaItem(req.user.id, roomId, input);
+  }
+
+  @Post('rooms/:roomId/agenda/:itemId/update')
+  @UseGuards(JwtAuthGuard)
+  updateAgendaItem(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('itemId') itemId: string, @Body() input: UpdateLiveAgendaItemDto) {
+    return this.live.updateAgendaItem(req.user.id, roomId, itemId, input);
+  }
+
+  @Post('rooms/:roomId/agenda/:itemId/delete')
+  @UseGuards(JwtAuthGuard)
+  deleteAgendaItem(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('itemId') itemId: string) {
+    return this.live.deleteAgendaItem(req.user.id, roomId, itemId);
+  }
+
+  @Post('rooms/:roomId/agenda/:itemId/start')
+  @UseGuards(JwtAuthGuard)
+  startAgendaItem(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('itemId') itemId: string) {
+    return this.live.startAgendaItem(req.user.id, roomId, itemId);
+  }
+
+  @Post('rooms/:roomId/agenda/:itemId/complete')
+  @UseGuards(JwtAuthGuard)
+  completeAgendaItem(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Param('itemId') itemId: string) {
+    return this.live.completeAgendaItem(req.user.id, roomId, itemId);
+  }
+
+  @Post('rooms/:roomId/speaker-handoff')
+  @UseGuards(JwtAuthGuard)
+  handoffSpeaker(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body() input: HandoffLiveSpeakerDto) {
+    return this.live.handoffSpeaker(req.user.id, roomId, input.speakerId, input.agendaItemId);
+  }
+
+  @Post('rooms/:roomId/speaker-turn/end')
+  @UseGuards(JwtAuthGuard)
+  endSpeakerTurn(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.endSpeakerTurn(req.user.id, roomId);
   }
 
   @Get('rooms/:roomId/stage')

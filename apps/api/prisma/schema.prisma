@@ -130,6 +130,7 @@ model User {
   liveRoomModerations LiveRoomModerator[]
   liveQuestions LiveQuestion[]
   livePollVotes LivePollVote[]
+  liveSpeakerTurns LiveSpeakerTurn[]
   liveChatMessages LiveChatMessage[]
   bookmarks   EpisodeBookmark[]
   playbackProgress PlaybackProgress[]
@@ -394,6 +395,8 @@ model LiveRoom {
   moderators LiveRoomModerator[]
   polls LivePoll[]
   questions LiveQuestion[]
+  agendaItems LiveAgendaItem[]
+  speakerTurns LiveSpeakerTurn[]
 
   @@index([status, scheduledAt])
 }
@@ -467,6 +470,42 @@ model LiveQuestion {
 
   @@index([roomId, status, isPinned, createdAt])
   @@index([userId, createdAt])
+}
+
+
+model LiveAgendaItem {
+  id              String   @id @default(cuid())
+  roomId          String
+  title           String
+  description     String?
+  durationSeconds Int
+  position        Int
+  status          String   @default("PENDING")
+  startedAt       DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  room            LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  speakerTurns    LiveSpeakerTurn[]
+
+  @@unique([roomId, position])
+  @@index([roomId, status, position])
+}
+
+model LiveSpeakerTurn {
+  id            String   @id @default(cuid())
+  roomId        String
+  speakerId     String
+  agendaItemId  String?
+  status        String   @default("ACTIVE")
+  startedAt     DateTime @default(now())
+  endedAt       DateTime?
+  room          LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  speaker       User     @relation(fields: [speakerId], references: [id], onDelete: Cascade)
+  agendaItem    LiveAgendaItem? @relation(fields: [agendaItemId], references: [id], onDelete: SetNull)
+
+  @@index([roomId, status, startedAt])
+  @@index([speakerId, startedAt])
 }
 
 model LiveViewerSession {

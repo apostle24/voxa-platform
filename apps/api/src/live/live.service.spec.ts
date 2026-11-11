@@ -18,6 +18,8 @@ describe('LiveService access boundaries', () => {
       livePollOption: { findFirst: jest.fn() },
       livePollVote: { upsert: jest.fn() },
       liveQuestion: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
+      liveAgendaItem: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
+      liveSpeakerTurn: { findFirst: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
       user: { findUnique: jest.fn() },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
@@ -205,6 +207,17 @@ describe('LiveService access boundaries', () => {
     });
 
     await expect(service.joinToken('listener-1', 'room-1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+
+  it('does not grant a stage member microphone publishing permission until the host hands over the floor', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC',
+      stage: [{ userId: 'speaker-2', role: 'SPEAKER' }],
+    });
+    prisma.liveSpeakerTurn.findFirst.mockResolvedValue(null);
+    const result = await service.joinToken('speaker-2', 'room-1');
+    expect(result.canPublish).toBe(false);
   });
 
   it('does not allow stage requests in restricted rooms', async () => {
@@ -402,6 +415,64 @@ describe('LiveService access boundaries', () => {
     await expect(service.moderateLiveQuestion('listener-1', 'room-1', 'question-1', { status: 'APPROVED' }))
       .rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.liveQuestion.update).not.toHaveBeenCalled();
+  });
+
+
+  it('allows an assigned moderator to add a session agenda item', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
+    prisma.liveRoomModerator.findUnique.mockResolvedValue({ id: 'mod-assignment' });
+    prisma.liveAgendaItem.findFirst.mockResolvedValue({ position: 1 });
+    prisma.liveAgendaItem.create.mockResolvedValue({ id: 'agenda-2', title: 'Audience questions', position: 2, status: 'PENDING' });
+    await expect(service.createAgendaItem('moderator-1', 'room-1', { title: 'Audience questions', description: 'Questions from listeners', durationSeconds: 300 }))
+      .resolves.toMatchObject({ id: 'agenda-2', position: 2, status: 'PENDING' });
+    expect(prisma.liveAgendaItem.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ roomId: 'room-1', title: 'Audience questions', position: 2, durationSeconds: 300 }),
+    }));
+  });
+
+  it('does not allow a moderator to take control of the speaker handoff', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    await expect(service.handoffSpeaker('moderator-1', 'room-1', 'speaker-1')).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.liveSpeakerTurn.create).not.toHaveBeenCalled();
+  });
+
+  it('only hands the turn to a participant already admitted to the live stage', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveStageMember.findUnique.mockResolvedValue({ userId: 'listener-1', leftAt: new Date() });
+    await expect(service.handoffSpeaker('host-1', 'room-1', 'listener-1')).rejects.toThrow('already be an active stage speaker');
+    expect(prisma.liveSpeakerTurn.create).not.toHaveBeenCalled();
+  });
+
+  it('completes the previous speaker turn and records the host handoff', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveStageMember.findUnique.mockResolvedValue({ userId: 'speaker-2', leftAt: null });
+    prisma.liveSpeakerTurn.findFirst.mockResolvedValue({ speakerId: 'speaker-1' });
+    prisma.liveStageMember.findMany.mockResolvedValue([{ userId: 'speaker-1' }, { userId: 'speaker-2' }]);
+    const liveKitClient = { listParticipants: jest.fn().mockResolvedValue([{ identity: 'speaker-1' }, { identity: 'speaker-2' }]), updateParticipant: jest.fn().mockResolvedValue({}) };
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue(liveKitClient);
+    prisma.liveSpeakerTurn.create.mockResolvedValue({ id: 'turn-2', speakerId: 'speaker-2', status: 'ACTIVE' });
+    await expect(service.handoffSpeaker('host-1', 'room-1', 'speaker-2'))
+      .resolves.toMatchObject({ id: 'turn-2', speakerId: 'speaker-2', status: 'ACTIVE' });
+    expect(prisma.liveSpeakerTurn.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { roomId: 'room-1', status: 'ACTIVE' },
+      data: expect.objectContaining({ status: 'COMPLETED' }),
+    }));
+    expect(prisma.liveSpeakerTurn.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: { roomId: 'room-1', speakerId: 'speaker-2', agendaItemId: null },
+    }));
+    expect(liveKitClient.updateParticipant).toHaveBeenCalledWith('room-1', 'speaker-2', undefined, expect.objectContaining({ canPublish: true }));
+    expect(liveKitClient.updateParticipant).toHaveBeenCalledWith('room-1', 'speaker-1', undefined, expect.objectContaining({ canPublish: false }));
+  });
+
+  it('starts a pending agenda segment and completes any previously active segment', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveAgendaItem.findFirst.mockResolvedValue({ id: 'agenda-1', status: 'PENDING' });
+    prisma.liveAgendaItem.update.mockResolvedValue({ id: 'agenda-1', status: 'ACTIVE' });
+    await expect(service.startAgendaItem('host-1', 'room-1', 'agenda-1')).resolves.toMatchObject({ id: 'agenda-1', status: 'ACTIVE' });
+    expect(prisma.liveAgendaItem.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { roomId: 'room-1', status: 'ACTIVE' },
+      data: expect.objectContaining({ status: 'COMPLETED' }),
+    }));
   });
 
 });
