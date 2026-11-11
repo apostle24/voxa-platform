@@ -1,0 +1,28 @@
+{
+  "name": "@voxa/mobile",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@livekit/react-native": "^2.9.6",
+    "@livekit/react-native-webrtc": "^125.0.6",
+    "expo": "~53.0.0",
+    "expo-av": "~15.1.4",
+    "expo-secure-store": "~14.2.3",
+    "expo-status-bar": "~2.2.3",
+    "livekit-client": "^2.15.6",
+    "react": "19.0.0",
+    "react-native": "0.79.2",
+    "react-native-safe-area-context": "5.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "~19.0.10",
+    "typescript": "~5.8.3"
+  }
+}
