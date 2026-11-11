@@ -23,7 +23,7 @@ if [ "${VOXA_STAGING_DB_BOOTSTRAP:-false}" = "true" ]; then
   # --accept-data-loss: unexpected destructive changes should stop startup.
   pnpm --filter @voxa/api exec prisma db push
   # Recreate custom partial unique indexes that Prisma schema DSL cannot express.
-  pnpm --filter @voxa/api exec prisma db execute --file prisma/staging-bootstrap.sql
+  pnpm --filter @voxa/api exec prisma db execute --schema prisma/schema.prisma --file prisma/staging-bootstrap.sql
 
   # Record all migration checksums in one transaction. The current Prisma
   # schema and the custom indexes above now represent this fresh database.
