@@ -144,7 +144,7 @@ export default function App() {
     <View style={styles.content}>
       {tab === 'Discover' && <Discover onPlay={playEpisode} />}
       {tab === 'Communities' && <Communities />}
-      {tab === 'LIVE' && <Live />}
+      {tab === 'LIVE' && <Live userId={user.id} />}
       {tab === 'Creator' && <Creator />}
       {tab === 'Profile' && <Profile user={user} onSignOut={async () => { audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setUser(null); }} />}
     </View>
@@ -290,7 +290,7 @@ function Communities() {
   </ScrollView>;
 }
 
-function Live() {
+function Live({ userId }: { userId: string }) {
   const { items, loading, error } = useLoad<ApiRecord>('/live/rooms');
   const [room, setRoom] = useState<{ id: string; token: string; serverUrl: string; title: string; canPublish: boolean } | null>(null);
   const [busy, setBusy] = useState('');
@@ -310,7 +310,7 @@ function Live() {
   if (room) return <View style={styles.liveRoom}>
     <Text style={styles.livePill}>● CONNECTED TO VOXA LIVE</Text><Text style={styles.pageTitle}>{room.title}</Text>
     <LiveKitRoom key={room.id + room.token} serverUrl={room.serverUrl} token={room.token} connect={true} audio={room.canPublish} video={false} onDisconnected={() => setRoom(null)}>
-      <LiveRoomPanel roomId={room.id} canPublish={room.canPublish}
+      <LiveRoomPanel roomId={room.id} userId={userId} canPublish={room.canPublish}
         onPublishGranted={async () => {
           const fresh = await api<any>('/live/rooms/' + encodeURIComponent(room.id) + '/join-token', { method: 'POST' });
           setRoom(current => current ? { ...current, token: fresh.token, canPublish: Boolean(fresh.canPublish) } : current);
@@ -330,8 +330,8 @@ function Live() {
   </ScrollView>;
 }
 
-function LiveRoomPanel({ roomId, canPublish, onPublishGranted, onMicToggle }: {
-  roomId: string; canPublish: boolean; onPublishGranted: () => Promise<void>; onMicToggle: (enabled: boolean) => void;
+function LiveRoomPanel({ roomId, userId, canPublish, onPublishGranted, onMicToggle }: {
+  roomId: string; userId: string; canPublish: boolean; onPublishGranted: () => Promise<void>; onMicToggle: (enabled: boolean) => void;
 }) {
   const [messages, setMessages] = useState<any[]>([]);
   const [stage, setStage] = useState<any>(null);
@@ -341,7 +341,7 @@ function LiveRoomPanel({ roomId, canPublish, onPublishGranted, onMicToggle }: {
   const [micEnabled, setMicEnabled] = useState(canPublish);
   const [loadError, setLoadError] = useState('');
   const isHost = Boolean(stage?.isHost);
-  const isSpeaker = isHost || (stage?.speakers || []).some((speaker: any) => speaker.userId === stage?.currentUserId);
+  const isSpeaker = isHost || (stage?.speakers || []).some((speaker: any) => speaker.userId === userId);
   async function refreshRoom() {
     try {
       const [chat, state] = await Promise.all([
@@ -349,9 +349,9 @@ function LiveRoomPanel({ roomId, canPublish, onPublishGranted, onMicToggle }: {
         api<any>('/live/rooms/' + encodeURIComponent(roomId) + '/stage'),
       ]);
       setMessages(chat.messages || chat || []);
-      setStage({ ...state, currentUserId: state.currentUserId });
+      setStage(state);
       setLoadError('');
-      if (!canPublish && (state.speakers || []).some((speaker: any) => speaker.userId === state.currentUserId)) await onPublishGranted();
+      if (!canPublish && (state.speakers || []).some((speaker: any) => speaker.userId === userId)) await onPublishGranted();
     } catch (e) { setLoadError(e instanceof Error ? e.message : 'Unable to refresh live room'); }
   }
   useEffect(() => { void refreshRoom(); }, [roomId]);
@@ -463,15 +463,19 @@ function Creator() {
       const picked = await DocumentPicker.getDocumentAsync({ type: ['audio/*','video/mp4','video/webm','video/quicktime'], copyToCacheDirectory: true, multiple: false });
       if (picked.canceled || !picked.assets?.[0]) return;
       const file = picked.assets[0];
-      if (!file.size || !file.mimeType) throw new Error('The selected file has no readable size or media type.');
+      if (!file.size) throw new Error('The selected file has no readable size.');
+      const rawType = file.mimeType || 'application/octet-stream';
+      const contentType = rawType === 'audio/x-m4a' || rawType === 'audio/m4a' ? 'audio/mp4' : rawType === 'audio/x-wav' ? 'audio/wav' : rawType;
+      const supported = ['audio/mpeg','audio/mp4','audio/aac','audio/wav','audio/ogg','audio/webm','video/mp4','video/webm','video/quicktime'];
+      if (!supported.includes(contentType)) throw new Error('This audio/video format is not supported. Choose MP3, M4A, AAC, WAV, OGG, WebM, MP4, or MOV.');
       setBusy(true); setUploadState('Requesting secure upload…');
       const signed = await api<any>('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id) + '/upload-url', {
-        method: 'POST', body: JSON.stringify({ contentType: file.mimeType, sizeBytes: file.size }),
+        method: 'POST', body: JSON.stringify({ contentType, sizeBytes: file.size }),
       });
       setUploadState('Uploading media…');
       const uploaded = await FileSystem.uploadAsync(signed.uploadUrl, file.uri, {
         httpMethod: 'PUT', uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        mimeType: file.mimeType, headers: signed.headers || { 'Content-Type': file.mimeType },
+        mimeType: contentType, headers: signed.headers || { 'Content-Type': contentType },
       });
       if (uploaded.status < 200 || uploaded.status >= 300) throw new Error('Storage rejected the media upload (' + uploaded.status + ').');
       setUploadState('Queuing media processing…');
