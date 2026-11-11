@@ -112,7 +112,7 @@ export class LiveService {
       orderBy: [{ status: 'asc' }, { startedAt: 'desc' }, { scheduledAt: 'asc' }],
       take: 50,
       select: {
-        id: true, title: true, description: true, isAudioOnly: true, status: true, startedAt: true,
+        id: true, title: true, description: true, isAudioOnly: true, status: true, startedAt: true, scheduledAt: true,
         host: { select: { id: true, displayName: true, creator: { select: { handle: true } } } },
         _count: { select: { stage: true, requests: true } },
       },
