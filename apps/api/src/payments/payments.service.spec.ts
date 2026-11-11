@@ -232,6 +232,112 @@ describe('PaymentsService safety boundaries', () => {
     expect(prisma.paymentWebhookEvent.update).toHaveBeenCalled();
   });
 
+
+  it('releases only matured paid earnings with a stable ledger idempotency key', async () => {
+    prisma.creator.findUnique.mockResolvedValue({ id: 'creator-1', userId: 'creator-user-1' });
+    prisma.paymentAttempt.findMany.mockResolvedValue([{
+      id: 'attempt-1', reference: 'VOXA_MEMBERSHIP_1', creatorNetMinor: 8500, currency: 'GHS',
+    }]);
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([{ locked: true }]),
+      ledgerAccount: {
+        upsert: jest.fn()
+          .mockResolvedValueOnce({ id: 'pending-account' })
+          .mockResolvedValueOnce({ id: 'available-account' }),
+      },
+      ledgerTransaction: { create: jest.fn().mockResolvedValue({ id: 'settlement-1' }) },
+    };
+    prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => callback(tx));
+
+    await expect(service.runScheduledSettlementBatch()).resolves.toMatchObject({
+      skipped: false, checked: 1, released: 1, settlementHoldDays: 7, batchLimit: 100,
+    });
+
+    const query = prisma.paymentAttempt.findMany.mock.calls[0][0];
+    expect(query.where).toMatchObject({ provider: 'paystack', status: 'PAID' });
+    expect(query.where.paidAt.lte).toBeInstanceOf(Date);
+    expect(Date.now() - query.where.paidAt.lte.getTime()).toBeGreaterThanOrEqual(7 * 24 * 60 * 60 * 1000);
+    expect(tx.$queryRaw).toHaveBeenCalled();
+    expect(tx.ledgerTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        idempotencyKey: 'settlement-release:VOXA_MEMBERSHIP_1',
+        type: 'SETTLEMENT_RELEASE', amountMinor: 8500, reference: 'VOXA_MEMBERSHIP_1',
+        entries: { create: [
+          { accountId: 'pending-account', direction: 'DEBIT', amountMinor: 8500 },
+          { accountId: 'available-account', direction: 'CREDIT', amountMinor: 8500 },
+        ] },
+      }),
+    });
+  });
+
+  it('does not release settlement earnings when another worker owns the advisory lock', async () => {
+    const tx = { $queryRaw: jest.fn().mockResolvedValue([{ locked: false }]) };
+    prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => callback(tx));
+
+    await expect(service.runScheduledSettlementBatch()).resolves.toMatchObject({
+      skipped: true, checked: 0, released: 0,
+    });
+
+    expect(prisma.paymentAttempt.findMany).not.toHaveBeenCalled();
+  });
+
+  it('releases a failed payout hold only after independently verifying the provider transfer', async () => {
+    const body = { event: 'transfer.failed', data: { reference: 'VOXA_PAYOUT_1', failures: 'bank rejected' } };
+    const rawBody = Buffer.from(JSON.stringify(body));
+    const signature = createHmac('sha512', process.env.PAYSTACK_SECRET_KEY!)
+      .update(rawBody).digest('hex');
+    const payout = {
+      id: 'payout-1', reference: 'VOXA_PAYOUT_1', provider: 'paystack',
+      amountMinor: 5000, currency: 'GHS', status: 'SUBMITTED',
+      creator: { userId: 'creator-user-1' },
+    };
+    prisma.payoutRequest.findFirst.mockResolvedValue(payout);
+    prisma.payoutRequest.findUniqueOrThrow.mockResolvedValue(payout);
+    prisma.paymentWebhookEvent.create.mockResolvedValue({});
+    prisma.paymentWebhookEvent.update.mockResolvedValue({});
+    prisma.ledgerAccount.findUnique.mockResolvedValue({ id: 'hold-account' });
+    prisma.ledgerAccount.upsert.mockResolvedValue({ id: 'available-account' });
+    prisma.ledgerTransaction.create.mockResolvedValue({ id: 'release-1' });
+    prisma.payoutRequest.update.mockResolvedValue({});
+    const tx = {
+      paymentWebhookEvent: prisma.paymentWebhookEvent,
+      payoutRequest: prisma.payoutRequest,
+      ledgerAccount: prisma.ledgerAccount,
+      ledgerTransaction: prisma.ledgerTransaction,
+      financialAuditLog: prisma.financialAuditLog,
+    };
+    prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => callback(tx));
+    const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({
+        status: true,
+        data: { status: 'failed', reference: 'VOXA_PAYOUT_1', amount: 5000, currency: 'GHS' },
+      }), { status: 200 }),
+    );
+
+    await expect(service.handlePaystackWebhook(body, rawBody, signature)).resolves.toEqual({
+      received: true, transferEventProcessed: true,
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.paystack.co/transfer/verify/VOXA_PAYOUT_1',
+      expect.objectContaining({ headers: { Authorization: 'Bearer test-paystack-secret' } }),
+    );
+    expect(prisma.ledgerTransaction.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        idempotencyKey: 'payout-release-failed:VOXA_PAYOUT_1',
+        type: 'CREATOR_PAYOUT_RELEASE_FAILED', amountMinor: 5000,
+        entries: { create: [
+          { accountId: 'hold-account', direction: 'DEBIT', amountMinor: 5000 },
+          { accountId: 'available-account', direction: 'CREDIT', amountMinor: 5000 },
+        ] },
+      }),
+    });
+    expect(prisma.payoutRequest.update).toHaveBeenCalledWith({
+      where: { id: 'payout-1' },
+      data: { status: 'FAILED', failureReason: 'bank rejected' },
+    });
+  });
+
   it('keeps payout execution disabled unless both explicit safety flags are enabled', async () => {
     await expect(service.submitApprovedPayout('admin-1', 'payout-1'))
       .rejects.toBeInstanceOf(ServiceUnavailableException);
