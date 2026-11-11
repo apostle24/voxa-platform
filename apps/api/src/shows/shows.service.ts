@@ -295,7 +295,7 @@ export class ShowsService {
       if (!subscription) throw new ForbiddenException('An active creator membership is required to access this transcript');
     }
     return this.prisma.episodeTranscript.findUnique({
-      where: { episodeId }, select: { episodeId: true, content: true, language: true, updatedAt: true },
+      where: { episodeId }, select: { episodeId: true, content: true, language: true, segments: true, updatedAt: true },
     });
   }
 
@@ -320,7 +320,7 @@ export class ShowsService {
     return this.prisma.episodeTranscript.upsert({
       where: { episodeId },
       create: { episodeId, content: value, language: language.trim() || 'en' },
-      update: { content: value, language: language.trim() || 'en' },
+      update: { content: value, language: language.trim() || 'en', segments: null },
       select: { episodeId: true, content: true, language: true, updatedAt: true },
     });
   }
