@@ -19,7 +19,7 @@ describe('ReportsService', () => {
       liveRoom: { findFirst: jest.fn() },
       contentReport: { findFirst: jest.fn(), create: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
       moderationAction: { findFirst: jest.fn(), create: jest.fn() },
-      communityPost: { findFirst: jest.fn(), findUnique: jest.fn(), update: jest.fn() },
+      communityPost: { findFirst: jest.fn(), findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn() },
       userBlock: { upsert: jest.fn(), deleteMany: jest.fn(), findMany: jest.fn() },
       $transaction: jest.fn(async (callback: any) => callback(prisma)),
     };
