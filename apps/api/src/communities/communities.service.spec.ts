@@ -139,3 +139,23 @@ describe('CommunitiesService discussion replies', () => {
     expect(prisma.communityPostComment.create).not.toHaveBeenCalled();
   });
 });
+
+
+describe('CommunitiesService public community details', () => {
+  it('returns public community metadata without exposing member discussions', async () => {
+    const prisma: any = {
+      community: { findUnique: jest.fn().mockResolvedValue({
+        id: 'community-1', name: 'VOXA Creators', slug: 'voxa-creators',
+        owner: { id: 'owner-1', displayName: 'Creator' }, members: [],
+        _count: { members: 12, posts: 8 },
+      }) },
+    };
+    const service = new CommunitiesService(prisma as unknown as PrismaService);
+    const result = await service.get('voxa-creators');
+    expect(result).toMatchObject({ id: 'community-1', _count: { members: 12, posts: 8 } });
+    expect(result).not.toHaveProperty('posts');
+    expect(prisma.community.findUnique).toHaveBeenCalledWith(expect.objectContaining({
+      where: { slug: 'voxa-creators' },
+    }));
+  });
+});

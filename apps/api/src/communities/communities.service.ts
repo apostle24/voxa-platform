@@ -80,10 +80,6 @@ export class CommunitiesService {
         owner: { select: { id: true, displayName: true } },
         members: { where: userId ? { userId } : { userId: '__anonymous__' }, select: { role: true } },
         _count: { select: { members: true, posts: true } },
-        posts: { orderBy: { createdAt: 'desc' }, take: 50, select: {
-          id: true, content: true, createdAt: true,
-          author: { select: { id: true, displayName: true } },
-        } },
       },
     });
     if (!community) throw new NotFoundException('Community not found');
