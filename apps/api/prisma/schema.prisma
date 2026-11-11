@@ -101,6 +101,8 @@ model User {
   liveRooms   LiveRoom[] @relation("RoomHost")
   bookmarks   EpisodeBookmark[]
   playbackProgress PlaybackProgress[]
+  episodeComments EpisodeComment[]
+  episodeLikes EpisodeLike[]
   notifications Notification[]
   membershipSubscriptions MembershipSubscription[] @relation("SubscriberSubscriptions")
   ledgerAccounts LedgerAccount[]
@@ -159,6 +161,8 @@ model Episode {
   bookmarks       EpisodeBookmark[]
   progress        PlaybackProgress[]
   mediaAssets     MediaAsset[]
+  comments        EpisodeComment[]
+  likes           EpisodeLike[]
 
   @@index([showId, status, publishedAt])
 }
@@ -195,6 +199,37 @@ model Follow {
 
   @@id([followerId, creatorId])
   @@index([creatorId, createdAt])
+}
+
+
+model EpisodeComment {
+  id        String   @id @default(cuid())
+  episodeId String
+  authorId  String
+  parentId  String?
+  content   String
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  parent    EpisodeComment? @relation("CommentReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  replies   EpisodeComment[] @relation("CommentReplies")
+
+  @@index([episodeId, createdAt])
+  @@index([parentId, createdAt])
+  @@index([authorId, createdAt])
+}
+
+model EpisodeLike {
+  userId    String
+  episodeId String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  episode   Episode  @relation(fields: [episodeId], references: [id], onDelete: Cascade)
+
+  @@id([userId, episodeId])
+  @@index([episodeId, createdAt])
 }
 
 model EpisodeBookmark {
