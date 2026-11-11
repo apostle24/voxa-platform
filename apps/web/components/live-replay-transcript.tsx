@@ -10,13 +10,14 @@ function timestamp(seconds: number) {
 }
 
 export default function LiveReplayTranscript({
-  language, content, segments, currentTime, onSeek,
+  language, content, segments, currentTime, onSeek, onDiscuss,
 }: {
   language: string;
   content: string;
   segments?: Segment[] | null;
   currentTime: number;
   onSeek: (seconds: number) => void;
+  onDiscuss?: (seconds: number) => void;
 }) {
   const [query, setQuery] = useState('');
   const [speaker, setSpeaker] = useState('all');
@@ -44,7 +45,7 @@ export default function LiveReplayTranscript({
         const active = index === activeIndex;
         return <article key={item.startSeconds + '-' + item.speaker + '-' + index} aria-current={active ? 'true' : undefined} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 14, alignItems: 'start', padding: '12px 10px', borderBottom: '1px solid var(--line)', borderRadius: 9, background: active ? 'var(--surface)' : 'transparent', borderLeft: active ? '3px solid var(--accent, #8b5cf6)' : '3px solid transparent' }}>
           <button type="button" className="ghostButton" aria-label={'Jump to ' + timestamp(item.startSeconds)} onClick={() => onSeek(item.startSeconds)} style={{ whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums', fontWeight: 700 }}>{timestamp(item.startSeconds)}</button>
-          <div><small style={{ color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>{item.speaker || 'Speaker'}</small><span style={{ lineHeight: 1.8, fontSize: 14 }}>{item.text}</span></div>
+          <div><small style={{ color: 'var(--muted)', display: 'block', marginBottom: 4, fontWeight: 700 }}>{item.speaker || 'Speaker'}</small><span style={{ lineHeight: 1.8, fontSize: 14 }}>{item.text}</span>{onDiscuss && <button type="button" className="ghostButton" onClick={() => onDiscuss(item.startSeconds)} style={{ display: 'block', marginTop: 7, padding: '4px 8px', fontSize: 11 }}>Discuss this moment</button>}</div>
         </article>;
       })}
       {visible.length === 0 && <p>No matching transcript segments.</p>}
