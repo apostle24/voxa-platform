@@ -106,6 +106,48 @@ async function generateTranscript(playbackFile, episodeId) {
   }
 }
 
+
+async function generateEpisodeIntelligence(episodeId) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { status: 'SKIPPED', reason: 'OPENAI_API_KEY is not configured' };
+  const transcript = await prisma.episodeTranscript.findUnique({
+    where: { episodeId }, select: { content: true, language: true },
+  });
+  if (!transcript?.content?.trim()) return { status: 'SKIPPED', reason: 'No transcript is available' };
+  const existing = await prisma.episodeIntelligence.findUnique({ where: { episodeId }, select: { id: true } });
+  if (existing) return { status: 'SKIPPED', reason: 'Episode intelligence already exists' };
+
+  const model = process.env.OPENAI_INTELLIGENCE_MODEL || 'gpt-4o-mini';
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model,
+      temperature: 0.2,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'You create accurate podcast episode intelligence from transcripts. Do not invent facts. Return JSON with summary (a clear 2-3 paragraph summary) and topics (an array of 4-8 concise topic labels). If the transcript is incomplete or unclear, reflect that uncertainty.' },
+        { role: 'user', content: 'Transcript language: ' + transcript.language + '\\n\\nCreate the episode summary and topics from this transcript:\\n' + transcript.content.slice(0, 90000) },
+      ],
+    }),
+    signal: AbortSignal.timeout(180000),
+  });
+  if (!response.ok) throw new Error('Episode intelligence provider returned ' + response.status + ': ' + (await response.text()).slice(0, 500));
+  const payload = await response.json();
+  const raw = payload.choices?.[0]?.message?.content;
+  if (typeof raw !== 'string') throw new Error('Episode intelligence provider returned no content');
+  const parsed = JSON.parse(raw);
+  const summary = String(parsed.summary || '').trim();
+  const topics = Array.isArray(parsed.topics)
+    ? [...new Set(parsed.topics.map(value => String(value).trim()).filter(Boolean))].slice(0, 10)
+    : [];
+  if (!summary || summary.length > 12000 || !topics.length) throw new Error('Episode intelligence response did not meet content requirements');
+  await prisma.episodeIntelligence.create({
+    data: { episodeId, summary, topics, model },
+  });
+  return { status: 'READY', topicCount: topics.length };
+}
+
 async function processAsset(asset) {
   const heartbeat = setInterval(() => {
     prisma.mediaAsset.updateMany({ where: { id: asset.id, status: 'PROCESSING' }, data: { processingStartedAt: new Date() } })
@@ -159,6 +201,8 @@ async function processAsset(asset) {
     try {
       const transcriptResult = await generateTranscript(output, asset.episodeId);
       console.log(JSON.stringify({ event: 'episode_transcription', episodeId: asset.episodeId, ...transcriptResult }));
+      const intelligenceResult = await generateEpisodeIntelligence(asset.episodeId);
+      console.log(JSON.stringify({ event: 'episode_intelligence', episodeId: asset.episodeId, ...intelligenceResult }));
     } catch (transcriptionError) {
       console.error(JSON.stringify({ event: 'episode_transcription_error', episodeId: asset.episodeId, reason: String(transcriptionError.message || transcriptionError).slice(0, 500) }));
     }
