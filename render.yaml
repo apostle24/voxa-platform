@@ -34,7 +34,7 @@ projects:
               - key: LIVEKIT_CAPTIONS_AGENT_ENABLED
                 value: "false"
               - key: VOXA_STAGING_DB_BOOTSTRAP
-                value: "true"
+                value: "false"
           - type: web
             name: voxa-staging-web
             runtime: node
