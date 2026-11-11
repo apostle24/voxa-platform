@@ -52,6 +52,8 @@ export function NotificationBell() {
         }
         if (!response.ok || !response.body) throw new Error('Notification stream unavailable');
         retryDelay = 1000;
+        void refresh();
+        window.dispatchEvent(new CustomEvent('voxa:notification-refresh'));
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -59,6 +61,7 @@ export function NotificationBell() {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
+          buffer = buffer.replace(/\\r\\n/g, '\\n');
           let boundary = buffer.indexOf('\n\n');
           while (boundary >= 0) {
             const frame = buffer.slice(0, boundary);
