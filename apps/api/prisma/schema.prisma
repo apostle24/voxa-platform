@@ -130,6 +130,8 @@ model User {
   liveRoomModerations LiveRoomModerator[]
   liveRoomCoHosts LiveRoomCoHost[] @relation("LiveRoomCoHostUser")
   liveRoomCoHostsAssigned LiveRoomCoHost[] @relation("LiveRoomCoHostAssignedBy")
+  liveRoomHostTransfersFrom LiveRoomHostTransfer[] @relation("LiveRoomHostTransferFrom")
+  liveRoomHostTransfersTo LiveRoomHostTransfer[] @relation("LiveRoomHostTransferTo")
   liveQuestions LiveQuestion[]
   livePollVotes LivePollVote[]
   liveSpeakerTurns LiveSpeakerTurn[]
@@ -396,6 +398,7 @@ model LiveRoom {
   viewerSessions LiveViewerSession[]
   moderators LiveRoomModerator[]
   coHosts LiveRoomCoHost[]
+  hostTransfers LiveRoomHostTransfer[]
   polls LivePoll[]
   questions LiveQuestion[]
   agendaItems LiveAgendaItem[]
@@ -1063,4 +1066,20 @@ model MomentRender {
 
   @@index([status, createdAt])
   @@index([momentId, createdAt])
+}
+
+
+model LiveRoomHostTransfer {
+  id             String   @id @default(cuid())
+  roomId         String
+  previousHostId String
+  newHostId      String
+  transferredAt  DateTime @default(now())
+  room            LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  previousHost    User     @relation("LiveRoomHostTransferFrom", fields: [previousHostId], references: [id], onDelete: Restrict)
+  newHost         User     @relation("LiveRoomHostTransferTo", fields: [newHostId], references: [id], onDelete: Restrict)
+
+  @@index([roomId, transferredAt])
+  @@index([previousHostId, transferredAt])
+  @@index([newHostId, transferredAt])
 }
