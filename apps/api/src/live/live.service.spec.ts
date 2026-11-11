@@ -65,6 +65,22 @@ describe('LiveService access boundaries', () => {
     receiver.mockRestore();
   });
 
+  it('marks an Egress recording failed from the signed egress_ended status', async () => {
+    const receiver = jest.spyOn(WebhookReceiver.prototype, 'receive').mockResolvedValue({
+      id: 'evt-egress-failed-1',
+      event: 'egress_ended',
+      egressInfo: { egressId: 'egress-1', status: 4, fileResults: [] },
+    } as any);
+    prisma.liveKitWebhookEvent.createMany.mockResolvedValue({ count: 1 });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    await service.receiveLiveKitWebhook('{"event":"egress_ended"}', 'signed-token');
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { recordingEgressId: 'egress-1' },
+      data: expect.objectContaining({ recordingStatus: 'FAILED', recordingFailure: 'LiveKit Egress reported a recording failure' }),
+    }));
+    receiver.mockRestore();
+  });
+
   it('does not issue a join token to a non-host for a restricted room', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({
       id: 'room-1',
