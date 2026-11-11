@@ -123,10 +123,10 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   }, [currentTrack, queue, history, currentTime]);
 
   const playTrack = useCallback((track: VoxaTrack) => {
-    setCurrentTrack(previous => {
-      if (previous && previous.episodeId !== track.episodeId) setHistory(items => [previous, ...items.filter(item => item.episodeId !== previous.episodeId)].slice(0, 30));
-      return track;
-    });
+    if (currentTrack && currentTrack.episodeId !== track.episodeId) {
+      setHistory(items => [currentTrack, ...items.filter(item => item.episodeId !== currentTrack.episodeId)].slice(0, 30));
+    }
+    setCurrentTrack(track);
     const audio = audioRef.current;
     setPlayerError(null);
     setCurrentTime(track.resumeAt || 0);
@@ -141,7 +141,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
       // Call play in the original click gesture; playback begins when media data arrives.
       void audio.play().then(() => { setIsPlaying(true); setPlayerError(null); }).catch(() => { setIsPlaying(false); setPlayerError('Playback could not start. Check your connection and try again.'); });
     }
-  }, []);
+  }, [currentTrack]);
 
   const enqueueTrack = useCallback((track: VoxaTrack) => {
     setQueue(items => items.some(item => item.episodeId === track.episodeId) ? items : [...items, track]);
