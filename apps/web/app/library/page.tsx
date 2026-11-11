@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../lib/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
@@ -31,8 +32,8 @@ export default function LibraryPage() {
     if (!token) { setLoading(false); return; }
     const headers = { Authorization: 'Bearer ' + token };
     Promise.all([
-      fetch(API + '/me/bookmarks', { headers }),
-      fetch(API + '/me/playback-progress', { headers }),
+      apiFetch(API + '/me/bookmarks', { headers }),
+      apiFetch(API + '/me/playback-progress', { headers }),
     ]).then(async ([savedResponse, progressResponse]) => {
       const [savedData, progressData] = await Promise.all([savedResponse.json(), progressResponse.json()]);
       if (!savedResponse.ok) throw new Error(savedData.message || 'Unable to load saved episodes');
