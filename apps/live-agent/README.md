@@ -6,6 +6,8 @@ This standalone LiveKit Agent subscribes to each remote participant's audio in a
 
 - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`
 - `OPENAI_API_KEY`
+- `VOXA_LIVE_CAPTIONS_API_URL` (VOXA API base URL, including `/v1`)
+- `VOXA_LIVE_CAPTIONS_INGEST_SECRET` (must match `LIVEKIT_CAPTIONS_INGEST_SECRET` on the API)
 
 Optional settings:
 
@@ -44,4 +46,4 @@ docker compose -f infra/live-captions-agent.compose.yml up -d --build
 python -m unittest discover -s apps/live-agent -p 'test_*.py'
 ```
 
-Captions are ephemeral LiveKit transcription events; this worker does not write participant speech to the VOXA database. Consent, retention, and applicable recording/transcription notices should be handled in the room experience and operational policy before production rollout.
+Final speech segments are also sent over an authenticated server-to-server endpoint and retained with the room recording. When a replay draft is created, VOXA copies the transcript, speaker identity, and timestamps into the replay episode transcript; if the draft already exists, later transcript batches update it. Configure matching ingestion secrets on the worker and API. Recording consent is required to start recording; transcription notices and retention policy must also be communicated before production rollout.
