@@ -97,4 +97,41 @@ describe('MediaService upload safeguards', () => {
     )).rejects.toBeInstanceOf(ForbiddenException);
     expect(sendSpy).not.toHaveBeenCalled();
   });
+
+  it('rejects a file whose bytes do not match its declared MIME type', async () => {
+    sendSpy
+      .mockResolvedValueOnce({
+        ContentLength: 500,
+        ContentType: 'audio/mpeg',
+        Metadata: { ownerid: 'user-1', episodeid: 'episode-1' },
+      } as never)
+      .mockResolvedValueOnce({
+        Body: { transformToByteArray: async () => new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45]) },
+      } as never);
+
+    await expect(service.completeUpload(
+      'user-1', 'show-1', 'episode-1',
+      'users/user-1/episodes/episode-1/123e4567-e89b-12d3-a456-426614174000.mp3',
+    )).rejects.toBeInstanceOf(ConflictException);
+    expect(prisma.mediaAsset.upsert).not.toHaveBeenCalled();
+  });
+
+  it('accepts an MP3 signature before recording the uploaded asset', async () => {
+    sendSpy
+      .mockResolvedValueOnce({
+        ContentLength: 500,
+        ContentType: 'audio/mpeg',
+        Metadata: { ownerid: 'user-1', episodeid: 'episode-1' },
+      } as never)
+      .mockResolvedValueOnce({
+        Body: { transformToByteArray: async () => new Uint8Array([0x49, 0x44, 0x33, 0x04, 0, 0, 0, 0]) },
+      } as never);
+
+    const result = await service.completeUpload(
+      'user-1', 'show-1', 'episode-1',
+      'users/user-1/episodes/episode-1/123e4567-e89b-12d3-a456-426614174000.mp3',
+    );
+    expect(result).toMatchObject({ uploaded: true, contentType: 'audio/mpeg' });
+    expect(prisma.mediaAsset.upsert).toHaveBeenCalledTimes(1);
+  });
 });
