@@ -1027,14 +1027,35 @@ export class LiveService {
     if (!room) throw new NotFoundException('Live room not found');
     const isHost = room.hostId === userId;
     const isCoHost = !isHost && await this.isRoomCoHost(roomId, userId);
-    const isSpeaker = room.stage.some((member) => member.userId === userId);
-    const activeSpeakerTurn = isSpeaker ? await this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, select: { speakerId: true } }) : null;
+    let isSpeaker = room.stage.some((member) => member.userId === userId);
+    const guestBooking = !isHost && !isCoHost ? await this.prisma.liveGuestInvitation.findFirst({
+      where: { roomId, inviteeId: userId, status: 'ACCEPTED' },
+      orderBy: { slotStartsAt: 'asc' },
+      select: { id: true, slotStartsAt: true, slotEndsAt: true },
+    }) : null;
+    const bookingIsActive = Boolean(guestBooking && guestBooking.slotStartsAt.getTime() <= Date.now() && guestBooking.slotEndsAt.getTime() > Date.now());
+    if (guestBooking && room.visibility !== LiveRoomVisibility.PUBLIC && !bookingIsActive) {
+      throw new ConflictException('Your confirmed speaking slot is ' + guestBooking.slotStartsAt.toISOString());
+    }
+    if (bookingIsActive && room.status === LiveRoomStatus.LIVE && !isSpeaker) {
+      await this.prisma.liveStageMember.upsert({
+        where: { roomId_userId: { roomId, userId } },
+        create: { roomId, userId, role: 'GUEST', leftAt: null },
+        update: { role: 'GUEST', leftAt: null, joinedAt: new Date() },
+      });
+      isSpeaker = true;
+    }
+    let activeSpeakerTurn = isSpeaker ? await this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, select: { speakerId: true } }) : null;
+    if (bookingIsActive && isSpeaker && !activeSpeakerTurn) {
+      await this.prisma.liveSpeakerTurn.create({ data: { roomId, speakerId: userId, status: 'ACTIVE' } });
+      activeSpeakerTurn = { speakerId: userId };
+    }
     const canPublish = isHost || isCoHost || (isSpeaker && activeSpeakerTurn?.speakerId === userId);
-    const isModerator = !isHost && await this.canModerateRoom(roomId, userId, room.hostId);
+    const isModerator = !isHost && !isCoHost && await this.canModerateRoom(roomId, userId, room.hostId);
     if (room.status === LiveRoomStatus.ENDED || room.status === LiveRoomStatus.CANCELLED) {
       throw new ConflictException('This live room has ended');
     }
-    if (!isHost && !isCoHost && room.visibility !== LiveRoomVisibility.PUBLIC) {
+    if (!isHost && !isCoHost && !bookingIsActive && room.visibility !== LiveRoomVisibility.PUBLIC) {
       throw new ForbiddenException('This room is not publicly accessible; membership and invite entitlements are not enabled yet');
     }
     if (!isHost && room.status !== LiveRoomStatus.LIVE) {
@@ -1050,7 +1071,7 @@ export class LiveService {
     const token = new AccessToken(apiKey, apiSecret, {
       identity: userId,
       ttl: '10m',
-      metadata: JSON.stringify({ voxaUserId: userId, roomId, role: isHost ? 'HOST' : isCoHost ? 'CO_HOST' : isModerator ? 'MODERATOR' : isSpeaker ? 'SPEAKER' : 'AUDIENCE' }),
+      metadata: JSON.stringify({ voxaUserId: userId, roomId, role: isHost ? 'HOST' : isCoHost ? 'CO_HOST' : isModerator ? 'MODERATOR' : bookingIsActive ? 'GUEST' : isSpeaker ? 'SPEAKER' : 'AUDIENCE' }),
     });
     token.addGrant({
       roomJoin: true,
