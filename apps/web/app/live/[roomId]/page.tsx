@@ -35,6 +35,7 @@ export default function LiveRoomPage() {
   const [chatBusy, setChatBusy] = useState(false);
   const [analytics, setAnalytics] = useState<any>(null);
   const [recordingConsent, setRecordingConsent] = useState(false);
+  const [replayDraft, setReplayDraft] = useState<{ episodeId: string; processingStatus: string } | null>(null);
 
   const api = useCallback(async (path: string, method = 'GET') => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -198,6 +199,15 @@ export default function LiveRoomPage() {
     finally { setBusy(''); }
   }
 
+  async function createReplayDraft() {
+    setBusy('replay-draft'); setError('');
+    try {
+      const data = await api('/live/rooms/' + roomId + '/recording/create-replay-draft', 'POST');
+      setReplayDraft({ episodeId: data.episodeId, processingStatus: data.processingStatus });
+      await refreshStage();
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to create replay draft'); }
+    finally { setBusy(''); }
+  }
   async function stopRecording() {
     setBusy('recording-stop'); setError('');
     try {
@@ -250,7 +260,7 @@ export default function LiveRoomPage() {
         </>}
         {analytics?.room?.recordingStatus === 'RECORDING' && <button className="button danger" disabled={!!busy} onClick={() => void stopRecording()}>{busy === 'recording-stop' ? 'Stopping…' : 'Stop recording'}</button>}
         {['STARTING', 'STOPPING'].includes(analytics?.room?.recordingStatus) && <p className="helperText">Recording service is processing your request. Refresh the room insights in a moment.</p>}
-        {analytics?.room?.recordingStatus === 'COMPLETED' && <p className="helperText">Recording completed. Replay publishing and playback are not enabled yet.</p>}
+        {analytics?.room?.recordingStatus === 'COMPLETED' && <><p className="helperText">Recording completed. Create a private draft episode to send it through VOXA's malware scan and media processing.</p><button className="button" disabled={!!busy} onClick={() => void createReplayDraft()}>{busy === 'replay-draft' ? 'Creating replay draft…' : 'Create replay draft'}</button>{replayDraft && <p className="helperText">Draft episode created ({replayDraft.episodeId}). Media processing status: {replayDraft.processingStatus}. Review it in Creator Studio before publishing.</p>}</>}
         {analytics?.room?.recordingStatus === 'FAILED' && <p className="helperText">The recording failed. Check LiveKit Egress and storage configuration before trying again.</p>}
       </section>}
       {isHost && analytics && <section className="moderationPanel" style={{ marginTop: 24 }}>
