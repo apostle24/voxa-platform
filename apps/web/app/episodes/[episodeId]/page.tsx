@@ -277,7 +277,8 @@ export default function EpisodePage() {
   }, [mediaType, saveProgress]);
 
   function seekReplay(seconds: number, shouldPlay = true) {
-    const safeSeconds = Math.max(0, Math.min(seconds, episode?.durationSeconds || videoDuration || Number.MAX_SAFE_INTEGER));
+    const maximum = mediaType.startsWith('video/') ? (videoDuration || episode?.durationSeconds || Number.MAX_SAFE_INTEGER) : (episode?.durationSeconds || Number.MAX_SAFE_INTEGER);
+    const safeSeconds = Math.max(0, Math.min(seconds, maximum));
     if (mediaType.startsWith('video/') && videoRef.current) {
       videoRef.current.currentTime = safeSeconds;
       latestVideoTime.current = safeSeconds;
@@ -448,7 +449,7 @@ export default function EpisodePage() {
                   </div>
                 </div>}
             <p style={{ color: 'var(--muted, #a1a1aa)', fontSize: 13, marginBottom: 0 }}>
-              {mediaType.startsWith('video/') ? 'Replay position: ' + formatTime(videoCurrentTime || resumeAt) : currentTrack?.episodeId === episode.id ? 'Replay position: ' + formatTime(currentTime) : resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
+              {mediaType.startsWith('video/') ? 'Replay position: ' + formatTime(videoCurrentTime) : currentTrack?.episodeId === episode.id ? 'Replay position: ' + formatTime(currentTime) : resumeAt > 0 ? 'Resume position: ' + formatTime(resumeAt) : 'Your playback progress is saved when you sign in.'}
               {saving ? ' · Saving progress…' : ''}
             </p>
           </section>}
