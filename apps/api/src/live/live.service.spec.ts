@@ -422,6 +422,17 @@ describe('LiveService access boundaries', () => {
 
 
 
+
+  it('grants appointed co-hosts private live-room access and host-level publishing permission', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PRIVATE', stage: [],
+    });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue({ id: 'cohost-assignment' });
+    const token = await service.joinToken('cohost-1', 'room-1');
+    expect(token.canPublish).toBe(true);
+    expect(token.expiresInSeconds).toBe(600);
+  });
+
   it('allows only the primary host to appoint a co-host', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1' });
     prisma.user.findUnique.mockResolvedValue({ id: 'cohost-1', displayName: 'Co Host' });
