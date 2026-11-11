@@ -272,7 +272,7 @@ async function processMomentRender(job) {
     const scaleCrop = ratio === '9:16'
       ? 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920'
       : 'scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080';
-    const subtitleText = typeof job.subtitles === 'string' ? job.subtitles.trim() : '';
+    const subtitleText = typeof job.subtitles?.text === 'string' ? job.subtitles.text.trim() : '';
     let videoFilter = scaleCrop;
     if (subtitleText) {
       const safe = subtitleText.replace(/[\r\n]+/g, ' ').replace(/[<>]/g, '').slice(0, 5000);
