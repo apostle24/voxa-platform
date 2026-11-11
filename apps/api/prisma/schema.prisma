@@ -129,6 +129,7 @@ model User {
   liveRooms   LiveRoom[] @relation("RoomHost")
   liveRoomModerations LiveRoomModerator[]
   liveQuestions LiveQuestion[]
+  livePollVotes LivePollVote[]
   liveChatMessages LiveChatMessage[]
   bookmarks   EpisodeBookmark[]
   playbackProgress PlaybackProgress[]
@@ -444,6 +445,7 @@ model LivePollVote {
   createdAt DateTime @default(now())
   poll      LivePoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
   option    LivePollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([pollId, userId])
   @@index([optionId])
