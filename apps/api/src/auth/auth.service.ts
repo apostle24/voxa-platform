@@ -152,6 +152,25 @@ export class AuthService {
     return { success: true };
   }
 
+  async listSessions(userId: string) {
+    return this.prisma.authSession.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+      select: { id: true, createdAt: true, lastUsedAt: true, expiresAt: true },
+    });
+  }
+
+  async revokeSession(userId: string, sessionId: string) {
+    const now = new Date();
+    const result = await this.prisma.authSession.updateMany({
+      where: { id: sessionId, userId, revokedAt: null, expiresAt: { gt: now } },
+      data: { revokedAt: now },
+    });
+    if (result.count !== 1) throw new NotFoundException('Active session not found');
+    return { success: true, sessionId };
+  }
+
   async logoutAll(userId: string) {
     await this.prisma.authSession.updateMany({
       where: { userId, revokedAt: null },
