@@ -2,7 +2,7 @@
 
 import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { Room, RoomEvent } from 'livekit-client';
 
@@ -221,13 +221,19 @@ export default function LiveRoomPage() {
     try { await room.localParticipant.setCameraEnabled(!camera); setCamera(!camera); }
     catch (e) { setError(e instanceof Error ? e.message : 'Camera unavailable'); }
   }
-  async function addModerator(event: React.FormEvent<HTMLFormElement>) {
+  async function addModerator(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const userId = moderatorUserId.trim();
     if (!userId) return;
     setBusy('moderator-add'); setError('');
     try { await api('/live/rooms/' + roomId + '/moderators', 'POST', { userId }); setModeratorUserId(''); await refreshStage(); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to add moderator'); }
+    finally { setBusy(''); }
+  }
+  async function deleteRoomChatMessage(messageId: string) {
+    setBusy('chat-delete-' + messageId); setError('');
+    try { await api('/live/rooms/' + roomId + '/chat/' + encodeURIComponent(messageId) + '/delete', 'POST'); await refreshChat(); }
+    catch (e) { setError(e instanceof Error ? e.message : 'Unable to remove chat message'); }
     finally { setBusy(''); }
   }
   async function removeModerator(userId: string) {
@@ -359,6 +365,7 @@ export default function LiveRoomPage() {
           {chatMessages.length ? chatMessages.map(message => <div key={message.id} style={{ padding: '9px 12px', borderRadius: 10, background: 'var(--surface)' }}>
             <b style={{ fontSize: 12 }}>{message.author?.displayName || 'VOXA member'}</b><small style={{ marginLeft: 8, color: 'var(--muted)' }}>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</small>
             <p style={{ margin: '5px 0 0', fontSize: 13, whiteSpace: 'pre-wrap' }}>{message.deletedAt ? '[deleted]' : message.content}</p>
+            {(isHost || isModerator) && !message.deletedAt && <button type="button" className="rejectButton" style={{ marginTop: 8 }} disabled={!!busy} onClick={() => void deleteRoomChatMessage(message.id)}>Remove message</button>}
           </div>) : <p className="helperText">No messages yet. Start the conversation.</p>}
         </div>
         {status !== 'Room ended' && <form onSubmit={event => { event.preventDefault(); void sendChatMessage(); }} style={{ display: 'flex', gap: 10 }}>
