@@ -638,6 +638,30 @@ export class ShowsService {
     return { items: page, nextCursor: hasMore ? page[page.length - 1].id : null };
   }
 
+
+  async discoverCreators(q?: string) {
+    const search = q?.trim();
+    const items = await this.prisma.creator.findMany({
+      where: {
+        shows: { some: { status: PublicationStatus.PUBLISHED } },
+        ...(search ? { OR: [
+          { handle: { contains: search, mode: 'insensitive' } },
+          { bio: { contains: search, mode: 'insensitive' } },
+          { user: { displayName: { contains: search, mode: 'insensitive' } } },
+          { shows: { some: { status: PublicationStatus.PUBLISHED, title: { contains: search, mode: 'insensitive' } } } },
+        ] } : {}),
+      },
+      orderBy: [{ followers: { _count: 'desc' } }, { createdAt: 'desc' }],
+      take: 12,
+      select: {
+        id: true, handle: true, bio: true, verifiedAt: true,
+        user: { select: { displayName: true } },
+        _count: { select: { followers: true, shows: { where: { status: PublicationStatus.PUBLISHED } } } },
+      },
+    });
+    return { items };
+  }
+
   async discoverShows(params: { q?: string; category?: string; language?: string; cursor?: string; limit?: number }) {
     const limit = Math.max(1, Math.min(50, Number(params.limit) || 20));
     const where: any = { status: PublicationStatus.PUBLISHED };
