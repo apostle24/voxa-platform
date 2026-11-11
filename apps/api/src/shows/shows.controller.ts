@@ -246,6 +246,12 @@ export class ShowsController {
     return this.shows.generateEpisodeProductionAdvice(req.user.id, showId, episodeId);
   }
 
+  @Post('shows/:showId/episodes/:episodeId/content-pack')
+  @UseGuards(JwtAuthGuard)
+  generateEpisodeContentPack(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.shows.generateEpisodeContentPack(req.user.id, showId, episodeId);
+  }
+
   @Put('shows/:showId/episodes/:episodeId/transcript')
   @UseGuards(JwtAuthGuard)
   saveEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: SaveTranscriptDto) {

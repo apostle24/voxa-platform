@@ -5,6 +5,7 @@ import EpisodeDraftEditor from '../../../components/episode-draft-editor';
 import EpisodeTranscriptEditor from '../../../components/episode-transcript-editor';
 import EpisodeChaptersEditor from '../../../components/episode-chapters-editor';
 import EpisodeProductionAssistant from '../../../components/episode-production-assistant';
+import EpisodeContentRepurposing from '../../../components/episode-content-repurposing';
 import Link from 'next/link';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 
@@ -399,6 +400,7 @@ export default function CreatorStudioPage() {
                 <EpisodeTranscriptEditor showId={show.id} episodeId={episode.id} />
                 <EpisodeChaptersEditor showId={show.id} episodeId={episode.id} durationSeconds={episode.durationSeconds} />
                 {episode.status !== 'PUBLISHED' && <EpisodeProductionAssistant showId={show.id} episodeId={episode.id} onSaved={() => { void loadShows(); setNotice('AI suggestion applied to the episode draft.'); }} />}
+                <EpisodeContentRepurposing showId={show.id} episodeId={episode.id} />
               </div>)}
               {!show.episodes.length && <p style={{ color: 'var(--muted)', fontSize: 12 }}>No episodes yet. Use the episode form above to add your first one.</p>}
             </div>
