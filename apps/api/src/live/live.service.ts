@@ -106,6 +106,24 @@ export class LiveService {
     return room;
   }
 
+  async cancelScheduledRoom(hostId: string, roomId: string) {
+    const room = await this.prisma.liveRoom.findUnique({
+      where: { id: roomId },
+      select: { id: true, hostId: true, status: true },
+    });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.hostId !== hostId) throw new ForbiddenException('Only the room host can cancel this room');
+    if (room.status !== LiveRoomStatus.SCHEDULED) {
+      throw new ConflictException('Only scheduled rooms can be cancelled');
+    }
+    const result = await this.prisma.liveRoom.updateMany({
+      where: { id: roomId, hostId, status: LiveRoomStatus.SCHEDULED },
+      data: { status: LiveRoomStatus.CANCELLED, endedAt: new Date() },
+    });
+    if (result.count !== 1) throw new ConflictException('This scheduled room has already changed; refresh and try again');
+    return { id: roomId, status: LiveRoomStatus.CANCELLED };
+  }
+
   async listLiveRooms() {
     return this.prisma.liveRoom.findMany({
       where: { status: { in: [LiveRoomStatus.LIVE, LiveRoomStatus.SCHEDULED] }, visibility: LiveRoomVisibility.PUBLIC },
