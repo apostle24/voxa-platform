@@ -35,6 +35,8 @@ export default function DiscoverPage() {
   const [recommended, setRecommended] = useState<Array<Episode & { reason: string }>>([]);
   const [recommendationsPersonalized, setRecommendationsPersonalized] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
+  const [aiTopics, setAiTopics] = useState<Array<{ topic: string; count: number }>>([]);
+  const [activeAiTopic, setActiveAiTopic] = useState('');
   const [category, setCategory] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -87,6 +89,10 @@ export default function DiscoverPage() {
         })
         .catch(() => setRecommended([]));
     }
+    fetch(API + '/discovery/topics')
+      .then(response => response.ok ? response.json() : null)
+      .then(data => setAiTopics(data?.items || []))
+      .catch(() => setAiTopics([]));
     fetch(API + '/discovery/categories')
       .then(response => response.json())
       .then(data => setCategories(data.items || []))
@@ -131,7 +137,26 @@ export default function DiscoverPage() {
     void load(query, category);
   }
 
+  async function chooseAiTopic(topic: string) {
+    setActiveAiTopic(topic);
+    setCategory('');
+    setQuery(topic);
+    setLoading(true);
+    setError('');
+    try {
+      const response = await fetch(API + '/discovery/topic-episodes?topic=' + encodeURIComponent(topic));
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Unable to explore this topic');
+      setEpisodes(data.items || []);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Unable to explore this topic');
+    } finally {
+      setLoading(false);
+    }
+  }
+
   function chooseCategory(value: string) {
+    setActiveAiTopic('');
     setCategory(value);
     void load(query, value);
   }
@@ -146,10 +171,17 @@ export default function DiscoverPage() {
         <header className="communityHeader">
           <div><div className="eyebrow">FIND YOUR NEXT LISTEN</div><h1>Discover VOXA.</h1><p>Explore shows, episodes and voices worth hearing.</p></div>
         </header>
-        <form onSubmit={submit} style={{ display: 'flex', gap: 10, margin: '24px 0', flexWrap: 'wrap' }}>
-          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Search shows, episodes or creators…" aria-label="Search podcasts" style={{ flex: '1 1 260px', minWidth: 0, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, color: 'white', padding: '14px 16px' }} />
+        <form onSubmit={event => { setActiveAiTopic(''); submit(event); }} style={{ display: 'flex', gap: 10, margin: '24px 0', flexWrap: 'wrap' }}>
+          <input value={query} onChange={event => setQuery(event.target.value)} placeholder="Try a question: stories about faith, leadership or personal growth…" aria-label="Search podcasts" style={{ flex: '1 1 260px', minWidth: 0, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 8, color: 'white', padding: '14px 16px' }} />
           <button className="button" type="submit">Search</button>
         </form>
+        {aiTopics.length > 0 && <section aria-label="Explore AI-generated episode topics" style={{ marginBottom: 24 }}>
+          <div className="eyebrow sectionEyebrow">EXPLORE BY AI-GENERATED TOPIC</div>
+          <p style={{ color: 'var(--muted)', marginTop: -8, marginBottom: 12, fontSize: 13 }}>Topics extracted from published episode intelligence. Choose one to find related episodes.</p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {aiTopics.map(item => <button key={item.topic} type="button" className="ghostButton" aria-pressed={activeAiTopic === item.topic} onClick={() => void chooseAiTopic(item.topic)} style={activeAiTopic === item.topic ? { borderColor: 'var(--purple)', color: 'white' } : undefined}>{item.topic} <small>({item.count})</small></button>)}
+          </div>
+        </section>}
         {categories.length > 0 && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 28 }}>
           <button className="ghostButton" type="button" onClick={() => chooseCategory('')}>All topics</button>
           {categories.map(item => <button key={item} type="button" className="ghostButton" onClick={() => chooseCategory(item)} style={category === item ? { borderColor: 'var(--purple)', color: 'white' } : undefined}>{item}</button>)}
@@ -234,7 +266,7 @@ export default function DiscoverPage() {
                 <button className="button small" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode)}>{preparingEpisode === episode.id ? 'Preparing…' : '▶ Play'}</button>
                 <button className="ghostButton" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode, true)}>＋ Queue</button>
               </div>
-              {query.trim() && episode.matchingMoments?.length ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+              {!activeAiTopic && query.trim() && episode.matchingMoments?.length ? <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
                 <small style={{ color: 'var(--muted)', letterSpacing: '.06em' }}>MATCHING MOMENTS</small>
                 {episode.matchingMoments.map((moment, index) => <Link key={index} href={'/episodes/' + episode.id + '?t=' + Math.floor(moment.startSeconds)} style={{ display: 'block', marginTop: 9, color: 'inherit', textDecoration: 'none', fontSize: 13 }}>
                   <b style={{ color: 'var(--purple)' }}>{Math.floor(moment.startSeconds / 60)}:{String(Math.floor(moment.startSeconds % 60)).padStart(2, '0')}</b> · {moment.speaker}<br/><span style={{ color: 'var(--muted)' }}>{moment.text}</span>
