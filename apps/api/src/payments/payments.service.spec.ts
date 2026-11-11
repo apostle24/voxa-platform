@@ -245,7 +245,7 @@ describe('PaymentsService safety boundaries', () => {
           .mockResolvedValueOnce({ id: 'pending-account' })
           .mockResolvedValueOnce({ id: 'available-account' }),
       },
-      ledgerTransaction: { create: jest.fn().mockResolvedValue({ id: 'settlement-1' }) },
+      ledgerTransaction: { findUnique: jest.fn().mockResolvedValue(null), create: jest.fn().mockResolvedValue({ id: 'settlement-1' }) },
     };
     prisma.$transaction.mockImplementation(async (callback: (client: any) => Promise<unknown>) => callback(tx));
 
