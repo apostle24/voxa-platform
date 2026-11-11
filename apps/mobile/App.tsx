@@ -433,6 +433,9 @@ function Creator() {
   const [episodeTitle, setEpisodeTitle] = useState('');
   const [episodeDescription, setEpisodeDescription] = useState('');
   const [duration, setDuration] = useState('');
+  const [editingEpisode, setEditingEpisode] = useState('');
+  const [editTitle, setEditTitle] = useState('');
+  const [editDescription, setEditDescription] = useState('');
   const [busy, setBusy] = useState(false);
   const [uploadState, setUploadState] = useState('');
   async function createShow() {
@@ -486,6 +489,17 @@ function Creator() {
     } catch (e) { setUploadState(''); Alert.alert('Upload failed', e instanceof Error ? e.message : 'Try again'); }
     finally { setBusy(false); }
   }
+  async function saveEpisodeEdits(show: ApiRecord, episode: ApiRecord) {
+    if (editTitle.trim().length < 2 || busy) return;
+    setBusy(true);
+    try {
+      await api('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id), {
+        method: 'PATCH', body: JSON.stringify({ title: editTitle.trim(), description: editDescription.trim() }),
+      });
+      setEditingEpisode(''); refresh();
+    } catch (e) { Alert.alert('Unable to save episode', e instanceof Error ? e.message : 'Try again'); }
+    finally { setBusy(false); }
+  }
   async function publishEpisode(show: ApiRecord, episode: ApiRecord) {
     setBusy(true);
     try { await api('/shows/' + encodeURIComponent(show.id) + '/episodes/' + encodeURIComponent(episode.id) + '/publish', { method: 'POST' }); refresh(); }
@@ -523,6 +537,16 @@ function Creator() {
         {(show.episodes || []).map((episode: ApiRecord) => <View key={episode.id} style={styles.episodeManage}>
           <Text style={styles.cardTitle}>{episode.title}</Text><Text style={styles.smallMuted}>{episode.status} · Media: {episode.mediaAssets?.[0]?.status || (episode.mediaKey ? 'Uploaded' : 'Not uploaded')}</Text>
           {episode.status !== 'PUBLISHED' && <>
+            <Button title={editingEpisode === episode.id ? 'Cancel editing' : 'Edit episode details'} secondary onPress={() => {
+              if (editingEpisode === episode.id) setEditingEpisode('');
+              else { setEditingEpisode(episode.id); setEditTitle(episode.title || ''); setEditDescription(episode.description || ''); }
+            }} disabled={busy} />
+            {editingEpisode === episode.id && <>
+              <Field value={editTitle} onChangeText={setEditTitle} placeholder="Episode title" maxLength={160} />
+              <Field value={editDescription} onChangeText={setEditDescription} placeholder="Episode description" multiline maxLength={8000} />
+              <Button title={busy ? 'Saving…' : 'Save episode details'} onPress={() => saveEpisodeEdits(show, episode)} disabled={busy || editTitle.trim().length < 2} />
+            </>}
+
             <Button title="Upload audio / video" secondary onPress={() => uploadEpisode(show, episode)} disabled={busy} />
             {episode.mediaAssets?.[0]?.status === 'FAILED' && <Button title="Retry media processing" secondary onPress={async () => { await api('/shows/' + show.id + '/episodes/' + episode.id + '/retry-processing', { method: 'POST' }); refresh(); }} disabled={busy} />}
             <Button title="Publish episode" onPress={() => publishEpisode(show, episode)} disabled={busy || show.status !== 'PUBLISHED'} />
