@@ -40,6 +40,11 @@ export default function CreatorStudioPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [draftPreview, setDraftPreview] = useState<{ episodeId: string; url: string; contentType: string } | null>(null);
+  const [editingShowId, setEditingShowId] = useState('');
+  const [editShowTitle, setEditShowTitle] = useState('');
+  const [editShowDescription, setEditShowDescription] = useState('');
+  const [editShowCategory, setEditShowCategory] = useState('');
+  const [editShowArtwork, setEditShowArtwork] = useState('');
 
   async function request(path: string, init: RequestInit = {}) {
     const response = await apiFetch(API + path, {
@@ -191,6 +196,37 @@ export default function CreatorStudioPage() {
     finally { setUploadingId(''); }
   }
 
+  function beginEditShow(show: Show) {
+    setEditingShowId(show.id);
+    setEditShowTitle(show.title);
+    setEditShowDescription(show.description || '');
+    setEditShowCategory(show.category || '');
+    setEditShowArtwork(show.artworkUrl || '');
+    setError('');
+    setNotice('');
+  }
+
+  async function saveShowDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingShowId) return;
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await request('/shows/' + encodeURIComponent(editingShowId), {
+        method: 'PATCH',
+        body: JSON.stringify({
+          title: editShowTitle,
+          description: editShowDescription,
+          category: editShowCategory,
+          artworkUrl: editShowArtwork || undefined,
+        }),
+      });
+      setEditingShowId('');
+      await loadShows();
+      setNotice('Show details saved.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to save show details'); }
+    finally { setBusy(false); }
+  }
+
   async function publishShow(showId: string) {
     setBusy(true); setError(''); setNotice('');
     try { await request('/shows/' + encodeURIComponent(showId) + '/publish', { method: 'POST' }); await loadShows(); setNotice('Show published.'); }
@@ -269,10 +305,22 @@ export default function CreatorStudioPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
               <div><span className="eyebrow">{show.status}</span><h2 style={{ font: '600 22px Space Grotesk', margin: '7px 0' }}>{show.title}</h2><p style={{ color: 'var(--muted)', fontSize: 12 }}>{show.description || 'No show description yet.'}</p></div>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button className="ghostButton" disabled={busy} onClick={() => editingShowId === show.id ? setEditingShowId('') : beginEditShow(show)}>{editingShowId === show.id ? 'Close editor' : 'Edit show details'}</button>
                 {show.status !== 'PUBLISHED' && <button className="button small" disabled={busy} onClick={() => void publishShow(show.id)}>Publish show</button>}
                 {show.status === 'PUBLISHED' && <Link className="button small" href={'/shows/' + show.id}>View show ↗</Link>}
               </div>
             </div>
+            {editingShowId === show.id && <form className="createPanel" onSubmit={saveShowDetails} style={{ marginTop: 18 }}>
+              <h3>Edit show details</h3>
+              <label>Title<input required minLength={2} maxLength={120} value={editShowTitle} onChange={event => setEditShowTitle(event.target.value)} /></label>
+              <label>Description<textarea rows={3} maxLength={4000} value={editShowDescription} onChange={event => setEditShowDescription(event.target.value)} /></label>
+              <label>Category<input maxLength={80} value={editShowCategory} onChange={event => setEditShowCategory(event.target.value)} /></label>
+              <label>Artwork URL<input type="url" maxLength={2048} value={editShowArtwork} onChange={event => setEditShowArtwork(event.target.value)} placeholder="https://…" /></label>
+              <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                <button type="button" className="ghostButton" onClick={() => setEditingShowId('')}>Cancel</button>
+                <button className="button small" disabled={busy || editShowTitle.trim().length < 2}>{busy ? 'Saving…' : 'Save show details'}</button>
+              </div>
+            </form>}
             <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
               {show.episodes.map(episode => <div key={episode.id} style={{ padding: 14, borderRadius: 9, border: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
                 <div><b style={{ fontSize: 13 }}>{episode.title}</b><small style={{ display: 'block', color: 'var(--muted)', fontSize: 10, marginTop: 5 }}>{episode.status} · {episode.durationSeconds ? Math.floor(episode.durationSeconds / 60) + ' min' : 'Duration not set'} · {episode.mediaAssets?.[0]?.status ? 'Media ' + episode.mediaAssets[0].status.toLowerCase() : episode.mediaKey ? 'Media processing status unavailable' : 'Media required'}</small></div>
