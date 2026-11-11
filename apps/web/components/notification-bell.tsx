@@ -61,7 +61,7 @@ export function NotificationBell() {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
-          buffer = buffer.replace(/\\r\\n/g, '\\n');
+          buffer = buffer.replace(/\r\n/g, '\n');
           let boundary = buffer.indexOf('\n\n');
           while (boundary >= 0) {
             const frame = buffer.slice(0, boundary);
