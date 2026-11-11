@@ -22,9 +22,9 @@ projects:
               - key: JWT_SECRET
                 generateValue: true
               - key: CORS_ORIGINS
-                value: https://voxa-staging-web.onrender.com
+                value: https://voxa-staging-web-1ktg.onrender.com
               - key: FRONTEND_URL
-                value: https://voxa-staging-web.onrender.com
+                value: https://voxa-staging-web-1ktg.onrender.com
               - key: RESEND_API_KEY
                 sync: false
               - key: EMAIL_FROM
@@ -47,7 +47,7 @@ projects:
             startCommand: pnpm --filter @voxa/web start
             envVars:
               - key: NEXT_PUBLIC_VOXA_API_URL
-                value: https://voxa-staging-api.onrender.com/v1
+                value: https://voxa-staging-api-1ktg.onrender.com/v1
         databases:
           - name: voxa-staging-db
             databaseName: voxa_staging
