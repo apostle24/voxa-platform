@@ -560,6 +560,10 @@ export class LiveService {
   }
 
   async voteLivePoll(userId: string, roomId: string, pollId: string, optionId: string) {
+    const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true, visibility: true } });
+    if (!room) throw new NotFoundException('Live room not found');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && room.hostId !== userId) throw new ForbiddenException('This room is not publicly accessible');
+    if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Voting is available only while the room is live');
     const poll = await this.prisma.livePoll.findFirst({ where: { id: pollId, roomId }, select: { id: true, status: true } });
     if (!poll) throw new NotFoundException('Live poll not found');
     if (poll.status !== 'OPEN') throw new ConflictException('This poll is closed');
@@ -610,6 +614,7 @@ export class LiveService {
     const answer = input.answer?.trim();
     if (input.answer !== undefined && (!answer || answer.length > 1000)) throw new BadRequestException('Answer must be between 1 and 1000 characters');
     const status = answer ? 'ANSWERED' : input.status ?? current.status;
+    if (input.status && !['APPROVED', 'REJECTED', 'CLOSED'].includes(input.status)) throw new BadRequestException('Invalid question moderation status');
     if (status === 'REJECTED' && input.pinned) throw new BadRequestException('Rejected questions cannot be pinned');
     if (input.pinned === true && !['APPROVED', 'ANSWERED'].includes(status)) throw new ConflictException('Approve a question before pinning it');
     return this.prisma.liveQuestion.update({
