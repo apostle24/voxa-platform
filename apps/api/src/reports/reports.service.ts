@@ -24,7 +24,7 @@ export class ReportsService {
       return !!(await this.prisma.liveRoom.findFirst({ where: { id, status: 'LIVE' }, select: { id: true } }));
     }
     if (type === 'COMMUNITY_POST') {
-      return !!(await this.prisma.communityPost.findFirst({ where: { id, community: { isPublic: true } }, select: { id: true } }));
+      return !!(await this.prisma.communityPost.findFirst({ where: { id }, select: { id: true } }));
     }
     if (type === 'USER') {
       if (id === reporterId) throw new BadRequestException('You cannot report your own account');
