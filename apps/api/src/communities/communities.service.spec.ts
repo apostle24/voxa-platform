@@ -62,3 +62,50 @@ describe('CommunitiesService owner audience management', () => {
     expect(prisma.communityMember.deleteMany).not.toHaveBeenCalled();
   });
 });
+
+
+describe('CommunitiesService discussion replies', () => {
+  let service: CommunitiesService;
+  let prisma: any;
+  beforeEach(() => {
+    prisma = {
+      communityMember: { findUnique: jest.fn() },
+      communityPost: { findMany: jest.fn(), findFirst: jest.fn() },
+      communityPostComment: { create: jest.fn() },
+    };
+    service = new CommunitiesService(prisma as unknown as PrismaService);
+  });
+
+  it('requires community membership before listing discussions', async () => {
+    prisma.communityMember.findUnique.mockResolvedValue(null);
+    await expect(service.listPosts('visitor', 'community-1')).rejects.toThrow('Join this community');
+    expect(prisma.communityPost.findMany).not.toHaveBeenCalled();
+  });
+
+  it('returns discussion posts with their replies for members', async () => {
+    prisma.communityMember.findUnique.mockResolvedValue({ id: 'membership-1' });
+    prisma.communityPost.findMany.mockResolvedValue([{ id: 'post-1', comments: [{ id: 'reply-1', content: 'Welcome' }] }]);
+    await expect(service.listPosts('member-1', 'community-1')).resolves.toEqual([
+      { id: 'post-1', comments: [{ id: 'reply-1', content: 'Welcome' }] },
+    ]);
+  });
+
+  it('creates replies only on posts in the selected community', async () => {
+    prisma.communityMember.findUnique.mockResolvedValue({ id: 'membership-1' });
+    prisma.communityPost.findFirst.mockResolvedValue({ id: 'post-1' });
+    prisma.communityPostComment.create.mockResolvedValue({ id: 'reply-1', content: 'Helpful!' });
+    await expect(service.createPostComment('member-1', 'community-1', 'post-1', 'Helpful!'))
+      .resolves.toMatchObject({ id: 'reply-1', content: 'Helpful!' });
+    expect(prisma.communityPostComment.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: { postId: 'post-1', authorId: 'member-1', content: 'Helpful!' },
+    }));
+  });
+
+  it('rejects replies to posts outside the community', async () => {
+    prisma.communityMember.findUnique.mockResolvedValue({ id: 'membership-1' });
+    prisma.communityPost.findFirst.mockResolvedValue(null);
+    await expect(service.createPostComment('member-1', 'community-1', 'other-post', 'Reply'))
+      .rejects.toThrow('Community post not found');
+    expect(prisma.communityPostComment.create).not.toHaveBeenCalled();
+  });
+});
