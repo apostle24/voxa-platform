@@ -148,3 +148,52 @@ describe('ShowsService VOXA Moments', () => {
     expect(prisma.moment.create).not.toHaveBeenCalled();
   });
 });
+
+
+describe('ShowsService episode transcripts', () => {
+  let service: ShowsService;
+  let prisma: any;
+
+  beforeEach(() => {
+    prisma = {
+      show: { findFirst: jest.fn() },
+      episode: { findFirst: jest.fn() },
+      episodeTranscript: { findUnique: jest.fn(), upsert: jest.fn(), deleteMany: jest.fn() },
+      membershipSubscription: { findFirst: jest.fn() },
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+  });
+
+  it('returns a transcript for a published public episode', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', membershipRequired: false, show: { creator: { id: 'creator-1', userId: 'owner-1' } },
+    });
+    prisma.episodeTranscript.findUnique.mockResolvedValue({ episodeId: 'episode-1', content: 'Welcome to VOXA.', language: 'en' });
+    await expect(service.getEpisodeTranscript('episode-1')).resolves.toMatchObject({ content: 'Welcome to VOXA.' });
+  });
+
+  it('does not expose a members-only transcript to anonymous listeners', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', membershipRequired: true, show: { creator: { id: 'creator-1', userId: 'owner-1' } },
+    });
+    await expect(service.getEpisodeTranscript('episode-1')).rejects.toThrow('Sign in and join this creator membership');
+    expect(prisma.episodeTranscript.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('allows a creator to save a transcript for an episode they own', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({ id: 'episode-1' });
+    prisma.episodeTranscript.upsert.mockResolvedValue({ episodeId: 'episode-1', content: 'Transcript text', language: 'en' });
+    await service.saveEpisodeTranscript('owner-1', 'show-1', 'episode-1', ' Transcript text ', 'en');
+    expect(prisma.episodeTranscript.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { episodeId: 'episode-1' },
+      create: expect.objectContaining({ content: 'Transcript text', language: 'en' }),
+    }));
+  });
+
+  it('rejects transcript edits for shows the creator does not own', async () => {
+    prisma.show.findFirst.mockResolvedValue(null);
+    await expect(service.saveEpisodeTranscript('intruder', 'show-1', 'episode-1', 'Transcript')).rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.episodeTranscript.upsert).not.toHaveBeenCalled();
+  });
+});
