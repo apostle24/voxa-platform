@@ -1,3 +1,4 @@
+import { publishNotificationEvent } from '../notifications/notification-events';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCommunityDto } from './dto/create-community.dto';
@@ -140,7 +141,9 @@ export class CommunitiesService {
         resourceType: 'community', resourceId: communityId,
       }));
       for (let offset = 0; offset < data.length; offset += 500) {
-        await this.prisma.notification.createMany({ data: data.slice(offset, offset + 500) });
+        const batch = data.slice(offset, offset + 500);
+        await this.prisma.notification.createMany({ data: batch });
+        batch.forEach(notification => publishNotificationEvent({ recipientId: notification.recipientId }));
       }
     }
     return post;
