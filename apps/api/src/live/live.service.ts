@@ -966,6 +966,7 @@ export class LiveService {
     if (!invitation) throw new NotFoundException('Guest invitation not found');
     if (invitation.status !== 'PENDING') throw new ConflictException('This guest invitation has already been answered or cancelled');
     if (decision === 'ACCEPTED') {
+      if (invitation.slotEndsAt.getTime() <= Date.now()) throw new ConflictException('This speaking slot has already ended');
       const conflict = await this.prisma.liveGuestInvitation.findFirst({
         where: { id: { not: invitationId }, inviteeId: userId, status: 'ACCEPTED', slotStartsAt: { lt: invitation.slotEndsAt }, slotEndsAt: { gt: invitation.slotStartsAt } },
         select: { id: true },
@@ -1049,7 +1050,8 @@ export class LiveService {
     if (!room) throw new NotFoundException('Live room not found');
     const isHost = room.hostId === userId;
     const isCoHost = !isHost && await this.isRoomCoHost(roomId, userId);
-    let isSpeaker = room.stage.some((member) => member.userId === userId);
+    const stageMember = room.stage.find((member) => member.userId === userId);
+    let isSpeaker = Boolean(stageMember);
     const guestBooking = !isHost && !isCoHost ? await this.prisma.liveGuestInvitation.findFirst({
       where: { roomId, inviteeId: userId, status: 'ACCEPTED' },
       orderBy: { slotStartsAt: 'asc' },
@@ -1072,7 +1074,7 @@ export class LiveService {
       await this.prisma.liveSpeakerTurn.create({ data: { roomId, speakerId: userId, status: 'ACTIVE' } });
       activeSpeakerTurn = { speakerId: userId };
     }
-    const canPublish = isHost || isCoHost || (isSpeaker && activeSpeakerTurn?.speakerId === userId);
+    const canPublish = isHost || isCoHost || (isSpeaker && activeSpeakerTurn?.speakerId === userId && (stageMember?.role !== 'GUEST' || bookingIsActive));
     const isModerator = !isHost && !isCoHost && await this.canModerateRoom(roomId, userId, room.hostId);
     if (room.status === LiveRoomStatus.ENDED || room.status === LiveRoomStatus.CANCELLED) {
       throw new ConflictException('This live room has ended');
