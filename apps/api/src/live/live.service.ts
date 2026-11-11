@@ -129,11 +129,11 @@ export class LiveService {
     if (room.hostId !== hostId) throw new ForbiddenException('Only the primary host can remove co-hosts');
     const result = await this.prisma.liveRoomCoHost.deleteMany({ where: { roomId, userId: coHostUserId } });
     if (!result.count) throw new NotFoundException('Room co-host not found');
+    await this.prisma.liveSpeakerTurn.updateMany({ where: { roomId, status: 'ACTIVE', speakerId: coHostUserId }, data: { status: 'COMPLETED', endedAt: new Date() } });
     try {
-      const activeTurn = await this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE', speakerId: coHostUserId }, select: { speakerId: true } });
       const participants = await this.roomServiceClient().listParticipants(roomId);
       if (participants.some(participant => participant.identity === coHostUserId)) {
-        await this.roomServiceClient().updateParticipant(roomId, coHostUserId, undefined, { canPublish: Boolean(activeTurn), canSubscribe: true, canPublishData: true });
+        await this.roomServiceClient().updateParticipant(roomId, coHostUserId, undefined, { canPublish: false, canSubscribe: true, canPublishData: true });
       }
     } catch {
       // Existing LiveKit tokens expire; subsequent joins use the downgraded role.
