@@ -8,6 +8,7 @@ describe('AuthService', () => {
   let service: AuthService;
   let prisma: any;
   let jwt: { signAsync: jest.Mock; verifyAsync: jest.Mock };
+  let mfa: { isEnabled: jest.Mock; createLoginChallenge: jest.Mock };
 
   beforeEach(() => {
     process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters-long';
@@ -21,7 +22,8 @@ describe('AuthService', () => {
       verifyAsync: jest.fn(),
     };
     prisma.authSession.create.mockResolvedValue({});
-    service = new AuthService(prisma as PrismaService, jwt as unknown as JwtService);
+    mfa = { isEnabled: jest.fn().mockResolvedValue(false), createLoginChallenge: jest.fn().mockResolvedValue({ mfaRequired: true, challengeToken: 'challenge' }) };
+    service = new AuthService(prisma as PrismaService, jwt as unknown as JwtService, mfa as any);
   });
 
   afterAll(() => { delete process.env.JWT_SECRET; });
