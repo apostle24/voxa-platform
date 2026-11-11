@@ -1,6 +1,6 @@
-import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AccessToken, RoomServiceClient } from 'livekit-server-sdk';
+import { AccessToken, RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
 import { LiveRoomStatus, LiveRoomVisibility } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateLiveRoomDto } from './dto/create-live-room.dto';
@@ -113,6 +113,49 @@ export class LiveService {
 
 
 
+
+
+  async receiveLiveKitWebhook(rawBody: string, authorization?: string) {
+    if (!rawBody) throw new BadRequestException('LiveKit webhook body is required');
+    const { apiKey, apiSecret } = this.liveKitConfig();
+    let event;
+    try {
+      event = await new WebhookReceiver(apiKey, apiSecret).receive(rawBody, authorization);
+    } catch {
+      throw new UnauthorizedException('LiveKit webhook signature verification failed');
+    }
+    if (!event.id || !event.event) throw new BadRequestException('LiveKit webhook event is incomplete');
+
+    const roomId = event.room?.name || null;
+    const participantIdentity = event.participant?.identity || null;
+    return this.prisma.$transaction(async (tx) => {
+      const inserted = await tx.liveKitWebhookEvent.createMany({
+        data: [{ eventId: event.id, eventType: event.event, roomId, participantIdentity }],
+        skipDuplicates: true,
+      });
+      if (inserted.count === 0) return { received: true, duplicate: true };
+
+      if (roomId && event.event === 'room_finished') {
+        const endedAt = new Date();
+        await tx.liveRoom.updateMany({
+          where: { id: roomId, status: { notIn: [LiveRoomStatus.ENDED, LiveRoomStatus.CANCELLED] } },
+          data: { status: LiveRoomStatus.ENDED, endedAt },
+        });
+        await tx.liveStageMember.updateMany({ where: { roomId, leftAt: null }, data: { leftAt: endedAt } });
+        await tx.liveViewerSession.updateMany({ where: { roomId, leftAt: null }, data: { leftAt: endedAt } });
+      } else if (roomId && participantIdentity &&
+        (event.event === 'participant_left' || event.event === 'participant_connection_aborted')) {
+        const leftAt = new Date();
+        await tx.liveViewerSession.updateMany({
+          where: { roomId, userId: participantIdentity, leftAt: null }, data: { leftAt },
+        });
+        await tx.liveStageMember.updateMany({
+          where: { roomId, userId: participantIdentity, leftAt: null }, data: { leftAt },
+        });
+      }
+      return { received: true, duplicate: false, event: event.event };
+    });
+  }
 
   private validateViewerSessionId(sessionId: string) {
     if (typeof sessionId !== 'string' || !/^[a-zA-Z0-9_-]{16,128}$/.test(sessionId)) {
