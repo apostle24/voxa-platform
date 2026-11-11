@@ -25,6 +25,18 @@ export class LiveController {
     return this.live.receiveLiveKitWebhook(rawBody, authorization);
   }
 
+  @Post('rooms/:roomId/recording/start')
+  @UseGuards(JwtAuthGuard)
+  startRoomRecording(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body('consentConfirmed') consentConfirmed: boolean) {
+    return this.live.startRoomRecording(req.user.id, roomId, consentConfirmed);
+  }
+
+  @Post('rooms/:roomId/recording/stop')
+  @UseGuards(JwtAuthGuard)
+  stopRoomRecording(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.stopRoomRecording(req.user.id, roomId);
+  }
+
   @Post('rooms/:roomId/end')
   @UseGuards(JwtAuthGuard)
   endRoom(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
