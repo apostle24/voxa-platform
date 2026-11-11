@@ -9,6 +9,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { MfaService } from './mfa.service';
 
 const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const REFRESH_TTL_SECONDS = REFRESH_TTL_MS / 1000;
@@ -27,6 +28,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
+    private readonly mfa: MfaService,
   ) {
     if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
       throw new Error('JWT_SECRET must be configured with at least 32 characters');
@@ -62,12 +64,17 @@ export class AuthService {
     if (user.emailVerifiedAt === null) {
       throw new UnauthorizedException('Please verify your email before signing in');
     }
+    if (await this.mfa.isEnabled(user.id)) return this.mfa.createLoginChallenge(user.id);
     return this.issueTokens({
       id: user.id,
       email: user.email,
       displayName: user.displayName,
       role: user.role,
     });
+  }
+
+  async issueAuthenticatedSession(user: AuthUser) {
+    return this.issueTokens(user);
   }
 
   async refresh(refreshToken: string) {
