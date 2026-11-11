@@ -392,6 +392,93 @@ export class ShowsService {
     }
   }
 
+  async generateEpisodeContentPack(userId: string, showId: string, episodeId: string) {
+    await this.requireOwnedShow(userId, showId);
+    const episode = await this.prisma.episode.findFirst({
+      where: { id: episodeId, showId },
+      select: {
+        id: true, title: true, description: true, durationSeconds: true,
+        show: { select: { title: true, category: true, description: true } },
+        transcript: { select: { content: true, language: true } },
+        chapters: { orderBy: { position: 'asc' }, select: { title: true, startSeconds: true } },
+      },
+    });
+    if (!episode) throw new NotFoundException('Episode not found');
+    const transcript = (episode.transcript?.content || '').slice(0, 18000);
+    if (!transcript && !episode.description?.trim()) {
+      throw new ConflictException('Add an episode transcript or description before creating a content pack');
+    }
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new ServiceUnavailableException('Content repurposing is not configured. Set OPENAI_API_KEY on the API server.');
+    const source = {
+      show: episode.show.title,
+      category: episode.show.category,
+      showDescription: episode.show.description,
+      episodeTitle: episode.title,
+      episodeDescription: episode.description,
+      transcriptLanguage: episode.transcript?.language || 'unknown',
+      transcript,
+      chapters: episode.chapters,
+      durationSeconds: episode.durationSeconds,
+    };
+    let response: Response;
+    try {
+      response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: process.env.VOXA_CONTENT_REPURPOSING_MODEL || 'gpt-4o-mini',
+          temperature: 0.5,
+          response_format: { type: 'json_object' },
+          messages: [
+            { role: 'system', content: 'You are VOXA Creator Content Repurposing Studio. Create reusable written content strictly from the supplied podcast source. Never invent names, quotations, statistics, claims, links, timestamps, guests, or events. Quote only exact wording present in the transcript; if the transcript is absent, return no quoteCandidates. Keep each format distinct, faithful to the creator voice, useful and ready for human editing. Return valid JSON with: socialPosts (exactly 3 objects {platform, text}), keyTakeaways (3-6 strings), quoteCandidates (0-5 objects {quote, context}), newsletter (object {subject, preview, body}), blogDraft (object {title, excerpt, body}). Do not include hashtags unless grounded in the subject; avoid fabricated calls to action. Make all copy concise and clearly label any inferred framing.' },
+            { role: 'user', content: JSON.stringify(source) },
+          ],
+        }),
+      });
+    } catch {
+      throw new ServiceUnavailableException('VOXA could not reach the AI content service');
+    }
+    if (!response.ok) throw new ServiceUnavailableException('AI content repurposing is temporarily unavailable');
+    const payload = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const content = payload.choices?.[0]?.message?.content;
+    if (!content) throw new ServiceUnavailableException('AI content service returned an empty response');
+    try {
+      const result = JSON.parse(content);
+      const strings = (value: unknown, max: number) => Array.isArray(value) ? value.filter((item: unknown) => typeof item === 'string' && item.trim()).slice(0, max) : [];
+      const object = (value: unknown) => value && typeof value === 'object' ? value as Record<string, unknown> : {};
+      const socialPosts = Array.isArray(result.socialPosts) ? result.socialPosts.slice(0, 3).map((item: unknown) => {
+        const post = object(item);
+        return { platform: typeof post.platform === 'string' ? post.platform.slice(0, 30) : 'Social', text: typeof post.text === 'string' ? post.text.slice(0, 1200) : '' };
+      }).filter((post: {text:string}) => post.text) : [];
+      const quotes = Array.isArray(result.quoteCandidates) ? result.quoteCandidates.slice(0, 5).map((item: unknown) => {
+        const quote = object(item);
+        return { quote: typeof quote.quote === 'string' ? quote.quote.slice(0, 400) : '', context: typeof quote.context === 'string' ? quote.context.slice(0, 300) : '' };
+      }).filter((item: {quote:string}) => item.quote) : [];
+      const newsletter = object(result.newsletter);
+      const blog = object(result.blogDraft);
+      return {
+        episodeId,
+        socialPosts,
+        keyTakeaways: strings(result.keyTakeaways, 6),
+        quoteCandidates: quotes,
+        newsletter: {
+          subject: typeof newsletter.subject === 'string' ? newsletter.subject.slice(0, 160) : '',
+          preview: typeof newsletter.preview === 'string' ? newsletter.preview.slice(0, 240) : '',
+          body: typeof newsletter.body === 'string' ? newsletter.body.slice(0, 5000) : '',
+        },
+        blogDraft: {
+          title: typeof blog.title === 'string' ? blog.title.slice(0, 180) : '',
+          excerpt: typeof blog.excerpt === 'string' ? blog.excerpt.slice(0, 400) : '',
+          body: typeof blog.body === 'string' ? blog.body.slice(0, 8000) : '',
+        },
+        sourceNote: transcript ? 'Generated from the episode transcript and metadata. Verify every quote against the original recording.' : 'Generated from episode metadata only; no transcript was available, so no direct quotes are supplied.',
+      };
+    } catch {
+      throw new ServiceUnavailableException('AI content service returned an invalid content pack');
+    }
+  }
+
   async saveEpisodeTranscript(userId: string, showId: string, episodeId: string, content: string, language = 'en') {
     await this.requireOwnedShow(userId, showId);
     const episode = await this.prisma.episode.findFirst({ where: { id: episodeId, showId }, select: { id: true } });
