@@ -1,0 +1,33 @@
+# Build from the repository root:
+# docker build -f apps/api/Dockerfile.media-worker -t voxa-media-worker:local .
+FROM node:20-bookworm-slim AS runtime
+
+ENV NODE_ENV=production \
+    PNPM_HOME="/pnpm" \
+    PATH="/pnpm:$PATH"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ffmpeg clamav clamav-freshclam gosu procps ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && corepack enable \
+    && corepack prepare pnpm@9.15.0 --activate \
+    && groupadd --system voxa \
+    && useradd --system --gid voxa --home-dir /app --shell /usr/sbin/nologin voxa \
+    && mkdir -p /app /var/lib/clamav /run/clamav \
+    && chown -R voxa:voxa /app
+
+WORKDIR /app
+COPY . .
+
+# Keep the workspace dependency graph identical to CI and generate the Prisma client
+# from the checked-in schema. DATABASE_URL is only needed for schema generation.
+RUN pnpm install --frozen-lockfile \
+    && DATABASE_URL="postgresql://voxa:voxa@127.0.0.1:5432/voxa_build" pnpm --filter @voxa/api prisma:generate \
+    && chown -R voxa:voxa /app /var/lib/clamav /run/clamav
+
+COPY apps/api/scripts/media-worker-entrypoint.sh /usr/local/bin/voxa-media-worker-entrypoint
+RUN chmod 0755 /usr/local/bin/voxa-media-worker-entrypoint
+
+EXPOSE 0
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/bin/voxa-media-worker-entrypoint"]
