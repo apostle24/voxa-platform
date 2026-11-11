@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { PublicationStatus } from '@prisma/client';
+import { Prisma, PublicationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateShowDto } from './dto/create-show.dto';
 import { UpdateShowDto } from './dto/update-show.dto';
@@ -320,7 +320,7 @@ export class ShowsService {
     return this.prisma.episodeTranscript.upsert({
       where: { episodeId },
       create: { episodeId, content: value, language: language.trim() || 'en' },
-      update: { content: value, language: language.trim() || 'en', segments: null },
+      update: { content: value, language: language.trim() || 'en', segments: Prisma.DbNull },
       select: { episodeId: true, content: true, language: true, updatedAt: true },
     });
   }
