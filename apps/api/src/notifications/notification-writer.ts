@@ -36,7 +36,7 @@ async function sendExpoPush(prisma: PrismaService, notification: {
       'Content-Type': 'application/json',
     };
     if (process.env.EXPO_ACCESS_TOKEN) headers.Authorization = 'Bearer ' + process.env.EXPO_ACCESS_TOKEN;
-    const payload = devices.map(device => ({
+    const messages = devices.map(device => ({
       to: device.expoPushToken,
       title: notification.title,
       body: notification.body || undefined,
@@ -51,17 +51,22 @@ async function sendExpoPush(prisma: PrismaService, notification: {
         deepLink: notificationDeepLink(notification.resourceType, notification.resourceId),
       },
     }));
-    const response = await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST', headers, body: JSON.stringify(payload),
-    });
-    if (!response.ok) return;
-    const result = await response.json() as { data?: Array<{ status?: string; details?: { error?: string } }> };
-    const tickets = Array.isArray(result.data) ? result.data : [];
-    const invalidTokens = tickets.flatMap((ticket, index) =>
-      ticket.status === 'error' && ticket.details?.error === 'DeviceNotRegistered'
-        ? [devices[index]?.expoPushToken].filter((token): token is string => Boolean(token))
-        : [],
-    );
+    const invalidTokens: string[] = [];
+    for (let offset = 0; offset < messages.length; offset += 100) {
+      const batch = messages.slice(offset, offset + 100);
+      const response = await fetch('https://exp.host/--/api/v2/push/send', {
+        method: 'POST', headers, body: JSON.stringify(batch), signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) continue;
+      const result = await response.json() as { data?: Array<{ status?: string; details?: { error?: string } }> };
+      const tickets = Array.isArray(result.data) ? result.data : [];
+      tickets.forEach((ticket, index) => {
+        if (ticket.status === 'error' && ticket.details?.error === 'DeviceNotRegistered') {
+          const token = devices[offset + index]?.expoPushToken;
+          if (token) invalidTokens.push(token);
+        }
+      });
+    }
     if (invalidTokens.length) {
       await prisma.notificationDevice.deleteMany({ where: { expoPushToken: { in: invalidTokens } } });
     }
