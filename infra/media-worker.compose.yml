@@ -10,7 +10,8 @@ services:
     init: true
     restart: unless-stopped
     env_file:
-      - ../.env
+      - path: ../.env
+        required: false
     environment:
       NODE_ENV: production
       MEDIA_WORKER_INTERVAL_MS: ${MEDIA_WORKER_INTERVAL_MS:-5000}
