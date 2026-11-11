@@ -114,7 +114,7 @@ describe('AuthService', () => {
     expect(tx.authSession.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ userId: 'user-4', tokenHash: expect.any(String), expiresAt: expect.any(Date) }),
     });
-    expect(result).toMatchObject({ accessToken: 'signed-refresh-token', user: { id: 'user-4' }, expiresIn: 900 });
+    expect(result).toMatchObject({ accessToken: 'signed-access-token', user: { id: 'user-4' }, expiresIn: 900 });
     expect(result).toHaveProperty('refreshToken', 'signed-refresh-token');
   });
 
