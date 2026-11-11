@@ -127,7 +127,7 @@ function EpisodeCommunity({ episodeId, token }: { episodeId: string; token: stri
 
 export default function EpisodePage() {
   const { episodeId } = useParams<{ episodeId: string }>();
-  const { playTrack, enqueueTrack } = useVoxaPlayer();
+  const { playTrack, enqueueTrack, seek, currentTrack } = useVoxaPlayer();
   const videoRef = useRef<HTMLVideoElement>(null);
   const lastSavedAt = useRef(0);
   const [episode, setEpisode] = useState<Episode | null>(null);
@@ -142,6 +142,7 @@ export default function EpisodePage() {
   const [transcript, setTranscript] = useState<{ content: string; language: string } | null>(null);
   const [transcriptQuery, setTranscriptQuery] = useState('');
   const [transcriptError, setTranscriptError] = useState('');
+  const [chapters, setChapters] = useState<Array<{ id: string; title: string; startSeconds: number }>>([]);
 
   const saveProgress = useCallback(async (positionSeconds: number, force = false) => {
     if (!token || !episodeId || (!force && Date.now() - lastSavedAt.current < 15000)) return;
@@ -172,6 +173,14 @@ export default function EpisodePage() {
         const item = data as Episode;
         if (!active) return;
         setEpisode(item);
+        try {
+          const chapterResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-chapters' : '/chapters'),
+            { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
+          if (chapterResponse.ok) {
+            const chapterData = await chapterResponse.json();
+            if (active && Array.isArray(chapterData)) setChapters(chapterData);
+          }
+        } catch { /* Chapter navigation is optional when unavailable. */ }
         try {
           const transcriptResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-transcript' : '/transcript'),
             { headers: item.membershipRequired && accessToken ? { Authorization: 'Bearer ' + accessToken } : undefined });
@@ -258,6 +267,24 @@ export default function EpisodePage() {
               <button className="button small" onClick={() => void toggleBookmark()}>{bookmarked ? 'Saved ✓' : '＋ Save episode'}</button>
             </div>
           </div>
+          {chapters.length > 0 && <section style={{ marginTop: 26, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
+            <div className="eyebrow">EPISODE GUIDE</div>
+            <h2 style={{ margin: '8px 0 14px' }}>Jump to a chapter.</h2>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {chapters.map((chapter, index) => <button key={chapter.id} type="button" className="ghostButton" onClick={() => {
+                if (mediaType.startsWith('video/') && videoRef.current) {
+                  videoRef.current.currentTime = chapter.startSeconds;
+                  void videoRef.current.play();
+                } else if (currentTrack?.episodeId === episode.id) {
+                  seek(chapter.startSeconds);
+                } else if (audioUrl) {
+                  playTrack({ episodeId: episode.id, title: episode.title, showTitle: episode.show.title, creatorName: episode.show.creator.user.displayName, artworkUrl: episode.artworkUrl, url: audioUrl, contentType: mediaType, durationSeconds: episode.durationSeconds, resumeAt: chapter.startSeconds });
+                }
+              }} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', textAlign: 'left', padding: '12px 14px' }}>
+                <span><small style={{ color: 'var(--muted)', marginRight: 12 }}>{String(Math.floor(chapter.startSeconds / 60)).padStart(2, '0')}:{String(chapter.startSeconds % 60).padStart(2, '0')}</small><b>{chapter.title}</b></span><span style={{ color: 'var(--muted)' }}>▶</span>
+              </button>)}
+            </div>
+          </section>}
           {transcript && <section style={{ marginTop: 32, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
             <div className="eyebrow">EPISODE TRANSCRIPT · {transcript.language.toUpperCase()}</div>
             <h2 style={{ margin: '8px 0 14px' }}>Read along.</h2>
