@@ -16,7 +16,18 @@ type ProgressItem = {
 };
 
 function time(seconds: number) {
-  return Math.floor(seconds / 60) + ':' + String(Math.floor(seconds % 60)).padStart(2, '0');
+  const safe = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const remainder = safe % 60;
+  return hours
+    ? hours + ':' + String(minutes).padStart(2, '0') + ':' + String(remainder).padStart(2, '0')
+    : minutes + ':' + String(remainder).padStart(2, '0');
+}
+
+function progressPercent(positionSeconds: number, durationSeconds?: number | null) {
+  if (!durationSeconds || durationSeconds <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((positionSeconds / durationSeconds) * 100)));
 }
 
 export default function LibraryPage() {
@@ -71,10 +82,30 @@ export default function LibraryPage() {
         {signedIn && !loading && <>
           <div className="eyebrow sectionEyebrow">CONTINUE LISTENING</div>
           {progress.length ? <div className="creatorShowGrid">
-            {progress.map(item => <Link className="creatorShowCard" href={'/episodes/' + item.episodeId} key={item.episodeId}>
-              {item.episode.artworkUrl ? <img src={item.episode.artworkUrl} alt="" /> : <div style={{ height: 110, borderRadius: 7, background: '#29234c', display: 'grid', placeItems: 'center', fontSize: 30 }}>▶</div>}
-              <span>RESUME · {time(item.positionSeconds)}</span><h3>{item.episode.title}</h3><small>{item.episode.show.title}</small>
-            </Link>)}
+            {progress.map(item => {
+              const percent = progressPercent(item.positionSeconds, item.episode.durationSeconds);
+              const remaining = item.episode.durationSeconds && item.episode.durationSeconds > item.positionSeconds
+                ? item.episode.durationSeconds - item.positionSeconds
+                : null;
+              return <Link className="creatorShowCard" href={'/episodes/' + item.episodeId} key={item.episodeId}>
+                {item.episode.artworkUrl ? <img src={item.episode.artworkUrl} alt="" /> : <div style={{ height: 110, borderRadius: 7, background: '#29234c', display: 'grid', placeItems: 'center', fontSize: 30 }}>▶</div>}
+                <span>CONTINUE · {time(item.positionSeconds)}{percent > 0 ? ' · ' + percent + '%' : ''}</span>
+                <h3>{item.episode.title}</h3><small>{item.episode.show.title}</small>
+                <div
+                  role="progressbar"
+                  aria-label={'Listening progress for ' + item.episode.title}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={percent}
+                  style={{ height: 5, borderRadius: 999, overflow: 'hidden', background: 'var(--line)', marginTop: 13 }}
+                >
+                  <div style={{ width: percent + '%', height: '100%', borderRadius: 999, background: 'var(--purple, #8b5cf6)' }} />
+                </div>
+                <small style={{ display: 'block', marginTop: 7, color: 'var(--muted)' }}>
+                  {remaining === null ? 'Resume playback' : time(remaining) + ' left'}
+                </small>
+              </Link>;
+            })}
           </div> : <div className="emptyState"><p>No unfinished episodes yet. Start listening to a show.</p><Link href="/discover" className="textLink">Discover podcasts ↗</Link></div>}
           <div className="eyebrow sectionEyebrow">SAVED EPISODES</div>
           {bookmarks.length ? <div className="creatorShowGrid">
