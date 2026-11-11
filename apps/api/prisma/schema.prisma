@@ -388,6 +388,7 @@ model LiveRoom {
   recordingStatus String @default("NOT_STARTED")
   recordingEgressId String? @unique
   recordingObjectKey String?
+  recordingTranscript Json?
   recordingConsentAt DateTime?
   recordingStartedAt DateTime?
   recordingEndedAt DateTime?

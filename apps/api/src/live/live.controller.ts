@@ -34,6 +34,11 @@ export class LiveController {
     return this.live.receiveLiveKitWebhook(rawBody, authorization);
   }
 
+  @Post('rooms/:roomId/transcript')
+  ingestLiveTranscript(@Param('roomId') roomId: string, @Headers('x-voxa-live-agent-secret') secret: string, @Body() input: any) {
+    return this.live.ingestLiveTranscript(roomId, secret, input);
+  }
+
   @Post('rooms/:roomId/recording/start')
   @UseGuards(JwtAuthGuard)
   startRoomRecording(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string, @Body('consentConfirmed') consentConfirmed: boolean) {

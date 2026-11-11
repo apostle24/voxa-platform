@@ -26,13 +26,14 @@ describe('LiveService access boundaries', () => {
       liveQuestion: { findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       liveAgendaItem: { findMany: jest.fn(), findFirst: jest.fn(), create: jest.fn(), update: jest.fn(), updateMany: jest.fn(), delete: jest.fn() },
       liveSpeakerTurn: { findFirst: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
-      user: { findUnique: jest.fn() },
+      user: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
       liveStageMember: { findMany: jest.fn(), findUnique: jest.fn(), update: jest.fn(), updateMany: jest.fn() },
       liveViewerSession: { upsert: jest.fn(), updateMany: jest.fn(), groupBy: jest.fn(), findUnique: jest.fn() },
       liveChatMessage: { count: jest.fn(), findMany: jest.fn(), create: jest.fn(), findFirst: jest.fn(), update: jest.fn() },
       stageRequest: { upsert: jest.fn(), findMany: jest.fn(), findUnique: jest.fn(), groupBy: jest.fn() },
       liveKitWebhookEvent: { createMany: jest.fn() },
       mediaAsset: { findUnique: jest.fn() },
+      episodeTranscript: { upsert: jest.fn().mockResolvedValue({ episodeId: 'episode-1' }) },
       $transaction: jest.fn(async (callback: (tx: any) => Promise<any>) => callback(prisma)),
     };
     config = {
@@ -41,12 +42,50 @@ describe('LiveService access boundaries', () => {
         LIVEKIT_API_KEY: 'test-key',
         LIVEKIT_API_SECRET: 'test-secret',
         S3_BUCKET: 'voxa-test',
+        LIVEKIT_CAPTIONS_INGEST_SECRET: 'test-ingest-secret',
       } as Record<string, string>)[key]),
     };
     service = new LiveService(prisma as unknown as PrismaService, config as unknown as ConfigService);
   });
 
   afterEach(() => { jest.restoreAllMocks(); });
+
+
+  it('rejects LIVE transcript ingestion without the shared worker secret', async () => {
+    await expect(service.ingestLiveTranscript('room-1', 'wrong-secret', {
+      segments: [{ id: 'seg-1', text: 'Hello', speaker: 'speaker-1', startSeconds: 0, endSeconds: 1 }],
+    })).rejects.toThrow('authentication failed');
+    expect(prisma.liveRoom.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('persists final transcript segments and updates an existing replay transcript', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', recordingStatus: 'COMPLETED',
+      recordingObjectKey: 'live-recordings/room-1/session.mp4',
+      recordingTranscript: { language: 'en', segments: [] },
+    });
+    prisma.liveRoom.update.mockResolvedValue({ id: 'room-1' });
+    prisma.mediaAsset.findUnique.mockResolvedValue({ id: 'asset-1', episodeId: 'episode-1', episode: { isLiveReplay: true } });
+    const result = await service.ingestLiveTranscript('room-1', 'test-ingest-secret', {
+      language: 'en',
+      segments: [{ id: 'seg-1', text: 'Welcome to VOXA', speaker: 'host-1', startSeconds: 2.5, endSeconds: 4 }],
+    });
+    expect(result).toEqual({ roomId: 'room-1', segmentCount: 1, replayTranscriptUpdated: true });
+    expect(prisma.liveRoom.update).toHaveBeenCalledWith(expect.objectContaining({
+      data: { recordingTranscript: expect.objectContaining({ segments: [expect.objectContaining({ id: 'seg-1', speaker: 'host-1' })] }) },
+    }));
+    expect(prisma.episodeTranscript.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { episodeId: 'episode-1' },
+      create: expect.objectContaining({ episodeId: 'episode-1', content: expect.stringContaining('Welcome to VOXA') }),
+    }));
+  });
+
+  it('rejects malformed transcript timestamps before writing to storage', async () => {
+    await expect(service.ingestLiveTranscript('room-1', 'test-ingest-secret', {
+      segments: [{ id: 'seg-1', text: 'Hello', speaker: 'speaker-1', startSeconds: 4, endSeconds: 2 }],
+    })).rejects.toThrow('invalid IDs, text, speakers, or timestamps');
+    expect(prisma.liveRoom.update).not.toHaveBeenCalled();
+  });
 
   it('allows only the host or co-host to invite a guest into a future speaking slot', async () => {
     const startsAt = new Date(Date.now() + 60 * 60 * 1000);
