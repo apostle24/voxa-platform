@@ -33,7 +33,7 @@ Audio playback, discovery, creator show management, communities, and live-room e
 ## Trust & Safety on mobile
 - Report episodes, live rooms, community discussions, and creator accounts from their mobile surfaces.
 - Block creator accounts from their public profile. Manage and unblock accounts from Profile > Blocked accounts.
-- Blocking filters the blocked account's community posts/replies and live chat messages, and prevents participation in a live room hosted by an account in either side of a block relationship.
+- Blocking filters the blocked account's community posts/replies and live chat messages, and prevents chat participation in a live room hosted by an account in either side of a block relationship.
 - Users with the `MODERATOR` or `ADMIN` role see a Safety moderation queue in Profile. Moderators can review/dismiss reports, hide episodes and VOXA Moments, hide community posts, issue account warnings, and temporarily suspend accounts for 1, 7, or 30 days.
 - Reports do not automatically hide content or suspend accounts. Moderators must review and provide a reason for an enforcement action.
 - Apply the `20261111280000_mobile_safety_moderation` and `20261111290000_community_post_moderation` Prisma migrations before using these endpoints. Account suspensions are enforced at sign-in, token refresh, and authenticated API access.
