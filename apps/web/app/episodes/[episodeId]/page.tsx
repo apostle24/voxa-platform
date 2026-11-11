@@ -264,13 +264,11 @@ export default function EpisodePage() {
   }, [episodeId]);
 
   useEffect(() => {
-    if (!timestampLinkRequested || !episode || resumeAt <= 0) return;
+    if (!timestampLinkRequested || !episode || !audioUrl) return;
     if (currentTrack?.episodeId === episode.id && !mediaType.startsWith('video/')) {
       seek(resumeAt);
     }
-    if (audioUrl) {
-      window.setTimeout(() => document.getElementById('replay-player')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-    }
+    window.setTimeout(() => document.getElementById('replay-player')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
     setTimestampLinkRequested(false);
   }, [timestampLinkRequested, episode, resumeAt, currentTrack?.episodeId, mediaType, audioUrl, seek]);
 
