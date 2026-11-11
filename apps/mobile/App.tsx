@@ -1,9 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ActivityIndicator, Alert, KeyboardAvoidingView, Platform, Pressable,
+  ActivityIndicator, Alert, KeyboardAvoidingView, Linking, Platform, Pressable,
   SafeAreaView, ScrollView, StatusBar, StyleSheet, Text, TextInput, View,
 } from 'react-native';
-import { requestNotificationPermissionsAsync, setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -12,6 +15,19 @@ import { api, clearSession, getSavedUser, saveSession, signIn, signOut, User, Ap
 import { colors } from './src/theme';
 
 registerGlobals();
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
+
+type DeepLinkTarget = { kind: 'episode' | 'creator' | 'community' | 'live'; id: string };
+
 
 type Tab = 'Discover' | 'Communities' | 'LIVE' | 'Creator' | 'Profile';
 type PlayerState = { title: string; show: string; url: string } | null;
@@ -48,6 +64,77 @@ export default function App() {
   const audioPlayer = useAudioPlayer(null);
   const audioStatus = useAudioPlayerStatus(audioPlayer);
   const [playerMessage, setPlayerMessage] = useState('');
+  const [pushToken, setPushToken] = useState('');
+  const [deepLinkTarget, setDeepLinkTarget] = useState<DeepLinkTarget | null>(null);
+
+  function openDeepLink(rawUrl: string) {
+    const match = rawUrl.match(/^voxa:\/\/([^/?#]+)\/([^/?#]+)/i);
+    if (!match) return;
+    const kind = match[1].toLowerCase();
+    const id = decodeURIComponent(match[2]);
+    if (!id) return;
+    if (kind === 'episodes' || kind === 'episode') { setDeepLinkTarget({ kind: 'episode', id }); setTab('Discover'); }
+    else if (kind === 'profiles' || kind === 'creators' || kind === 'creator') { setDeepLinkTarget({ kind: 'creator', id }); setTab('Profile'); }
+    else if (kind === 'communities' || kind === 'community') { setDeepLinkTarget({ kind: 'community', id }); setTab('Communities'); }
+    else if (kind === 'live' || kind === 'rooms') { setDeepLinkTarget({ kind: 'live', id }); setTab('LIVE'); }
+    else if (kind === 'notifications') setTab('Profile');
+  }
+
+  function openNotificationData(data: Record<string, unknown>) {
+    if (typeof data.deepLink === 'string') openDeepLink(data.deepLink);
+    else if (typeof data.resourceId === 'string' && typeof data.resourceType === 'string') {
+      const kind = data.resourceType.toLowerCase();
+      const route = kind.includes('episode') ? 'episodes' : kind.includes('community') || kind === 'post' ? 'communities' : kind.includes('live') || kind.includes('room') ? 'live' : 'profiles';
+      openDeepLink('voxa://' + route + '/' + encodeURIComponent(data.resourceId));
+    }
+  }
+
+  useEffect(() => {
+    let active = true;
+    const responseSubscription = Notifications.addNotificationResponseReceivedListener(response => {
+      openNotificationData(response.notification.request.content.data as Record<string, unknown>);
+    });
+    void Notifications.getLastNotificationResponseAsync().then(response => {
+      if (active && response) openNotificationData(response.notification.request.content.data as Record<string, unknown>);
+    });
+    void Linking.getInitialURL().then(url => { if (active && url) openDeepLink(url); });
+    const linkSubscription = Linking.addEventListener('url', event => openDeepLink(event.url));
+    return () => {
+      active = false;
+      responseSubscription.remove();
+      linkSubscription.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!user || !Device.isDevice) return;
+    let active = true;
+    (async () => {
+      try {
+        const permission = await Notifications.getPermissionsAsync();
+        const granted = permission.granted || (await Notifications.requestPermissionsAsync()).granted;
+        if (!granted || !active) return;
+        if (Platform.OS === 'android') {
+          await Notifications.setNotificationChannelAsync('voxa-notifications', {
+            name: 'VOXA notifications', importance: Notifications.AndroidImportance.HIGH,
+            vibrationPattern: [0, 250, 250, 250], sound: 'default',
+          });
+        }
+        const projectId = Constants.easConfig?.projectId || Constants.expoConfig?.extra?.eas?.projectId;
+        if (!projectId) return;
+        const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+        if (!active) return;
+        await api('/notifications/devices', {
+          method: 'POST',
+          body: JSON.stringify({ expoPushToken: token, platform: Platform.OS, deviceName: Device.deviceName || undefined }),
+        });
+        if (active) setPushToken(token);
+      } catch {
+        // Push registration is optional; the in-app notification inbox remains available.
+      }
+    })();
+    return () => { active = false; };
+  }, [user?.id]);
 
   useEffect(() => {
     let mounted = true;
@@ -98,7 +185,6 @@ export default function App() {
       const playback = await api<any>('/episodes/' + encodeURIComponent(item.id) + (member ? '/member-playback-url' : '/playback-url'));
       const title = episode.title || item.title || 'VOXA episode';
       const showTitle = episode.show?.title || item.show?.title || 'Podcast';
-      if (Platform.OS === 'android') await requestNotificationPermissionsAsync();
       audioPlayer.replace(playback.url);
       audioPlayer.setActiveForLockScreen(true, { title, artist: showTitle, albumTitle: 'VOXA' });
       audioPlayer.play();
@@ -142,11 +228,11 @@ export default function App() {
       <Text style={styles.headerSub}>VOICE • STORIES • COMMUNITY</Text>
     </View>
     <View style={styles.content}>
-      {tab === 'Discover' && <Discover onPlay={playEpisode} />}
-      {tab === 'Communities' && <Communities />}
-      {tab === 'LIVE' && <Live userId={user.id} />}
+      {tab === 'Discover' && <Discover onPlay={playEpisode} targetEpisodeId={deepLinkTarget?.kind === 'episode' ? deepLinkTarget.id : undefined} />}
+      {tab === 'Communities' && <Communities targetCommunityId={deepLinkTarget?.kind === 'community' ? deepLinkTarget.id : undefined} />}
+      {tab === 'LIVE' && <Live userId={user.id} targetRoomId={deepLinkTarget?.kind === 'live' ? deepLinkTarget.id : undefined} />}
       {tab === 'Creator' && <Creator />}
-      {tab === 'Profile' && <Profile user={user} onSignOut={async () => { audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setUser(null); }} />}
+      {tab === 'Profile' && (deepLinkTarget?.kind === 'creator' ? <CreatorProfile handle={deepLinkTarget.id} /> : <Profile user={user} onSignOut={async () => { if (pushToken) await api('/notifications/devices', { method: 'DELETE', body: JSON.stringify({ expoPushToken: pushToken }) }).catch(() => undefined); audioPlayer.pause(); audioPlayer.clearLockScreenControls(); await signOut(); setPushToken(''); setUser(null); }} />)}
     </View>
     {player && <View style={styles.miniPlayer}>
       <View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.playerTitle}>{player.title}</Text><Text style={styles.smallMuted}>{player.show}</Text></View>
@@ -176,13 +262,27 @@ function useLoad<T>(path: string, deps: any[] = []) {
   return { items, loading, error, refresh: () => setReload(v => v + 1) };
 }
 
-function Discover({ onPlay }: { onPlay: (item: ApiRecord) => void }) {
+function Discover({ onPlay, targetEpisodeId }: { onPlay: (item: ApiRecord) => void; targetEpisodeId?: string }) {
+  const [targetEpisode, setTargetEpisode] = useState<ApiRecord | null>(null);
+  const [targetError, setTargetError] = useState('');
+  useEffect(() => {
+    let active = true;
+    if (!targetEpisodeId) { setTargetEpisode(null); setTargetError(''); return; }
+    api<ApiRecord>('/episodes/' + encodeURIComponent(targetEpisodeId))
+      .then(item => { if (active) setTargetEpisode(item); })
+      .catch(error => { if (active) setTargetError(error instanceof Error ? error.message : 'Episode unavailable'); });
+    return () => { active = false; };
+  }, [targetEpisodeId]);
   const [query, setQuery] = useState('');
   const shows = useLoad<ApiRecord>('/discovery/shows?limit=20');
   const episodes = useLoad<ApiRecord>('/discovery/episodes?limit=20');
   const filteredShows = shows.items.filter(x => !query || (x.title || '').toLowerCase().includes(query.toLowerCase()));
   return <ScrollView contentContainerStyle={styles.scroll}>
     <Text style={styles.eyebrow}>FIND YOUR NEXT LISTEN</Text>
+    {!!targetEpisodeId && <View style={styles.formCard}>
+      <Text style={styles.eyebrow}>OPENED FROM NOTIFICATION</Text>
+      {targetEpisode ? <><Text style={styles.cardTitle}>{targetEpisode.title || 'Episode'}</Text><Text style={styles.cardDesc}>{targetEpisode.description || ''}</Text><Button title="Play episode" onPress={() => onPlay(targetEpisode)} /></> : targetError ? <Empty text={targetError} /> : <ActivityIndicator color={colors.accent} />}
+    </View>}
     <Text style={styles.pageTitle}>Discover</Text>
     <Field value={query} onChangeText={setQuery} placeholder="Search shows and podcasts" />
     <SectionTitle>Featured shows</SectionTitle>
@@ -206,7 +306,7 @@ function EpisodeCard({ item, onPlay }: { item: ApiRecord; onPlay: () => void }) 
   </View>;
 }
 
-function Communities() {
+function Communities({ targetCommunityId }: { targetCommunityId?: string }) {
   const { items, loading, error, refresh } = useLoad<ApiRecord>('/communities');
   const [selected, setSelected] = useState<ApiRecord | null>(null);
   const [joined, setJoined] = useState(false);
@@ -214,6 +314,12 @@ function Communities() {
   const [replyText, setReplyText] = useState('');
   const [replyingTo, setReplyingTo] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    if (!targetCommunityId || !items.length) return;
+    const target = items.find(item => item.id === targetCommunityId);
+    if (target) setSelected(target);
+    else Alert.alert('Community unavailable', 'This community may have been removed or is no longer public.');
+  }, [targetCommunityId, items]);
   const posts = useLoad<any>(selected ? '/communities/' + encodeURIComponent(selected.id) + '/posts' : '/communities/unselected/posts');
   useEffect(() => {
     let active = true;
@@ -290,7 +396,7 @@ function Communities() {
   </ScrollView>;
 }
 
-function Live({ userId }: { userId: string }) {
+function Live({ userId, targetRoomId }: { userId: string; targetRoomId?: string }) {
   const { items, loading, error } = useLoad<ApiRecord>('/live/rooms');
   const [room, setRoom] = useState<{ id: string; token: string; serverUrl: string; title: string; canPublish: boolean } | null>(null);
   const [busy, setBusy] = useState('');
@@ -307,6 +413,12 @@ function Live({ userId }: { userId: string }) {
     } catch (e) { Alert.alert('Unable to join room', e instanceof Error ? e.message : 'Try again'); }
     finally { setBusy(''); }
   }
+  useEffect(() => {
+    if (!targetRoomId || !items.length || room) return;
+    const target = items.find(item => item.id === targetRoomId);
+    if (target) void join(target);
+    else Alert.alert('Live room unavailable', 'This live room may have ended or is no longer public.');
+  }, [targetRoomId, items]);
   if (room) return <View style={styles.liveRoom}>
     <Text style={styles.livePill}>● CONNECTED TO VOXA LIVE</Text><Text style={styles.pageTitle}>{room.title}</Text>
     <LiveKitRoom key={room.id + room.token} serverUrl={room.serverUrl} token={room.token} connect={true} audio={room.canPublish} video={false} onDisconnected={() => setRoom(null)}>
@@ -565,6 +677,28 @@ function Creator() {
     </View>)}
     {!!uploadState && <Text style={styles.notice}>{uploadState}</Text>}
     {!loading && !items.length && <Empty text="Create your first show to begin publishing." />}
+  </ScrollView>;
+}
+
+function CreatorProfile({ handle }: { handle: string }) {
+  const [creator, setCreator] = useState<any>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    api<any>('/creators/' + encodeURIComponent(handle))
+      .then(value => { if (active) setCreator(value); })
+      .catch(e => { if (active) setError(e instanceof Error ? e.message : 'Creator unavailable'); });
+    return () => { active = false; };
+  }, [handle]);
+  return <ScrollView contentContainerStyle={styles.scroll}>
+    <Text style={styles.eyebrow}>VOXA CREATOR</Text><Text style={styles.pageTitle}>Creator profile</Text>
+    {!creator && !error && <ActivityIndicator color={colors.accent} />}
+    {!!error && <Empty text={error} />}
+    {!!creator && <View style={styles.profileCard}>
+      <Text style={styles.profileName}>{creator.user?.displayName || creator.displayName || creator.handle || handle}</Text>
+      <Text style={styles.muted}>{creator.bio || 'VOXA creator'}</Text>
+      {!!creator.handle && <Text style={styles.smallMuted}>@{creator.handle}</Text>}
+    </View>}
   </ScrollView>;
 }
 
