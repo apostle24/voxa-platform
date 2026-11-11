@@ -74,6 +74,8 @@ export default function LiveRoomPage() {
   const [agendaEditDuration, setAgendaEditDuration] = useState('600');
   const [handoffSpeakerId, setHandoffSpeakerId] = useState('');
 
+  const activePoll = interactions.polls?.find((poll: any) => poll.status === 'OPEN');
+
   const api = useCallback(async (path: string, method = 'GET', body?: unknown) => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
     if (!token) throw new Error('Please sign in to VOXA first.');
@@ -724,11 +726,13 @@ export default function LiveRoomPage() {
       
       {accessToken && <section className="moderationPanel" style={{ marginTop: 24 }}>
         <div className="sectionTitle"><div><span className="eyebrow">AUDIENCE PARTICIPATION</span><h2>Live polls</h2></div><button type="button" className="ghostButton" onClick={() => void refreshInteractions()}>↻ Refresh</button></div>
-        {(isHost || isModerator) && stage?.status === 'LIVE' && <form onSubmit={createPoll} style={{ display: 'grid', gap: 10, margin: '12px 0 18px' }}>
+        {(isHost || isModerator) && stage?.status === 'LIVE' && (activePoll
+          ? <p className="helperText" style={{ margin: '12px 0 18px' }}>A poll is currently open. Close “{activePoll.question}” before creating another poll.</p>
+          : <form onSubmit={createPoll} style={{ display: 'grid', gap: 10, margin: '12px 0 18px' }}>
           <input value={pollQuestion} onChange={event => setPollQuestion(event.target.value)} minLength={5} maxLength={240} required placeholder="Ask the audience a question…" aria-label="Poll question" style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
           <textarea value={pollOptions} onChange={event => setPollOptions(event.target.value)} required rows={3} placeholder={'One option per line\nAt least two options, up to six'} aria-label="Poll options" style={{ padding: 12, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit' }} />
           <button className="button small" disabled={!!interactionBusy || !pollQuestion.trim() || pollOptions.split('\n').filter(value => value.trim()).length < 2}>{interactionBusy === 'poll-create' ? 'Creating…' : 'Create live poll'}</button>
-        </form>}
+        </form>)}
         {interactions.polls?.length ? interactions.polls.map((poll: any) => {
           const total = poll.options.reduce((sum: number, option: any) => sum + option.voteCount, 0);
           return <div key={poll.id} style={{ padding: 14, borderRadius: 12, background: 'var(--surface)', marginBottom: 12 }}>
