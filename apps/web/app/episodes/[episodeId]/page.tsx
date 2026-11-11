@@ -76,7 +76,7 @@ function EpisodeCommunity({ episodeId, token, replayContextSeconds, onReplayCont
     setBusy(true);
     setError('');
     try {
-      const contextualDraft = replayContextSeconds !== null && replayContextSeconds !== undefined
+      const contextualDraft = !replyTo && replayContextSeconds !== null && replayContextSeconds !== undefined
         ? '[Replay @ ' + replayContextSeconds + 's] ' + draft.trim()
         : draft.trim();
       const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/comments', {
@@ -107,7 +107,7 @@ function EpisodeCommunity({ episodeId, token, replayContextSeconds, onReplayCont
         {error && <p className="errorText" role="alert">{error}</p>}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 18 }}>
           {replayContextSeconds !== null && replayContextSeconds !== undefined && !replyTo && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, padding: '9px 12px', borderRadius: 9, background: 'var(--surface)', border: '1px solid var(--line)' }}><small style={{ color: 'var(--muted)' }}>Comment linked to replay moment <b style={{ color: 'inherit' }}>{formatTime(replayContextSeconds)}</b></small><button type="button" className="ghostButton" onClick={onReplayContextConsumed}>Remove moment</button></div>}
-          <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={2000} rows={3} placeholder={replyTo ? 'Write a reply…' : replayContextSeconds !== null && replayContextSeconds !== undefined ? 'What would you like to say about this moment?' : 'Share your thoughts about this episode…'} style={{ width: '100%', resize: 'vertical', padding: 13, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit', font: 'inherit' }} />
+          <textarea value={draft} onChange={event => setDraft(event.target.value)} maxLength={replayContextSeconds !== null && replayContextSeconds !== undefined && !replyTo ? 1980 : 2000} rows={3} placeholder={replyTo ? 'Write a reply…' : replayContextSeconds !== null && replayContextSeconds !== undefined ? 'What would you like to say about this moment?' : 'Share your thoughts about this episode…'} style={{ width: '100%', resize: 'vertical', padding: 13, borderRadius: 9, border: '1px solid var(--line)', background: 'var(--surface)', color: 'inherit', font: 'inherit' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <button className="button small" disabled={busy || !draft.trim()} onClick={() => void submitComment()}>{busy ? 'Posting…' : replyTo ? 'Post reply' : 'Post comment'}</button>
             {replyTo && <button className="ghostButton" onClick={() => setReplyTo(null)}>Cancel reply</button>}
