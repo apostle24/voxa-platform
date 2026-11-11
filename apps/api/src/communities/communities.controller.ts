@@ -13,10 +13,15 @@ export class CommunitiesController {
     return this.communities.discover(q, category);
   }
 
+  @Get(':communityId/membership')
+  @UseGuards(JwtAuthGuard)
+  membership(@Req() req: AuthenticatedRequest, @Param('communityId') id: string) {
+    return this.communities.membership(req.user.id, id);
+  }
+
   @Get(':slug')
-  get(@Param('slug') slug: string, @Req() req: AuthenticatedRequest) {
-    const header = req.headers?.authorization;
-    return this.communities.get(slug, header?.startsWith('Bearer ') ? undefined : undefined);
+  get(@Param('slug') slug: string) {
+    return this.communities.get(slug);
   }
 
   @Post()
