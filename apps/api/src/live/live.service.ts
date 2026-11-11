@@ -851,6 +851,9 @@ export class LiveService {
       await tx.liveViewerSession.updateMany({
         where: { roomId, userId: speakerId, leftAt: null }, data: { leftAt },
       });
+      await tx.liveSpeakerTurn.updateMany({
+        where: { roomId, speakerId, status: 'ACTIVE' }, data: { status: 'COMPLETED', endedAt: leftAt },
+      });
     });
     return { roomId, userId: speakerId, removedFromStage: true };
   }
