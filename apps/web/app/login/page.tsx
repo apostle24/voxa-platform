@@ -53,8 +53,8 @@ export default function LoginPage() {
       {!mfaChallenge && <div className="authTabs"><button className={mode==='login'?'selected':''} onClick={()=>setMode('login')}>Sign in</button><button className={mode==='register'?'selected':''} onClick={()=>setMode('register')}>Create account</button></div>}
       <form onSubmit={submit}>
         {mfaChallenge ? <><label>Authenticator or backup code</label><input value={mfaCode} onChange={e=>setMfaCode(e.target.value)} required minLength={6} maxLength={20} autoComplete="one-time-code" placeholder="6-digit code" /><small>This login challenge expires in five minutes.</small></> : mode==='register' && <><label>Your name</label><input value={displayName} onChange={e=>setDisplayName(e.target.value)} minLength={2} maxLength={60} required placeholder="How should we call you?" /></>}
-        <label>Email address</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="you@example.com" />
-        <label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={mode==='register'?10:1} maxLength={72} placeholder={mode==='register'?'At least 10 characters':'Your password'} />
+        {!mfaChallenge && <><label>Email address</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="you@example.com" />
+        <label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={mode==='register'?10:1} maxLength={72} placeholder={mode==='register'?'At least 10 characters':'Your password'} /></>}
         {!mfaChallenge && mode==='register' && <small>Use at least 10 characters, including uppercase, lowercase, and a number.</small>}
         {!mfaChallenge && mode === 'login' && <p><Link href="/forgot-password">Forgot password?</Link> · <Link href="/verify-email">Verify email</Link></p>}
         {notice && <p>{notice}</p>}{error && <p className="errorText">{error}</p>}
