@@ -20,6 +20,7 @@ export default function LiveRoomPage() {
   const params = useParams<{ roomId: string }>();
   const roomId = params.roomId;
   const roomRef = useRef<Room | null>(null);
+  const viewerSessionId = useRef('');
   const [status, setStatus] = useState('Not connected');
   const [error, setError] = useState('');
   const [isHost, setIsHost] = useState(false);
@@ -79,6 +80,7 @@ export default function LiveRoomPage() {
   useEffect(() => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
     setAccessToken(token);
+    if (!viewerSessionId.current) viewerSessionId.current = crypto.randomUUID().replace(/-/g, '');
     if (!token) { setError('Sign in to join this room.'); return; }
     void connect();
     void refreshStage();
@@ -86,6 +88,35 @@ export default function LiveRoomPage() {
     const poll = window.setInterval(() => { void refreshStage(); void refreshChat(); }, 5000);
     return () => { window.clearInterval(poll); void roomRef.current?.disconnect(); roomRef.current = null; };
   }, [connect, refreshStage, refreshChat]);
+
+
+  useEffect(() => {
+    if (status !== 'Connected · Listening' || !viewerSessionId.current) return;
+    let active = true;
+    const heartbeat = async () => {
+      if (!active) return;
+      try {
+        const token = sessionStorage.getItem('voxa_access_token') || '';
+        await apiFetch(API + '/live/rooms/' + roomId + '/presence/heartbeat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+          body: JSON.stringify({ sessionId: viewerSessionId.current }),
+        });
+      } catch { /* A later heartbeat recovers transient connectivity failures. */ }
+    };
+    void heartbeat();
+    const timer = window.setInterval(() => void heartbeat(), 15_000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      const token = sessionStorage.getItem('voxa_access_token') || '';
+      void apiFetch(API + '/live/rooms/' + roomId + '/presence/leave', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: JSON.stringify({ sessionId: viewerSessionId.current }),
+      }).catch(() => undefined);
+    };
+  }, [status, roomId]);
 
   async function sendChatMessage() {
     if (!chatDraft.trim() || chatBusy) return;
@@ -162,6 +193,8 @@ export default function LiveRoomPage() {
           <div className="metricCard"><small>Stage sessions</small><strong>{analytics.stage.totalSpeakerSessions}</strong></div>
           <div className="metricCard"><small>Chat messages</small><strong>{analytics.chat.visibleMessages}</strong></div>
           <div className="metricCard"><small>Pending requests</small><strong>{analytics.requests.pending}</strong></div>
+          <div className="metricCard"><small>Live audience</small><strong>{analytics.audience.concurrentViewers}</strong></div>
+          <div className="metricCard"><small>Peak audience</small><strong>{analytics.audience.peakConcurrentViewers}</strong></div>
         </div>
         <p className="helperText">{analytics.measurementNote}</p>
       </section>}
