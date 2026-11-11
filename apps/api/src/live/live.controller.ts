@@ -31,6 +31,12 @@ export class LiveController {
     return this.live.startRoomRecording(req.user.id, roomId, consentConfirmed);
   }
 
+  @Post('rooms/:roomId/recording/create-replay-draft')
+  @UseGuards(JwtAuthGuard)
+  createRecordingEpisodeDraft(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
+    return this.live.createRecordingEpisodeDraft(req.user.id, roomId);
+  }
+
   @Post('rooms/:roomId/recording/stop')
   @UseGuards(JwtAuthGuard)
   stopRoomRecording(@Req() req: AuthenticatedRequest, @Param('roomId') roomId: string) {
