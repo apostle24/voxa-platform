@@ -235,7 +235,7 @@ export default function LiveRoomPage() {
     setInteractionBusy('question-submit'); setError('');
     try {
       await api('/live/rooms/' + roomId + '/questions', 'POST', { question: questionDraft });
-      setQuestionDraft(''); await refreshInteractions();
+      setQuestionDraft(''); await refreshInteractions(); await publishInteractionUpdate();
       setError(''); 
     } catch (e) { setError(e instanceof Error ? e.message : 'Unable to submit question'); }
     finally { setInteractionBusy(''); }
