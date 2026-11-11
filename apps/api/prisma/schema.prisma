@@ -154,6 +154,8 @@ model User {
   moderationActions ModerationAction[]
   blocksMade UserBlock[] @relation("UserBlocksMade")
   blocksReceived UserBlock[] @relation("UserBlocksReceived")
+
+  @@index([suspendedUntil])
 }
 
 model Creator {
