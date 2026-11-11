@@ -1,12 +1,15 @@
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReportsService } from './reports.service';
+import { LiveService } from '../live/live.service';
 
 describe('ReportsService', () => {
   let service: ReportsService;
   let prisma: any;
+  let live: { disconnectUserFromLiveRooms: jest.Mock };
 
   beforeEach(() => {
+    live = { disconnectUserFromLiveRooms: jest.fn().mockResolvedValue({ attempted: 0, disconnected: 0, failedRoomIds: [] }) };
     prisma = {
       user: { findUnique: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() },
       authSession: { updateMany: jest.fn() },
@@ -18,7 +21,7 @@ describe('ReportsService', () => {
       moderationAction: { findFirst: jest.fn(), create: jest.fn() },
       $transaction: jest.fn(async (callback: any) => callback(prisma)),
     };
-    service = new ReportsService(prisma as unknown as PrismaService);
+    service = new ReportsService(prisma as unknown as PrismaService, live as unknown as LiveService);
   });
 
   it('accepts a report only for published episodes', async () => {
@@ -108,6 +111,7 @@ describe('ReportsService', () => {
       where: expect.objectContaining({ id: 'reported-user' }),
       data: expect.objectContaining({ suspensionReason: 'Repeated targeted harassment', suspendedUntil: expect.any(Date) }),
     }));
+    expect(live.disconnectUserFromLiveRooms).toHaveBeenCalledWith('reported-user');
     expect(prisma.authSession.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { userId: 'reported-user', revokedAt: null }, data: { revokedAt: expect.any(Date) },
     }));
