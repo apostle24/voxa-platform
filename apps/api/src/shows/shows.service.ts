@@ -769,20 +769,21 @@ export class ShowsService {
       },
     });
     if (!candidates.length) return { query: term, items: [], searched: 0 };
+    const embeddingModel = process.env.VOXA_EMBEDDING_MODEL || 'text-embedding-3-small';
     const documents = candidates.map(episode => [
       episode.title, episode.description || '', episode.show.title, episode.show.category || '',
       episode.intelligence?.summary || '', JSON.stringify(episode.intelligence?.topics || []),
       episode.transcript?.content || '',
-    ].join('\n').slice(0, 12000));
-    const hashes = documents.map(document => createHash('sha256').update(document).digest('hex'));
+    ].join('\n').slice(0, 8000));
+    const hashes = documents.map(document => createHash('sha256').update(embeddingModel + '\n' + document).digest('hex'));
     const vectors: Array<number[] | null> = candidates.map((episode, index) => {
       const cached = episode.semanticEmbedding;
       return cached && cached.contentHash === hashes[index] && Array.isArray(cached.vector) ? cached.vector as number[] : null;
     });
     const missing: number[] = [];
     vectors.forEach((vector, index) => { if (!vector) missing.push(index); });
-    for (let offset = 0; offset < missing.length; offset += 64) {
-      const indexes = missing.slice(offset, offset + 64);
+    for (let offset = 0; offset < missing.length; offset += 32) {
+      const indexes = missing.slice(offset, offset + 32);
       const batch = await this.requestTextEmbeddings(indexes.map(index => documents[index]));
       await Promise.all(indexes.map(async (candidateIndex, batchIndex) => {
         const vector = batch[batchIndex];
