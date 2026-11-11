@@ -90,7 +90,7 @@ export class AuthService {
       include: { user: { select: { id: true, email: true, displayName: true, role: true } } },
     });
     const now = new Date();
-    if (!session || session.userId !== claims.sub || session.revokedAt || session.expiresAt <= now) {
+    if (!session || session.userId !== claims.sub || session.id !== claims.jti || session.revokedAt || session.expiresAt <= now) {
       throw new UnauthorizedException('Refresh session is invalid or expired');
     }
 
@@ -121,9 +121,18 @@ export class AuthService {
   }
 
   async logout(refreshToken?: string) {
-    if (!refreshToken) return { success: true };
+    if (refreshToken) {
+      await this.prisma.authSession.updateMany({
+        where: { tokenHash: this.hashToken(refreshToken), revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+    return { success: true };
+  }
+
+  async logoutAll(userId: string) {
     await this.prisma.authSession.updateMany({
-      where: { tokenHash: this.hashToken(refreshToken), revokedAt: null },
+      where: { userId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
     return { success: true };
