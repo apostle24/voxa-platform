@@ -134,6 +134,7 @@ export default function EpisodePage() {
   const [audioUrl, setAudioUrl] = useState('');
   const [mediaType, setMediaType] = useState('audio/mpeg');
   const [bookmarked, setBookmarked] = useState(false);
+  const [shareStatus, setShareStatus] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -257,6 +258,33 @@ export default function EpisodePage() {
     }
   }
 
+  async function shareEpisode() {
+    if (!episode) return;
+    const url = window.location.href;
+    const shareData = {
+      title: episode.title,
+      text: episode.isLiveReplay
+        ? 'Watch or listen to this VOXA live replay.'
+        : 'Listen to this episode on VOXA.',
+      url,
+    };
+    try {
+      if (typeof navigator.share === 'function') {
+        await navigator.share(shareData);
+        setShareStatus('Share sheet opened.');
+      } else if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(url);
+        setShareStatus('Episode link copied.');
+      } else {
+        setShareStatus('Copy this page address to share the episode.');
+      }
+    } catch (reason) {
+      if (reason instanceof Error && reason.name === 'AbortError') return;
+      setShareStatus('Unable to share right now. Copy the page address instead.');
+    }
+    window.setTimeout(() => setShareStatus(''), 3500);
+  }
+
   return (
     <main className="appShell">
       <nav className="nav">
@@ -277,7 +305,11 @@ export default function EpisodePage() {
               <h1 style={{ fontSize: 'clamp(2rem,5vw,3.25rem)', margin: '0.4rem 0' }}>{episode.title}</h1>
               <p style={{ color: 'var(--muted, #a1a1aa)' }}>From <Link href={'/creator/' + encodeURIComponent(episode.show.creator.handle)}>{episode.show.creator.user.displayName}</Link></p>
               <p style={{ lineHeight: 1.7 }}>{episode.description || 'Press play to listen to this episode.'}</p>
-              <button className="button small" onClick={() => void toggleBookmark()}>{bookmarked ? 'Saved ✓' : '＋ Save episode'}</button>
+              <div style={{ display: 'flex', gap: 9, alignItems: 'center', flexWrap: 'wrap' }}>
+                <button className="button small" onClick={() => void toggleBookmark()}>{bookmarked ? 'Saved ✓' : '＋ Save episode'}</button>
+                <button className="ghostButton" type="button" onClick={() => void shareEpisode()}>↗ Share {episode.isLiveReplay ? 'replay' : 'episode'}</button>
+                {shareStatus && <small role="status" aria-live="polite" style={{ color: 'var(--muted)' }}>{shareStatus}</small>}
+              </div>
             </div>
           </div>
           {chapters.length > 0 && <section style={{ marginTop: 26, padding: 22, border: '1px solid var(--line)', borderRadius: 14, background: 'var(--panel)' }}>
