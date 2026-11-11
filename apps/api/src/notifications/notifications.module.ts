@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
+import { NotificationRealtimeService } from './notification-realtime.service';
 
 @Module({
   imports: [JwtModule.register({
@@ -10,6 +11,6 @@ import { NotificationsService } from './notifications.service';
     signOptions: { issuer: 'voxa-api', audience: 'voxa-clients' },
   })],
   controllers: [NotificationsController],
-  providers: [NotificationsService, JwtAuthGuard],
+  providers: [NotificationsService, NotificationRealtimeService, JwtAuthGuard],
 })
 export class NotificationsModule {}
