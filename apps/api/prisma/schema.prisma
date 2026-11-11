@@ -128,6 +128,7 @@ model User {
   follows     Follow[]   @relation("Follower")
   liveRooms   LiveRoom[] @relation("RoomHost")
   liveRoomModerations LiveRoomModerator[]
+  liveQuestions LiveQuestion[]
   liveChatMessages LiveChatMessage[]
   bookmarks   EpisodeBookmark[]
   playbackProgress PlaybackProgress[]
@@ -390,6 +391,8 @@ model LiveRoom {
   chatMessages LiveChatMessage[]
   viewerSessions LiveViewerSession[]
   moderators LiveRoomModerator[]
+  polls LivePoll[]
+  questions LiveQuestion[]
 
   @@index([status, scheduledAt])
 }
@@ -405,6 +408,63 @@ model LiveRoomModerator {
 
   @@unique([roomId, userId])
   @@index([userId, assignedAt])
+}
+
+
+model LivePoll {
+  id        String   @id @default(cuid())
+  roomId    String
+  createdBy String
+  question  String
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
+  closedAt  DateTime?
+  room      LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  options   LivePollOption[]
+  votes     LivePollVote[]
+
+  @@index([roomId, createdAt])
+}
+
+model LivePollOption {
+  id     String @id @default(cuid())
+  pollId String
+  text   String
+  poll   LivePoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes  LivePollVote[]
+
+  @@index([pollId])
+}
+
+model LivePollVote {
+  id        String   @id @default(cuid())
+  pollId    String
+  optionId  String
+  userId    String
+  createdAt DateTime @default(now())
+  poll      LivePoll @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  option    LivePollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+  @@index([optionId])
+}
+
+model LiveQuestion {
+  id         String   @id @default(cuid())
+  roomId     String
+  userId     String
+  question   String
+  status     String   @default("PENDING")
+  isPinned   Boolean  @default(false)
+  answer     String?
+  answeredBy String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  room       LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  author     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, status, isPinned, createdAt])
+  @@index([userId, createdAt])
 }
 
 model LiveViewerSession {
