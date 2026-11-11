@@ -10,6 +10,7 @@ describe('ReportsService', () => {
     prisma = {
       user: { findUnique: jest.fn(), findMany: jest.fn(), updateMany: jest.fn() },
       authSession: { updateMany: jest.fn() },
+      notification: { create: jest.fn() },
       episode: { findFirst: jest.fn() },
       moment: { findFirst: jest.fn() },
       liveRoom: { findFirst: jest.fn() },
@@ -126,5 +127,26 @@ describe('ReportsService', () => {
       action: 'SUSPEND_USER', reason: 'Test reason', suspensionDays: 1,
     })).rejects.toBeInstanceOf(ForbiddenException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('delivers a formal account warning in the notification inbox and records the action', async () => {
+    prisma.user.findUnique
+      .mockResolvedValueOnce({ role: 'MODERATOR' })
+      .mockResolvedValueOnce({ id: 'reported-user', role: 'LISTENER', suspendedUntil: null });
+    prisma.contentReport.findUnique.mockResolvedValue({
+      id: 'report-warning', status: 'NEW', targetType: 'USER', targetId: 'reported-user',
+    });
+    prisma.moderationAction.create.mockResolvedValue({ id: 'warning-action' });
+    prisma.notification.create.mockResolvedValue({ id: 'warning-notice' });
+    prisma.contentReport.update.mockResolvedValue({ id: 'report-warning', status: 'ACTIONED' });
+
+    await expect(service.applyAccountAction('moderator-1', 'report-warning', {
+      action: 'WARN_USER', reason: 'Please stop sending abusive messages.',
+    })).resolves.toMatchObject({ action: 'WARN_USER', status: 'ACTIONED' });
+
+    expect(prisma.notification.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      recipientId: 'reported-user', actorId: 'moderator-1', type: 'MODERATION_WARNING',
+      title: 'Account warning from VOXA', body: 'Please stop sending abusive messages.',
+    }) });
   });
 });
