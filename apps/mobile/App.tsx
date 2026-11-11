@@ -804,7 +804,7 @@ function ModerationPanel() {
   }
   return <View style={styles.formCard}>
     <SectionTitle>Safety moderation queue</SectionTitle>
-    <Field value={statusFilter} onChangeText={setStatusFilter} placeholder="Report status: NEW / REVIEWING / ACTIONED" autoCapitalize="characters" />
+    <Button title={'Queue status: ' + statusFilter + ' · Change'} secondary onPress={() => setStatusFilter(current => current === 'NEW' ? 'REVIEWING' : current === 'REVIEWING' ? 'ACTIONED' : current === 'ACTIONED' ? 'DISMISSED' : 'NEW')} />
     <Button title="Refresh reports" secondary onPress={reports.refresh} />
     {reports.loading ? <ActivityIndicator color={colors.accent} /> : reports.error ? <Empty text={reports.error} /> : reports.items.length ? reports.items.map((item: any) => <View key={item.id} style={styles.discussionCard}>
       <Text style={styles.cardTitle}>{item.targetType} · {item.reason}</Text>
