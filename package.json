@@ -8,5 +8,5 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck"
   },
-  "engines": { "node": ">=20" }
+  "engines": { "node": ">=22 <23" }
 }
