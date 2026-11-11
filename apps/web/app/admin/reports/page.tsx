@@ -35,10 +35,10 @@ export default function AdminReportsPage() {
   }, [load]);
 
 
-  async function applyAction(report: Report, action: 'HIDE_EPISODE' | 'HIDE_MOMENT') {
+  async function applyAction(report: Report, action: 'HIDE_EPISODE' | 'HIDE_MOMENT' | 'RESTORE_EPISODE' | 'RESTORE_MOMENT') {
     const reason = notes[report.id]?.trim();
     if (!reason) { setError('Enter a moderator note explaining this action first.'); return; }
-    if (!window.confirm('Hide this reported content?')) return;
+    if (!window.confirm(action.startsWith('HIDE_') ? 'Hide this reported content?' : 'Restore this content to public availability?')) return;
     setBusy(report.id); setError(''); setNotice('');
     try {
       const response = await apiFetch(API + '/admin/reports/' + report.id + '/actions', {
@@ -47,7 +47,7 @@ export default function AdminReportsPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Unable to apply moderation action');
-      setNotice('Content hidden and moderation audit record saved.');
+      setNotice(action.startsWith('HIDE_') ? 'Content hidden and moderation audit record saved.' : 'Content restored and moderation audit record saved.');
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to apply moderation action');
@@ -104,6 +104,7 @@ export default function AdminReportsPage() {
           </div>
           <div style={{ display: 'grid', gap: 8, minWidth: 240, flex: 1 }}>
             <textarea value={notes[report.id] ?? report.moderatorNote ?? ''} onChange={e => setNotes(v => ({ ...v, [report.id]: e.target.value }))} placeholder="Moderator notes (optional)" rows={3} />
+            {report.status === 'ACTIONED' && (report.targetType === 'EPISODE' || report.targetType === 'MOMENT') && <button className="ghostButton" disabled={busy === report.id} onClick={() => applyAction(report, report.targetType === 'EPISODE' ? 'RESTORE_EPISODE' : 'RESTORE_MOMENT')}>Restore content</button>}
             {report.status !== 'ACTIONED' && report.status !== 'DISMISSED' && <>
               {report.status === 'NEW' && <button className="ghostButton" disabled={busy === report.id} onClick={() => review(report, 'REVIEWING')}>Mark under review</button>}
               {(report.targetType === 'EPISODE' || report.targetType === 'MOMENT') && <button className="primaryButton" disabled={busy === report.id} onClick={() => applyAction(report, report.targetType === 'EPISODE' ? 'HIDE_EPISODE' : 'HIDE_MOMENT')}>Hide reported content</button>}
