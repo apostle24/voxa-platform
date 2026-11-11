@@ -1,12 +1,24 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
+import { CreateMomentRenderDto } from './dto/create-moment-render.dto';
 import { CreateUploadUrlDto } from './dto/create-upload-url.dto';
 import { MediaService } from './media.service';
 
 @Controller()
 export class MediaController {
   constructor(private readonly media: MediaService) {}
+
+  @Post('moments/:momentId/render')
+  @UseGuards(JwtAuthGuard)
+  createMomentRender(@Req() req: AuthenticatedRequest, @Param('momentId') momentId: string, @Body() input: CreateMomentRenderDto) {
+    return this.media.createMomentRender(req.user.id, momentId, input);
+  }
+
+  @Get('moments/:momentId/render')
+  momentRender(@Req() req: AuthenticatedRequest, @Param('momentId') momentId: string) {
+    return this.media.getMomentRender(req.user?.id, momentId);
+  }
 
   @Post('shows/:showId/episodes/:episodeId/upload-url')
   @UseGuards(JwtAuthGuard)

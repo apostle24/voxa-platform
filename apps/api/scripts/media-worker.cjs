@@ -228,13 +228,105 @@ async function processAsset(asset) {
   }
 }
 
+
+async function claimMomentRender() {
+  const staleBefore = new Date(Date.now() - staleMs);
+  await prisma.momentRender.updateMany({
+    where: { status: 'PROCESSING', startedAt: { lt: staleBefore }, attempts: { lt: maxAttempts } },
+    data: { status: 'QUEUED', startedAt: null, failureReason: 'Recovered stale render worker lease' },
+  });
+  await prisma.momentRender.updateMany({
+    where: { status: 'PROCESSING', startedAt: { lt: staleBefore }, attempts: { gte: maxAttempts } },
+    data: { status: 'FAILED', startedAt: null, failureReason: 'Render worker lease expired too many times' },
+  });
+  const candidate = await prisma.momentRender.findFirst({
+    where: { status: 'QUEUED', attempts: { lt: maxAttempts } },
+    orderBy: { createdAt: 'asc' }, select: { id: true },
+  });
+  if (!candidate) return null;
+  const claimed = await prisma.momentRender.updateMany({
+    where: { id: candidate.id, status: 'QUEUED' },
+    data: { status: 'PROCESSING', attempts: { increment: 1 }, startedAt: new Date(), failureReason: null },
+  });
+  if (!claimed.count) return null;
+  return prisma.momentRender.findUnique({
+    where: { id: candidate.id },
+    include: { moment: { include: { episode: { include: { mediaAssets: { where: { status: 'READY' }, orderBy: { createdAt: 'desc' }, take: 1 } } } } } },
+  });
+}
+
+async function processMomentRender(job) {
+  const work = await mkdtemp(join(tmpdir(), 'voxa-moment-'));
+  const source = join(work, 'source.mp4');
+  const output = join(work, 'moment.mp4');
+  const srt = join(work, 'captions.srt');
+  try {
+    const asset = job.moment.episode.mediaAssets[0];
+    if (!asset?.playbackKey) throw new Error('Processed source video is unavailable');
+    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: asset.playbackKey }));
+    if (!object.Body || typeof object.Body.pipe !== 'function') throw new Error('Storage returned no readable source video');
+    await pipeline(object.Body, createWriteStream(source));
+    const duration = job.moment.endSeconds - job.moment.startSeconds;
+    if (duration < 1 || duration > 90) throw new Error('Moment duration must be between 1 and 90 seconds');
+    const ratio = job.aspectRatio === '16:9' ? '16:9' : '9:16';
+    const scaleCrop = ratio === '9:16'
+      ? 'scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920'
+      : 'scale=1920:1080:force_original_aspect_ratio=increase,crop=1920:1080';
+    const subtitleText = typeof job.subtitles?.text === 'string' ? job.subtitles.text.trim() : '';
+    let videoFilter = scaleCrop;
+    if (subtitleText) {
+      const safe = subtitleText.replace(/[\r\n]+/g, ' ').replace(/[<>]/g, '').slice(0, 5000);
+      const timestamp = value => {
+        const centiseconds = Math.max(0, Math.floor(value * 100));
+        const hours = Math.floor(centiseconds / 360000);
+        const minutes = Math.floor((centiseconds % 360000) / 6000);
+        const seconds = Math.floor((centiseconds % 6000) / 100);
+        const fraction = centiseconds % 100;
+        return String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0') + ',' + String(fraction).padStart(2, '0');
+      };
+      await require('node:fs/promises').writeFile(srt, '1\n' + timestamp(0) + ' --> ' + timestamp(duration) + '\n' + safe + '\n', 'utf8');
+      videoFilter += ',subtitles=' + srt;
+    }
+    await run('ffmpeg', [
+      '-nostdin', '-y', '-ss', String(job.moment.startSeconds), '-i', source, '-t', String(duration),
+      '-vf', videoFilter, '-map', '0:v:0', '-map', '0:a:0?', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23',
+      '-c:a', 'aac', '-b:a', '128k', '-movflags', '+faststart', output,
+    ], { timeout: 900000, maxBuffer: 4 * 1024 * 1024 });
+    const file = await stat(output);
+    if (!file.size) throw new Error('Clip export produced an empty file');
+    const playbackKey = 'moments/' + job.momentId + '/' + job.id + '.mp4';
+    await s3.send(new PutObjectCommand({
+      Bucket: bucket, Key: playbackKey, Body: createReadStream(output), ContentLength: file.size,
+      ContentType: 'video/mp4', Metadata: { momentid: job.momentId, renderid: job.id },
+    }));
+    await prisma.momentRender.update({
+      where: { id: job.id },
+      data: { status: 'READY', playbackKey, contentType: 'video/mp4', sizeBytes: BigInt(file.size), completedAt: new Date(), startedAt: null, failureReason: null },
+    });
+    console.log(JSON.stringify({ event: 'moment_render_ready', renderId: job.id, momentId: job.momentId }));
+  } catch (error) {
+    const reason = String(error && error.message || error).slice(0, 1000);
+    await prisma.momentRender.update({
+      where: { id: job.id },
+      data: { status: job.attempts >= maxAttempts ? 'FAILED' : 'QUEUED', startedAt: null, failureReason: reason },
+    });
+    console.error(JSON.stringify({ event: 'moment_render_error', renderId: job.id, reason }));
+  } finally {
+    await rm(work, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   console.log('VOXA media worker started');
   try {
     while (!stopping) {
       const asset = await claimOne();
       if (asset) await processAsset(asset);
-      else await sleep(intervalMs);
+      else {
+        const render = await claimMomentRender();
+        if (render) await processMomentRender(render);
+        else await sleep(intervalMs);
+      }
     }
   } finally {
     await prisma.$disconnect();
