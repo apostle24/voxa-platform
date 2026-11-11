@@ -9,7 +9,12 @@ import { SetEpisodeMembershipDto } from './dto/set-episode-membership.dto';
 import { CreateEpisodeCommentDto } from './dto/create-episode-comment.dto';
 import { CreateMomentDto } from './dto/create-moment.dto';
 import { ShowsService } from './shows.service';
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsArray, ArrayMaxSize, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+
+class SaveChaptersDto {
+  @IsArray() @ArrayMaxSize(100)
+  chapters!: Array<{ title: string; startSeconds: number }>;
+}
 
 class SaveTranscriptDto {
   @IsString() @MinLength(1) @MaxLength(200000)
@@ -148,6 +153,29 @@ export class ShowsController {
   @Get('episodes/:episodeId')
   getEpisode(@Param('episodeId') episodeId: string) {
     return this.shows.getEpisode(episodeId);
+  }
+
+  @Get('episodes/:episodeId/chapters')
+  getEpisodeChapters(@Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeChapters(episodeId);
+  }
+
+  @Get('episodes/:episodeId/member-chapters')
+  @UseGuards(JwtAuthGuard)
+  getMemberEpisodeChapters(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeChapters(episodeId, req.user.id);
+  }
+
+  @Get('shows/:showId/episodes/:episodeId/chapters')
+  @UseGuards(JwtAuthGuard)
+  getCreatorEpisodeChapters(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string) {
+    return this.shows.getCreatorEpisodeChapters(req.user.id, showId, episodeId);
+  }
+
+  @Put('shows/:showId/episodes/:episodeId/chapters')
+  @UseGuards(JwtAuthGuard)
+  saveEpisodeChapters(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: SaveChaptersDto) {
+    return this.shows.saveEpisodeChapters(req.user.id, showId, episodeId, input.chapters);
   }
 
   @Get('episodes/:episodeId/transcript')
