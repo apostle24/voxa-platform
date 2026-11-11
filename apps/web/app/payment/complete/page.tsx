@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
@@ -17,7 +18,7 @@ export default function PaymentCompletePage() {
     if (!token) { setError('Sign in again to check the membership status.'); setLoading(false); return; }
     setLoading(true); setError('');
     try {
-      const response = await fetch(API + '/me/payments/' + encodeURIComponent(ref), { headers: { Authorization: 'Bearer ' + token } });
+      const response = await apiFetch(API + '/me/payments/' + encodeURIComponent(ref), { headers: { Authorization: 'Bearer ' + token } });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Unable to verify payment status');
       setPayment(data);
