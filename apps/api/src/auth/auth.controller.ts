@@ -33,7 +33,7 @@ export class AuthController {
     } catch {
       // Registration remains successful if email delivery is temporarily unavailable.
     }
-    return this.withRefreshCookie(result, response);
+    return result;
   }
 
   @Post('login')
