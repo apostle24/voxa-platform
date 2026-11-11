@@ -134,6 +134,13 @@ export class ShowsController {
     return this.shows.discoverEpisodes({ q, category, language, cursor, limit: limit ? Number(limit) : undefined });
   }
 
+
+  @Get('discovery/recommended')
+  @UseGuards(JwtAuthGuard)
+  getPersonalizedRecommendations(@Req() req: AuthenticatedRequest, @Query('limit') limit?: string) {
+    return this.shows.getPersonalizedRecommendations(req.user.id, limit ? Number(limit) : undefined);
+  }
+
   @Get('discovery/categories')
   discoveryCategories() {
     return this.shows.discoveryCategories();
