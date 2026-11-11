@@ -247,6 +247,7 @@ export default function LiveRoomPage() {
           <button className={camera ? 'controlButton on' : 'controlButton'} onClick={()=>void toggleCamera()} disabled={!isHost && !approved}>{camera ? 'Camera on' : 'Camera off'}</button>
           {!isHost && !approved && <button className="button" disabled={pending || busy==='request'} onClick={()=>void action('request','/live/rooms/'+roomId+'/stage-requests')}>{pending ? 'Stage request pending' : 'Request to speak'}</button>}
           {!isHost && approved && <button className="button" onClick={()=>void connect()}>Reconnect to speak ↗</button>}
+          {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button danger" disabled={!!busy} onClick={() => void action('cancel-scheduled', '/live/rooms/' + roomId + '/cancel')}>Cancel scheduled room</button>}
           {stage?.isHost && stage.status === 'SCHEDULED' && <button className="button" disabled={!!busy || (!!stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now())} onClick={()=>void connect()}>{stage.scheduledAt && new Date(stage.scheduledAt).getTime() > Date.now() ? 'Starts at scheduled time' : 'Start live room ↗'}</button>}
           {!stage?.isHost && stage?.status === 'LIVE' && status !== 'Connected · Listening' && status !== 'Connecting to live media…' && <button className="button" onClick={()=>void connect()}>Join live room ↗</button>}
           {status === 'Disconnected' && <button className="button" onClick={()=>void connect()}>Reconnect to live room ↻</button>}
