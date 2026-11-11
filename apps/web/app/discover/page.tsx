@@ -26,7 +26,7 @@ type Episode = {
   semanticExcerptStartSeconds?: number | null;
   semanticExcerptEndSeconds?: number | null;
   semanticExcerptSpeaker?: string | null;
-  show: { id: string; title: string; creator: { handle: string; user: { displayName: string } } };
+  show: { id: string; title: string; category?: string | null; creator: { handle: string; user: { displayName: string } } };
 };
 
 export default function DiscoverPage() {
