@@ -154,7 +154,7 @@ export default function LiveRoomPage() {
             const hasFloor = Boolean(isHostRef.current || isCoHostRef.current || (packet.speakerId && packet.speakerId === room.localParticipant.identity));
             canPublishRef.current = hasFloor; setCanPublish(hasFloor);
             if (!hasFloor) { setMic(false); setCamera(false); }
-            setStatus(hasFloor ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity) ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
+            setStatus(hasFloor ? (isHostRef.current ? 'Connected · Hosting' : isCoHostRef.current ? 'Connected · Co-hosting' : 'Connected · You have the floor') : roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity) ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
             void refreshSessionPlan();
           }
           if (packet?.type === 'VOXA_REACTION' && ['👏', '❤️', '🔥', '😂', '🎉', '🙌'].includes(packet.emoji)) {
@@ -164,7 +164,7 @@ export default function LiveRoomPage() {
       });
       room.on(RoomEvent.Reconnected, () => {
         setError('');
-        setStatus(canPublishRef.current ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
+        setStatus(canPublishRef.current ? (isHostRef.current ? 'Connected · Hosting' : isCoHostRef.current ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
       });
       room.on(RoomEvent.Disconnected, () => {
         setStatus('Disconnected');
