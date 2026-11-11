@@ -272,6 +272,7 @@ export default function EpisodePage() {
               {saving ? ' · Saving progress…' : ''}
             </p>
           </section>}
+          <EpisodeCommunity episodeId={episode.id} token={token} />
         </>}
       </section>
     </main>
