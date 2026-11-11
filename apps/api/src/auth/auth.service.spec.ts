@@ -17,7 +17,7 @@ describe('AuthService', () => {
       $transaction: jest.fn(),
     };
     jwt = {
-      signAsync: jest.fn().mockResolvedValueOnce('signed-access-token').mockResolvedValue('signed-refresh-token'),
+      signAsync: jest.fn().mockImplementation((_payload: unknown, options?: unknown) => Promise.resolve(options ? 'signed-refresh-token' : 'signed-access-token')),
       verifyAsync: jest.fn(),
     };
     prisma.authSession.create.mockResolvedValue({});
@@ -50,7 +50,7 @@ describe('AuthService', () => {
       data: expect.objectContaining({ userId: 'user-1', tokenHash: expect.any(String), expiresAt: expect.any(Date) }),
     });
     expect(jwt.signAsync).toHaveBeenCalledWith({ sub: 'user-1', email: 'person@example.com', role: 'LISTENER' });
-    expect(result).not.toHaveProperty('refreshToken');
+    expect(result).toHaveProperty('refreshToken', 'signed-refresh-token');
   });
 
   it('rejects registration when the email is already in use', async () => {
@@ -134,6 +134,14 @@ describe('AuthService', () => {
     jwt.verifyAsync.mockResolvedValue({ sub: 'user-4', jti: 'session-old', typ: 'access' });
     await expect(service.refresh('wrong-kind-token')).rejects.toBeInstanceOf(UnauthorizedException);
     expect(prisma.authSession.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('revokes every active session for the user on logout-all', async () => {
+    prisma.authSession.updateMany.mockResolvedValue({ count: 3 });
+    await expect(service.logoutAll('user-4')).resolves.toEqual({ success: true });
+    expect(prisma.authSession.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-4', revokedAt: null }, data: { revokedAt: expect.any(Date) },
+    });
   });
 
   it('revokes the current refresh session on logout', async () => {
