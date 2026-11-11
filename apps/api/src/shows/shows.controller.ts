@@ -178,6 +178,17 @@ export class ShowsController {
     return this.shows.saveEpisodeChapters(req.user.id, showId, episodeId, input.chapters);
   }
 
+  @Get('episodes/:episodeId/intelligence')
+  getEpisodeIntelligence(@Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeIntelligence(episodeId);
+  }
+
+  @Get('episodes/:episodeId/member-intelligence')
+  @UseGuards(JwtAuthGuard)
+  getMemberEpisodeIntelligence(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.shows.getEpisodeIntelligence(episodeId, req.user.id);
+  }
+
   @Get('episodes/:episodeId/transcript')
   getEpisodeTranscript(@Param('episodeId') episodeId: string) {
     return this.shows.getEpisodeTranscript(episodeId);
