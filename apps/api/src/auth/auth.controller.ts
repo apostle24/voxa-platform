@@ -4,6 +4,13 @@ import { AuthRateLimitGuard } from './auth-rate-limit.guard';
 import { JwtAuthGuard, AuthenticatedRequest } from './jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+import { AccountSecurityService } from './account-security.service';
+import { EmailDto } from './dto/email.dto';
+import { EmailTokenDto } from './dto/email-token.dto';
+import { MfaVerifyDto } from './dto/mfa-verify.dto';
+import { MfaCodeDto } from './dto/mfa-code.dto';
+import { PasswordResetDto } from './dto/password-reset.dto';
+import { MfaService } from './mfa.service';
 import { UpdateAccountProfileDto } from './dto/update-account-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
@@ -19,7 +26,7 @@ const COOKIE_MAX_AGE = 30 * 24 * 60 * 60 * 1000;
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly auth: AuthService, private readonly accountSecurity: AccountSecurityService, private readonly mfa: MfaService) {}
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
@@ -41,11 +48,29 @@ export class AuthController {
     return result;
   }
 
+  @Get('sessions')
+  @UseGuards(JwtAuthGuard)
+  listSessions(@Req() request: AuthenticatedRequest) {
+    return this.auth.listSessions(request.user.id);
+  }
+
+  @Delete('sessions/:sessionId')
+  @UseGuards(JwtAuthGuard)
+  revokeSession(@Req() request: AuthenticatedRequest, @Param('sessionId') sessionId: string) {
+    return this.auth.revokeSession(request.user.id, sessionId);
+  }
+
   @Post('register')
   @UseGuards(AuthRateLimitGuard)
   async register(@Body() input: RegisterDto, @Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
-    return this.withRefreshCookie(await this.auth.register(input), response);
+    const result = await this.auth.register(input);
+    try {
+      await this.accountSecurity.requestEmailVerification(input.email);
+    } catch {
+      // Registration remains successful if email delivery is temporarily unavailable.
+    }
+    return result;
   }
 
   @Post('login')
@@ -53,7 +78,38 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   async login(@Body() input: LoginDto, @Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
-    return this.withRefreshCookie(await this.auth.login(input), response);
+    const result = await this.auth.login(input);
+    if ('refreshToken' in result) return this.withRefreshCookie(result, response);
+    return result;
+  }
+
+  @Post('mfa/setup')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  beginMfaSetup(@Req() request: AuthenticatedRequest) {
+    return this.mfa.beginSetup(request.user.id, request.user.email);
+  }
+
+  @Post('mfa/enable')
+  @UseGuards(JwtAuthGuard, AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  enableMfa(@Req() request: AuthenticatedRequest, @Body() input: MfaCodeDto) {
+    return this.mfa.enable(request.user.id, input.token);
+  }
+
+  @Post('mfa/disable')
+  @UseGuards(JwtAuthGuard, AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  disableMfa(@Req() request: AuthenticatedRequest, @Body() input: MfaCodeDto) {
+    return this.mfa.disable(request.user.id, input.token);
+  }
+
+  @Post('mfa/challenge')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  async verifyMfaChallenge(@Body() input: MfaVerifyDto, @Res({ passthrough: true }) response: AuthHttpResponse) {
+    const user = await this.mfa.verifyLoginChallenge(input.token, input.code);
+    return this.withRefreshCookie(await this.auth.issueAuthenticatedSession(user), response);
   }
 
   @Post('refresh')
@@ -72,16 +128,32 @@ export class AuthController {
     return { success: true };
   }
 
-  @Get('sessions')
-  @UseGuards(JwtAuthGuard)
-  listSessions(@Req() request: AuthenticatedRequest) {
-    return this.auth.listSessions(request.user.id);
+  @Post('verification/request')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  requestEmailVerification(@Body() input: EmailDto) {
+    return this.accountSecurity.requestEmailVerification(input.email);
   }
 
-  @Delete('sessions/:sessionId')
-  @UseGuards(JwtAuthGuard)
-  revokeSession(@Req() request: AuthenticatedRequest, @Param('sessionId') sessionId: string) {
-    return this.auth.revokeSession(request.user.id, sessionId);
+  @Post('verification/confirm')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  confirmEmailVerification(@Body() input: EmailTokenDto) {
+    return this.accountSecurity.confirmEmailVerification(input.token);
+  }
+
+  @Post('password/forgot')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  requestPasswordReset(@Body() input: EmailDto) {
+    return this.accountSecurity.requestPasswordReset(input.email);
+  }
+
+  @Post('password/reset')
+  @UseGuards(AuthRateLimitGuard)
+  @HttpCode(HttpStatus.OK)
+  resetPassword(@Body() input: PasswordResetDto) {
+    return this.accountSecurity.resetPassword(input.token, input.password);
   }
 
   @Post('logout-all')
