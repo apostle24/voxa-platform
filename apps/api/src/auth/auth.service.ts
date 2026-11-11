@@ -44,7 +44,7 @@ export class AuthService {
   }
 
   async updateMyProfile(userId: string, displayName: string) {
-    const normalizedName = displayName.trim().replace(/\\s+/g, ' ');
+    const normalizedName = displayName.trim().replace(/\s+/g, ' ');
     if (normalizedName.length < 2 || normalizedName.length > 80) {
       throw new BadRequestException('Display name must be between 2 and 80 characters');
     }
