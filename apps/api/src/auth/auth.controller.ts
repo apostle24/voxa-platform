@@ -1,10 +1,15 @@
 import { Body, Controller, ForbiddenException, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
-import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { AuthRateLimitGuard } from './auth-rate-limit.guard';
 import { JwtAuthGuard, AuthenticatedRequest } from './jwt-auth.guard';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+
+type AuthHttpRequest = { headers: { cookie?: string; origin?: string } };
+type AuthHttpResponse = {
+  cookie(name: string, value: string, options: { httpOnly: boolean; secure: boolean; sameSite: 'lax' | 'none'; path: string; maxAge?: number }): void;
+  clearCookie(name: string, options: { httpOnly: boolean; secure: boolean; sameSite: 'lax' | 'none'; path: string }): void;
+};
 
 const REFRESH_COOKIE = 'voxa_refresh';
 const COOKIE_PATH = '/v1/auth';
@@ -16,7 +21,7 @@ export class AuthController {
 
   @Post('register')
   @UseGuards(AuthRateLimitGuard)
-  async register(@Body() input: RegisterDto, @Req() request: Request, @Res({ passthrough: true }) response: Response) {
+  async register(@Body() input: RegisterDto, @Req() request: AuthHttpRequest, @Res({ passthrough: true }) response: AuthHttpResponse) {
     this.assertTrustedOrigin(request);
     return this.withRefreshCookie(await this.auth.register(input), response);
   }
@@ -48,7 +53,7 @@ export class AuthController {
   @Post('logout-all')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  async logoutAll(@Req() request: AuthenticatedRequest, @Res({ passthrough: true }) response: Response) {
+  async logoutAll(@Req() request: AuthenticatedRequest & AuthHttpRequest, @Res({ passthrough: true }) response: Response) {
     await this.auth.logoutAll(request.user.id);
     response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
     return { success: true };
