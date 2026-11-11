@@ -13,6 +13,23 @@ export class CommunitiesController {
     return this.communities.discover(q, category);
   }
 
+  @Get('me/owned')
+  @UseGuards(JwtAuthGuard)
+  listOwned(@Req() req: AuthenticatedRequest) {
+    return this.communities.listOwned(req.user.id);
+  }
+
+  @Get(':communityId/members')
+  @UseGuards(JwtAuthGuard)
+  listMembers(@Req() req: AuthenticatedRequest, @Param('communityId') id: string, @Query('q') q?: string) {
+    return this.communities.listMembers(req.user.id, id, q);
+  }
+
+  @Delete(':communityId/members/:memberId')
+  @UseGuards(JwtAuthGuard)
+  removeMember(@Req() req: AuthenticatedRequest, @Param('communityId') id: string, @Param('memberId') memberId: string) {
+    return this.communities.removeMember(req.user.id, id, memberId);
+  }
   @Get(':communityId/membership')
   @UseGuards(JwtAuthGuard)
   membership(@Req() req: AuthenticatedRequest, @Param('communityId') id: string) {

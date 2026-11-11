@@ -270,7 +270,7 @@ export default function CreatorStudioPage() {
 
   return (
     <main className="appShell">
-      <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/discover">Discover</Link><Link href="/library">My library</Link><Link href="/creator/earnings">Earnings</Link></div></nav>
+      <nav className="nav"><Link className="brand" href="/">VOXA<span>.</span></Link><div className="navLinks"><Link href="/discover">Discover</Link><Link href="/library">My library</Link><Link href="/creator/audience">Audience</Link><Link href="/creator/earnings">Earnings</Link></div></nav>
       <section className="communityPage" style={{ maxWidth: 1120 }}>
         <div className="eyebrow">CREATOR WORKSPACE</div>
         <h1 style={{ fontSize: 'clamp(34px,5vw,54px)', letterSpacing: -2, margin: '12px 0' }}>Creator Studio.</h1>

@@ -7,6 +7,7 @@ import {
   Post,
   Patch,
   Req,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { AuthenticatedRequest, JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -36,6 +37,11 @@ export class CreatorsController {
     return this.creators.getFollowing(request.user.id);
   }
 
+  @Get('me/audience')
+  @UseGuards(JwtAuthGuard)
+  getMyAudience(@Req() request: AuthenticatedRequest, @Query('q') q?: string) {
+    return this.creators.getMyAudience(request.user.id, q);
+  }
   @Get('me/analytics')
   @UseGuards(JwtAuthGuard)
   getMyAnalytics(@Req() request: AuthenticatedRequest) {

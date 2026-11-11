@@ -6,6 +6,36 @@ import { CreateCommunityDto } from './dto/create-community.dto';
 export class CommunitiesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async listOwned(userId: string) {
+    return this.prisma.community.findMany({
+      where: { ownerId: userId }, orderBy: { updatedAt: 'desc' },
+      select: { id: true, name: true, slug: true, description: true, category: true, artworkUrl: true, createdAt: true,
+        _count: { select: { members: true, posts: true } } },
+    });
+  }
+
+  async listMembers(userId: string, communityId: string, query?: string) {
+    const community = await this.prisma.community.findFirst({ where: { id: communityId, ownerId: userId }, select: { id: true, name: true } });
+    if (!community) throw new NotFoundException('Community not found');
+    const search = query?.trim();
+    const where = { communityId, ...(search ? { user: { displayName: { contains: search, mode: 'insensitive' as const } } } : {}) };
+    const [total, members] = await Promise.all([
+      this.prisma.communityMember.count({ where }),
+      this.prisma.communityMember.findMany({ where, orderBy: { joinedAt: 'desc' }, take: 100,
+        select: { role: true, joinedAt: true, user: { select: { id: true, displayName: true, createdAt: true } } } }),
+    ]);
+    return { community, total, returned: members.length, hasMore: total > members.length, members: members.map(({ user, role, joinedAt }) => ({ ...user, role, joinedAt })) };
+  }
+
+  async removeMember(userId: string, communityId: string, memberId: string) {
+    const community = await this.prisma.community.findFirst({ where: { id: communityId, ownerId: userId }, select: { id: true } });
+    if (!community) throw new NotFoundException('Community not found');
+    const member = await this.prisma.communityMember.findUnique({ where: { communityId_userId: { communityId, userId: memberId } }, select: { role: true } });
+    if (!member) throw new NotFoundException('Community member not found');
+    if (member.role === 'OWNER') throw new ConflictException('Community ownership cannot be removed from the member list');
+    const removed = await this.prisma.communityMember.deleteMany({ where: { communityId, userId: memberId, role: { not: 'OWNER' } } });
+    return { removed: removed.count === 1, communityId, memberId };
+  }
   async discover(q?: string, category?: string) {
     const search = q?.trim();
     return this.prisma.community.findMany({
