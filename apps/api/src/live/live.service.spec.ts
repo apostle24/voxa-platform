@@ -497,6 +497,22 @@ describe('LiveService access boundaries', () => {
     }));
   });
 
+
+  it('allows an appointed co-host to hand off the speaking turn without granting that power to moderators', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
+    prisma.liveRoomCoHost.findUnique.mockResolvedValue({ id: 'cohost-assignment' });
+    prisma.liveStageMember.findUnique.mockResolvedValue({ userId: 'speaker-2', leftAt: null });
+    prisma.liveSpeakerTurn.findFirst.mockResolvedValue(null);
+    prisma.liveStageMember.findMany.mockResolvedValue([{ userId: 'speaker-2' }]);
+    jest.spyOn(service as any, 'roomServiceClient').mockReturnValue({
+      listParticipants: jest.fn().mockResolvedValue([{ identity: 'speaker-2' }]),
+      updateParticipant: jest.fn().mockResolvedValue({}),
+    });
+    prisma.liveSpeakerTurn.create.mockResolvedValue({ id: 'turn-3', speakerId: 'speaker-2', status: 'ACTIVE' });
+    await expect(service.handoffSpeaker('cohost-1', 'room-1', 'speaker-2'))
+      .resolves.toMatchObject({ id: 'turn-3', speakerId: 'speaker-2' });
+  });
+
   it('does not allow a moderator to take control of the speaker handoff', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE' });
     await expect(service.handoffSpeaker('moderator-1', 'room-1', 'speaker-1')).rejects.toBeInstanceOf(ForbiddenException);
