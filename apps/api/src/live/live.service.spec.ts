@@ -77,7 +77,6 @@ describe('LiveService access boundaries', () => {
   });
 
   it('records one poll vote per user and rejects a second vote', async () => {
-    const startsAt = new Date(Date.now() + 60 * 60 * 1000);
     prisma.liveRoom.findUnique.mockResolvedValue({ id: 'room-1', hostId: 'host-1', status: 'LIVE', visibility: 'PUBLIC' });
     prisma.livePoll.findFirst.mockResolvedValue({ id: 'poll-1', status: 'OPEN' });
     prisma.livePollOption.findFirst.mockResolvedValue({ id: 'option-1' });
