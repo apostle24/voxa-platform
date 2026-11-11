@@ -1,222 +1,209 @@
-# VOXA Build Audit — 10 November 2026
+# VOXA Build Audit — 11 November 2026
 
-## Audit scope and confidence
+## Audit identity and evidence
 
-Repository reviewed: `apostle24/voxa-platform`, branch `main`.
-Audited HEAD: `67f8b5a9b8d18f4cbca5b9872432397fc48f9ac0`.
-The latest application-code commit in the audited chain is `b50e69e00906a88a1348ac9f1beca0a4cc559d19`; the two later commits update settlement configuration and documentation.
+- Repository: `apostle24/voxa-platform`
+- Branch: `main`
+- Audited HEAD: `1a4b351d69c22a54a88611dc8118fa68e3005e57`
+- Latest verified CI: [GitHub Actions run #257](https://github.com/apostle24/voxa-platform/actions/runs/42982097080) — **completed successfully**.
+- Verified CI steps: frozen pnpm install, Prisma validation and generation, media-worker syntax check, isolated media-worker Docker image build, API/web typecheck, API unit tests, API build, web build.
+- Repository inspection included the current recursive Git tree, README, product/architecture/roadmap docs, API and web package manifests, auth/live/media/payment implementation, worker script, environment examples, and current CI workflow.
 
-GitHub Actions run [42918279049](https://github.com/apostle24/voxa-platform/actions/runs/42918279049) completed successfully. Dependency installation, Prisma validation, Prisma generation, API compilation, and web compilation all passed. This is build evidence only. No live database, provider account, object-storage bucket, LiveKit project, deployed environment, or end-to-end user journey was available to verify in this repository audit.
+A green CI run proves the checked-in code passes those automated checks. It does **not** prove production deployment, real database/object-storage/LiveKit/Paystack connectivity, browser end-to-end behavior, real media processing, live-room quality, or real-money movement. Those have not been represented as verified.
 
 ## Executive assessment
 
-VOXA is an early but meaningful **web/API engineering foundation**, not a complete podcast/social platform and not production-ready. The strongest implemented areas are creator identity/profile foundations, podcast metadata APIs, a first LiveKit room-control/media connection path, in-app notifications, and a comparatively advanced GHS membership/ledger/payout workflow.
+VOXA is an early functional web/API MVP with meaningful podcast, LIVE, creator and financial foundations. It is **not a finished global platform and is not production-ready**. The next priority is to verify and harden the existing end-to-end journeys, not to add a large number of unrelated features.
 
-The main product experience is still incomplete. The repository contains no mobile app source, no shared contracts package, no automated test files, and only ten web page routes. Several large product pillars remain specification-only. The next stage should prioritize making the current core safe and demonstrably usable before adding more monetization or growth features.
+The current repository has:
+- A pnpm monorepo with NestJS API and Next.js 15 / React 19 web client.
+- PostgreSQL/Prisma schema and migrations.
+- A current CI pipeline with typechecking, API tests, API/web builds, and a worker Docker build.
+- 6 API Jest spec files.
+- 15 Next.js page/layout route files.
+- No `apps/mobile` source tree and no shared `packages/contracts` package.
 
-## What exists now
+## What is implemented in the current repository
 
-### Repository and infrastructure
-- pnpm monorepo with NestJS API and Next.js 15 / React 19 web client.
-- PostgreSQL / Prisma schema and migrations.
-- Docker Compose development dependencies (PostgreSQL and Redis).
-- One GitHub Actions workflow that validates Prisma and builds API and web.
-- Product, architecture, LIVE, security, roadmap, and finance documentation.
+### Listener and podcast journey
+- Discovery page with published show/episode search and category filtering.
+- Public show detail and episode detail routes.
+- Browser audio/video playback through native controls.
+- Bookmarks, playback progress and personal library/resume journey.
+- Creator public profile pages.
 
-### API capabilities implemented in code
-- Email/password registration and login; bcrypt password hashing; 15-minute JWT access tokens.
-- Creator profile creation, update, public profile retrieval, follow/unfollow.
-- Show and episode draft creation/update/publish APIs.
-- Public show/episode reads, discovery API endpoints, bookmarks, playback progress.
-- S3-compatible signed upload and playback URL foundation.
-- Live room creation/listing, LiveKit access tokens, stage requests, host approval/rejection, speaker removal, room ending.
-- Persisted in-app notification inbox and read/unread actions.
-- Membership plan create/update/list and subscriber/creator membership reads.
-- Paystack GHS one-time monthly membership checkout and signed webhook verification.
-- Double-entry ledger postings for membership gross, 15% VOXA commission, 85% creator pending earnings, and separately recorded provider fees.
-- Creator earnings/history, payout destinations, payout request reservation, admin verification/review/approval, gated Paystack transfer submission, transfer reconciliation, and verified transfer webhook handling.
-- Ledger-derived admin finance overview and finance dashboard.
-- Seven-day settlement release path plus an optional scheduled settlement worker.
+### Creator journey
+- Creator onboarding and profile editing.
+- Creator Studio for show and episode drafts.
+- Direct signed upload to S3-compatible storage.
+- Upload completion checks object ownership metadata, content type, size and sampled file signature.
+- Uploaded assets enter a processing queue; publishing and playback require a processed READY asset.
+- Membership plan creation and members-only episode controls.
+- Creator earnings page.
 
-### Web routes present
-- Landing page
-- Login/register
-- Public LIVE room list and create-room form
-- LIVE room client with LiveKit connection, mic/camera, stage request, host approve/reject/remove/end controls
-- Creator onboarding and creator public profile
-- Notifications inbox
-- Creator earnings
-- Payment completion/status page
-- Admin finance dashboard
+### Media processing foundation
+- Separate Node worker at `apps/api/scripts/media-worker.cjs`.
+- Worker claims queued assets, tracks attempts, renews processing leases, recovers stale leases and limits retries.
+- ClamAV scan, FFprobe stream/duration inspection, FFmpeg MP3 or H.264/AAC MP4 transcode.
+- Processed object upload to a separate storage key; asset becomes READY only after processed upload and database update.
+- Dedicated Dockerfile, non-root runtime entrypoint, Compose deployment file and Docker CI build are committed.
+- **Not yet verified:** deployed worker, real S3-compatible bucket, actual sample media through the complete pipeline, malware database operations under deployment, and playback in a browser using real processed assets.
 
-## What is not built yet (or only specified)
+### VOXA LIVE
+- Live room creation and public room discovery.
+- LiveKit browser SDK connection, microphone/camera controls and short-lived server-issued room tokens.
+- Host/audience publishing permissions and speaker-stage state.
+- Audience stage requests, host approve/reject, speaker removal and host room ending.
+- Ephemeral room chat and reactions over LiveKit data channels.
+- **Not yet a complete broadcast product:** application-backed durable chat, moderator roles, stage capacity, chat moderation, polls/Q&A, robust participant presence, token refresh/reconnect handling, recording/replay and load-tested room orchestration.
 
-- **Mobile:** no `apps/mobile` source files are present, despite the README describing a mobile foundation.
-- **Shared contracts:** no `packages/contracts` source is present.
-- **Podcast listener experience:** no show detail route, episode detail route, audio/video player, browse/discovery UI, listening queue, transcript, chapters, comments, or working episode playback journey.
-- **Creator Studio:** no complete show/episode management UI, upload workflow UI, publishing checklist, creator analytics, audience insights, or scheduling dashboard.
-- **LIVE engagement:** no application chat, reactions, polls, Q&A, co-host invitation, moderator role/permissions, stage capacity, lock-stage/slow-mode controls, participant presence/quality indicators, recording, replay processing, or scheduled-room orchestration.
-- **Community:** no creator community spaces, posts, discussions, announcements, member roles, or community moderation.
-- **VOXA Moments:** no short-form clip creation, editing, approval, rights linkage, or feed.
-- **Commerce beyond memberships:** no user wallet/coins, gifts, tips, ticketing, paid event access, ads, sponsorship marketplace, refunds, chargebacks, or consumer premium.
-- **Trust and safety:** no report/block/mute/ban/appeal workflows, moderation queues, automated abuse/spam controls, age controls, copyright takedown workflow, or safety operations console.
-- **Notifications delivery:** inbox is persisted, but push and email delivery are absent.
-- **Production operations:** no deployment manifests/pipeline, secrets-manager wiring, CDN/media processing workers, observability stack, alerting, backup/restore evidence, incident runbooks, or load/penetration testing.
+### Memberships, payments and finance
+- GHS one-time monthly membership checkout foundation through Paystack.
+- Signed webhook validation and independent provider transaction verification.
+- Membership activation and extension.
+- Double-entry ledger entries for gross collection, 15% VOXA commission and 85% creator pending entitlement.
+- Provider fees are accounted separately as platform expenses, not deducted from the creator's 85%.
+- Seven-day settlement hold and optional scheduled settlement worker.
+- Creator earnings/history, payout destination onboarding, payout request reservation and admin finance console.
+- Admin destination verification, payout review/approval, gated transfer submission and provider reconciliation foundations.
+- Transfer feature flags default to disabled.
+- **Not yet verified:** real merchant credentials, staging collection, live provider callbacks, approved Transfers access, real payout, bank reconciliation, refund/chargeback and fraud operations.
 
-## Findings that need fixing or verification
+### Notifications and administration
+- Persisted in-app inbox and read/unread actions.
+- Follow and creator-live notification records.
+- Admin finance overview, payout review and financial audit records.
+- Push/email delivery and a broad trust-and-safety operations console are not built.
 
-### Critical / launch blockers
-1. **Authentication is MVP-only.** Access tokens are stored in browser `sessionStorage`; refresh-token rotation, secure HTTP-only cookie sessions, email verification, password recovery, MFA, session/device revocation, and rate limiting are absent.
-2. **Admin provisioning is undefined.** Registration always creates a normal listener. Admin routes check a JWT role, but the repository contains no safe first-admin bootstrap or privileged-role management process. Do not make a public role-assignment endpoint.
-3. **No automated tests.** The tree contains no unit, integration, or end-to-end test files. CI currently proves compilation/schema validity, not behavior, security, financial invariants, or API contracts.
-4. **No production integrations are verified.** LiveKit, Paystack, S3, database, DNS, email/push, and deployment credentials are not configured by this code audit. Payment/payout flags are disabled by default.
-5. **Media is not production-safe yet.** Upload completion checks object metadata and size/type labels, but there is no actual codec/file-signature inspection, malware scan, moderation, duration extraction, transcoding, adaptive streaming, or CDN pipeline.
-6. **Financial operations need test coverage and operational controls before live money.** The code includes a strong foundation, but there are no verified staging payment/payout runs, provider reconciliation reports, refund/chargeback flows, fraud/velocity controls, or independent ledger invariant tests.
+## Current web routes
 
-### High-priority engineering corrections
-1. **Settlement worker overlap guard:** the worker's immediate startup batch is launched before setting `settlementRunInProgress`. If it runs longer than the configured interval, the timer may start a second in-process batch. Set/clear the guard around the initial run as well.
-2. **Settlement batch sizing:** one serializable transaction processes up to 500 payments with multiple account/ledger operations per payment and a 30-second timeout. Load-test this and likely reduce/chunk the batch or optimize queries before enabling the worker.
-3. **Coordinate settlement paths:** the scheduled worker uses a PostgreSQL advisory lock, while the on-demand earnings/payout release path does not use that same lock. The unique ledger key is a second safeguard, but concurrent collisions can abort a whole scheduled batch. Unify the locking/retry behavior and test concurrency.
-4. **Environment variable consistency:** root `.env.example` uses `OBJECT_STORAGE_*` names, while the API reads `S3_*`; the API-specific `apps/api/.env.example` has the names the code actually reads. Make root and service examples consistent.
-5. **CI trigger gap:** the `pull_request` path filter omits `apps/web/**`, so web-only pull requests may not run this workflow. Add it.
-6. **Reproducible CI installs:** CI uses `pnpm install --no-frozen-lockfile`; switch to frozen-lockfile installs once the lockfile is confirmed committed and current.
-7. **CI quality gates:** add API/web typecheck, unit/integration tests, migration checks, lint, and later browser end-to-end tests. Build-only success must not be described as functional verification.
-8. **Membership plan currency mismatch:** plan creation accepts any three-letter currency, but the current Paystack checkout only accepts GHS. Enforce the current GHS product boundary in plan creation/UI or implement a proper provider/country capability layer before exposing other currencies.
-9. **Route completeness:** creator show cards link to `/shows/:id`, but there is no corresponding web route. Add show and episode routes/player before treating podcast publishing as a complete user journey.
-10. **LIVE permission and state hardening:** restricted rooms are intentionally denied pending entitlements. Add room-scoped moderator permissions, stage capacity, token refresh/revocation handling, stage state tests, and ensure room state transitions reconcile against actual LiveKit events.
-11. **Documentation drift:** `docs/VOXA_LIVE.md` still says the client SDK is not integrated, although a LiveKit web client exists. Finance documentation has older “not yet implemented” statements alongside later implementation sections. Reconcile docs into one accurate current-state description.
+- `/` — landing
+- `/login` — authentication
+- `/discover` — podcast discovery
+- `/shows/[showId]` — show detail
+- `/episodes/[episodeId]` — episode playback
+- `/library` — saved and unfinished listening
+- `/creator/setup` — creator onboarding
+- `/creator/[handle]` — public creator profile
+- `/creator/studio` — creator publishing studio
+- `/creator/earnings` — creator earnings
+- `/live` and `/live/[roomId]` — LIVE discovery and room
+- `/notifications` — notification inbox
+- `/admin/finance` — finance console
+- `/payment/complete` — payment return/status
 
-### Additional quality work
-- Add pagination and request throttling to high-volume list and mutation endpoints.
-- Add secure upload quotas, signed URL lifecycle controls, file validation, and cleanup of abandoned uploads.
-- Improve user-facing auth, payment, room, and network error states.
-- Add API health/readiness checks that actually test database/provider dependencies; current health response is a static process response.
-- Add structured logs, metrics, tracing, error reporting, audit retention, and alerts.
-- Define backup retention, restore drills, incident response, privacy/data deletion/export, legal terms, and market-by-market compliance.
+## Automated verification currently present
 
-## Recommended build structure and order
+Six API Jest spec files exist:
+- `auth/auth.service.spec.ts`
+- `ledger/ledger.service.spec.ts`
+- `live/live.service.spec.ts`
+- `media/media.service.spec.ts`
+- `memberships/memberships.service.spec.ts`
+- `shows/shows.service.spec.ts`
 
-### Stage A — Stabilize the existing foundation (do first)
-- Fix settlement worker guard, batch strategy, and shared locking/retry.
-- Align environment templates and CI path/install rules.
-- Add first automated tests for auth, creator ownership, publishing permissions, media authorization, LIVE stage permissions, payment webhook verification/idempotency, ledger balance, payout reserve/release/reversal, and settlement concurrency.
-- Add a safe, documented admin bootstrap.
-- Reconcile stale documentation and create a truthful deployment/configuration checklist.
+The tests cover selected service behavior and safety boundaries. There is no web browser E2E suite, no API integration suite backed by a real test database, and no dedicated payments/payout service test file in the current tree. The successful CI run is therefore useful but not a substitute for full product verification.
 
-**Exit gate:** CI runs frozen install, schema/migration validation, typecheck, unit/integration tests, and API/web builds; critical tests pass.
+## Findings and remaining risks
 
-### Stage B — Complete the podcast product journey
-- Discovery/search pages, creator show pages, episode pages, audio/video player.
-- Creator Studio for show/episode creation, upload, status, publish, and membership gating.
-- Real media worker: validation, malware scanning, metadata extraction, transcoding/HLS, thumbnails/artwork, CDN delivery.
-- Playback progress, bookmarks, queues, accessibility, transcripts/chapters foundations.
+### P0 — must be addressed before public production launch
 
-**Exit gate:** a creator can upload and publish a valid episode and a listener can discover, play, save, and resume it end-to-end.
+1. **Authentication/session security remains MVP-grade.** Access tokens are returned to the web client and stored in `sessionStorage`. There is no refresh-token rotation, HTTP-only secure cookie session lifecycle, email verification, password recovery, MFA, session/device revocation, or demonstrated rate limiting.
+2. **No full end-to-end product verification.** Automated browser tests and database-backed integration tests are absent. The primary listener, creator, live and payment journeys need repeatable tests.
+3. **External integrations are not production-verified.** Database, S3, LiveKit and Paystack credentials/deployments have not been used for verified staging journeys. Payment and payout flags must remain disabled until provider approval and staging verification.
+4. **Media worker is packaged, not operationally proven.** It has not been deployed and exercised against real files, object storage and production-like worker limits. HLS/DASH, CDN delivery, thumbnails, transcripts, moderation and copyright controls remain absent.
+5. **Trust and safety is incomplete.** Report, block, mute, ban, appeal, moderation queue, age controls, content/copyright workflows and abuse operations are not implemented.
+6. **Financial risk controls are incomplete.** Payment/payout service test coverage, refunds, chargebacks, fraud/velocity controls, step-up authentication for payout changes, reconciliation reporting and operator alerting remain required before real money.
 
-### Stage C — Make VOXA LIVE launchable
-- Chat, reactions, presence, moderator roles, host controls, stage capacity, reporting/block/mute.
-- Room lifecycle orchestration and robust reconnect/token refresh.
-- Recording consent, recording pipeline, replay processing, scheduled events.
-- Real-device/network tests and load testing.
+### P1 — high priority engineering work
 
-**Exit gate:** moderated live audio/video works reliably across multiple clients and a room can be safely ended and reconciled.
+1. Strengthen auth lifecycle and add rate limiting/abuse controls.
+2. Add payments and payout unit/integration tests for webhook idempotency, provider verification, ledger balance, reserve/release/reversal and ambiguous transfer outcomes.
+3. Add database-backed integration tests for ownership, authorization, media and LIVE stage transitions.
+4. Add browser E2E tests for registration → creator setup → show/episode upload → processing → publication → listener playback/bookmark/resume.
+5. Test real media processing and improve worker observability, dead-letter handling, operator replay and cleanup.
+6. Add robust LIVE moderator roles, stage capacity, participant presence, chat moderation, token refresh/reconnect and recording/replay.
+7. Add API readiness checks that validate database dependency state; current health controller is a basic process-level endpoint.
+8. Add structured logs, metrics, tracing, error reporting, alerts, backup retention and restore drills.
+9. Add pagination, throttling, upload quotas and abandoned-upload cleanup where needed.
+10. Add privacy export/deletion, terms, copyright and country-by-country compliance processes.
 
-### Stage D — Complete identity, community, and mobile
-- Secure account/session lifecycle, verification, recovery, MFA, privacy controls.
-- Community spaces, discussions, member entitlements and notifications delivery.
-- Expo mobile app using shared contracts and secure native session storage.
-- Accessibility, localization, analytics and app-store readiness.
+### P2 — product capabilities not yet built
 
-### Stage E — Controlled commerce expansion
-- Finish provider staging verification, payout reconciliation, refunds, chargebacks, risk controls and financial operations.
-- Build gift/tip wallets, ticketed events and creator monetization only after ledger and entitlement tests.
-- Add country-by-country provider/currency/payout capability rules.
-- Ads/sponsorships and premium consumer plans later, with clear consent and policy controls.
+- Persistent global player and playback queue.
+- Background playback, offline downloads and casting.
+- Adaptive HLS/DASH streaming and CDN delivery.
+- Chapters, transcripts, captions and accessible playback.
+- Community spaces, posts, discussions and member roles.
+- VOXA Moments short-form video creation/feed.
+- Gifts, tips, wallet/coins, ticketed events and consumer premium.
+- Advertising and creator/brand sponsorship marketplace.
+- AI transcripts, summaries, translation, smart clips and recommendations.
+- Push and email notification delivery.
+- Android and iOS applications.
+- Global localization, regional delivery and creator analytics.
 
-### Stage F — VOXA Moments, recommendations, scale and launch
-- Creator-approved short clips with source/rights traceability.
-- Search/recommendation ranking, localization and creator analytics.
-- Regional media delivery, SLOs, observability, load/chaos/security testing.
-- Legal, privacy, trust-and-safety staffing, support, incident response and phased market launch.
+## Staged implementation plan and exit gates
+
+### Stage 1 — repository audit and foundation stabilization (current)
+- Keep the current successful CI baseline.
+- Reconcile documentation against the current code.
+- Fix verified defects and configuration drift.
+- Expand test coverage around auth, ownership, media, LIVE, payments and ledger invariants.
+- Add integration and browser E2E test foundations.
+- Verify settlement worker locking and lifecycle in tests before enabling it.
+- Preserve safe default-off flags for payouts and settlement scheduling.
+
+**Exit gate:** CI validates schema/migrations, typechecks, runs relevant unit/integration tests, builds API/web/worker image, and the critical user journeys have automated coverage.
+
+### Stage 2 — production-quality podcast experience
+- Verify discovery, show/episode detail, upload, processing, publication and playback end to end.
+- Add persistent player, queue, background playback and robust network recovery.
+- Add adaptive streaming/CDN, thumbnails, chapters and transcript foundations.
+- Improve creator studio statuses, validation and error recovery.
+
+**Exit gate:** a creator can safely publish real audio/video and a listener can discover, play, save and resume it reliably on supported browsers/devices.
+
+### Stage 3 — VOXA LIVE launch readiness
+- Moderator roles and scoped permissions.
+- Application-backed chat, moderation, reactions, presence and stage limits.
+- Robust reconnect/token lifecycle and room state reconciliation.
+- Recording consent, recording pipeline, replay processing and scheduled events.
+- Real device/network and concurrent-room load testing.
+
+**Exit gate:** moderated audio/video rooms work reliably across multiple participants and safely end/reconcile.
+
+### Stage 4 — identity, trust, safety and community
+- Secure sessions, verification, recovery, MFA and account controls.
+- Report/block/mute/ban/appeal and moderation operations.
+- Community spaces, discussions, announcements and member entitlements.
+- Push/email notification delivery and privacy controls.
+
+**Exit gate:** user identity, community participation and content safety have operational controls and tested workflows.
+
+### Stage 5 — creator economy expansion
+- Finish staging payments, payout verification and reconciliation.
+- Refunds, chargebacks, fraud controls and payout risk management.
+- Gift/tip wallets, ticketing and paid events only after ledger invariants are tested.
+- Country/currency/provider capability matrix.
+- Ads and sponsorship workflows after audience scale and policy readiness.
+
+**Exit gate:** provider transactions, ledger, creator liabilities and payouts reconcile with auditable evidence.
+
+### Stage 6 — VOXA Moments, AI, mobile and scale
+- Rights-linked creator-approved clips and short-form feed.
+- Search/recommendation ranking, multilingual tools and creator analytics.
+- Android/iOS applications and shared API contracts.
+- Observability, regional media delivery, SLOs, load/chaos/security testing.
+- Legal/privacy review, support staffing and phased market rollout.
+
+**Exit gate:** operational, legal, security, performance and support readiness are demonstrated for each launch market.
 
 ## Release safety switches
 
 Keep these disabled until approved staging verification:
 - `PAYSTACK_TRANSFERS_ENABLED=false`
 - `PAYSTACK_PAYOUT_EXECUTION_ENABLED=false`
-- `SETTLEMENT_WORKER_ENABLED=false` until the worker corrections, concurrency tests, deployment monitoring, and database readiness checks are complete.
+- `SETTLEMENT_WORKER_ENABLED=false` until worker concurrency tests, monitoring, deployment and database readiness checks are complete.
 
-Never put provider credentials in GitHub source files or browser-exposed `NEXT_PUBLIC_*` variables. Configure them only in the hosting provider's encrypted environment/secret settings.
-
-## Audit conclusion
-
-The project has a useful technical foundation and a successful compile pipeline, but it is not yet a finished website or a production-ready global platform. The next engineering work should begin with **Stage A stabilization and automated verification**, then complete the podcast listener/creator experience before expanding the product surface. Live payments, payouts, scheduled settlement, and public global launch remain gated.
-
-
-## Audit follow-up — stabilization work in progress
-
-Changes committed after the initial audit:
-- The settlement worker now uses a 100-payment scheduled batch and a 60-second serializable transaction timeout.
-- Request-triggered settlement now acquires the same PostgreSQL advisory lock as the scheduled worker, preventing both release paths from competing for the same ledger movements.
-- A one-time operator-run initial administrator creation script is available at `apps/api/scripts/bootstrap-admin.cjs`, exposed as `pnpm admin:bootstrap` from `apps/api`. It creates a new ADMIN user only; it refuses to promote or overwrite an existing account.
-- Membership plan creation and currency updates now enforce the current GHS-only Paystack checkout boundary.
-- Jest/ts-jest API test tooling and CI test execution have been added.
-- Initial unit tests cover authentication, ledger transfer validation/idempotency, restricted LIVE room access, and the GHS membership currency boundary.
-
-Verification:
-- The earlier CI run `42919754708` passed dependency installation, Prisma validation/generation, API/web typecheck, the first five authentication tests, and both builds.
-- A later CI run is queued/running for the expanded ledger/LIVE/membership test suite. Do not treat those additional tests as passed until that run completes successfully.
-- No production database was used to run the admin bootstrap. No provider credentials or live payment/payout transfers were used.
-- No frozen dependency install is possible yet because `pnpm-lock.yaml` is absent. The workflow therefore remains on `--no-frozen-lockfile` until the lockfile can be generated and committed.
-
-Remaining Stage A exit requirements:
-1. Expanded tests pass in CI.
-2. Commit a generated pnpm lockfile and restore frozen installs.
-3. Add tests for webhook signature/amount/idempotency, creator payout reservation/release/reversal, settlement batch concurrency, and LIVE host/stage authorization.
-4. Add migration drift checks and safe admin bootstrap operational verification in a non-production environment.
-5. Keep the settlement and payout execution flags disabled until staging verification and monitoring are complete.
-
-
-## Product build progress — podcast journey
-
-The first Stage B implementation is now in the repository:
-- `/discover`: search published shows and episodes and filter by available categories.
-- `/shows/:showId`: public show detail with published episode list.
-- `/episodes/:episodeId`: native audio/video player, member-only playback handling, bookmark action, and saved/resume playback progress for signed-in users.
-- `/library`: saved episodes and unfinished listening progress.
-- `/creator/studio`: create show and episode drafts, upload supported audio/video directly to configured object storage, complete upload, and publish shows/episodes.
-- `GET /v1/creators/me/shows`: creator-owned show/episode listing for the studio.
-- Playback responses now include recorded asset MIME type and safe metadata for selecting audio or video playback.
-- Homepage navigation now links to discovery, the personal library and Creator Studio.
-
-Media processing is still not production complete: the current workflow uses original uploaded files and does not provide transcoding, malware scanning, codec/file-signature inspection, HLS packaging, CDN delivery or moderation. See `docs/MEDIA_OPERATIONS.md`.
-
-## Latest verification evidence
-
-- CI run `42921621664` passed API/web typechecking, the expanded API unit tests, API build and web build. The suite contains 15 test cases covering auth, ledger validation/idempotency, restricted LIVE access and GHS membership currency boundaries.
-- The pnpm lockfile was generated and committed as `pnpm-lock.yaml` (commit `0034d497b7bc8b4cab480a21367baab1b9918a90`).
-- The workflow now requires `pnpm install --frozen-lockfile`; run `42921801214` completed successfully with the frozen install, Prisma validation/generation, API/web typecheck, all API unit tests, and both builds passing.
-
-
-## Latest checkpoint — 10 November 2026
-
-- CI run `42922043798` completed successfully on the creator-show publishing test update. Frozen dependency install, Prisma validation/generation, API/web typecheck, all API unit tests, API build and web build passed.
-- The API suite now contains 18 unit test cases across authentication, ledger transfer validation/idempotency, restricted LIVE access, GHS membership currency enforcement, show publishing preconditions and bounded playback progress.
-- The repository README has been refreshed to match the current codebase and to remove claims that mobile/shared-contract source trees already exist.
-- The new podcast listener/creator pages compile in CI. No live database, object-storage bucket, LiveKit account or payment merchant was used to test real user journeys.
-
-
-## Creator monetization and long-form playback progress
-
-- Creator Studio now lists the creator's own GHS monthly membership plans through `GET /v1/creators/me/membership-plans`, allows plan creation, and allows draft episodes to be marked members-only when an active plan exists.
-- Membership-gated playback remains server-checked; listeners must be authenticated and have an active membership period.
-- Signed playback URLs now default to a one-hour lifetime (configurable up to six hours) to avoid short expirations during long-form audio/video playback. Upload URL lifetime remains separately short.
-- The latest changes are awaiting the next full CI run; do not treat the membership Studio UI and playback URL adjustment as build-verified until that run completes.
-
-
-## 11 November 2026 — media upload hardening increment
-
-- CI run [42977390289](https://github.com/apostle24/voxa-platform/actions/runs/42977390289) passed the new media upload ownership, configured size-limit, and signed URL unit tests.
-- Upload completion now performs a bounded 32-byte object-storage range read and checks basic signatures for the supported audio/video formats before persisting an asset.
-- New tests cover MIME-label spoofing rejection and valid MP3 signature acceptance.
-- This is not full codec/container validation, malware scanning, transcoding, moderation, or a production media worker. UPLOADED must not be represented as READY; production publishing should be gated on a completed isolated processing pipeline.
+Never commit provider credentials, production database URLs, signing secrets or other secrets to Git. Store them only in encrypted deployment secrets/environment settings.
