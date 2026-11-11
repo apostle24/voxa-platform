@@ -126,14 +126,14 @@ export default function LiveRoomPage() {
       roomRef.current = room;
       canPublishRef.current = Boolean(data.canPublish); setCanPublish(Boolean(data.canPublish));
       const isStageSpeaker = roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity);
-      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening'));
+      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? (roomState.isHost ? 'Connected · Hosting' : roomState.isCoHost ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening'));
       room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting to live media…'));
       room.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
           const packet = JSON.parse(new TextDecoder().decode(payload));
           if (packet?.type === 'VOXA_INTERACTION_UPDATED') { void refreshInteractions(); }
           if (packet?.type === 'VOXA_SESSION_PLAN_UPDATED') {
-            const hasFloor = Boolean(roomState.isHost || (packet.speakerId && packet.speakerId === room.localParticipant.identity));
+            const hasFloor = Boolean(roomState.isHost || roomState.isCoHost || (packet.speakerId && packet.speakerId === room.localParticipant.identity));
             canPublishRef.current = hasFloor; setCanPublish(hasFloor);
             if (!hasFloor) { setMic(false); setCamera(false); }
             setStatus(hasFloor ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity) ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
@@ -161,7 +161,7 @@ export default function LiveRoomPage() {
       });
       room.on(RoomEvent.TrackUnsubscribed, (track) => track.detach().forEach(element => element.remove()));
       await room.connect(data.serverUrl, data.token);
-      setStatus(data.canPublish ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
+      setStatus(data.canPublish ? (roomState.isHost ? 'Connected · Hosting' : roomState.isCoHost ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
     } catch (e) {
       setStatus('Disconnected');
       setError(e instanceof Error ? e.message : 'Connection failed');
