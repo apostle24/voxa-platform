@@ -153,14 +153,14 @@ export class LiveService {
     });
     if (!target) throw new ConflictException('You can transfer ownership only to an appointed co-host');
     const updated = await this.prisma.$transaction(async (tx) => {
-      const claimedCoHost = await tx.liveRoomCoHost.deleteMany({ where: { roomId, userId: newHostUserId } });
+      const claimedCoHost = await tx.liveRoomCoHost.deleteMany({ where: { roomId, userId: targetId } });
       if (claimedCoHost.count !== 1) throw new ConflictException('The selected co-host is no longer assigned to this room');
       const claimed = await tx.liveRoom.updateMany({ where: { id: roomId, hostId }, data: { hostId: targetId } });
       if (claimed.count !== 1) throw new ConflictException('Room ownership changed; refresh and try again');
       await tx.liveRoomCoHost.upsert({
         where: { roomId_userId: { roomId, userId: hostId } },
         create: { roomId, userId: hostId, assignedById: targetId },
-        update: { assignedById: newHostUserId, assignedAt: new Date() },
+        update: { assignedById: targetId, assignedAt: new Date() },
       });
       await tx.liveRoomModerator.deleteMany({ where: { roomId, userId: { in: [hostId, targetId] } } });
       return tx.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, title: true, status: true } });
