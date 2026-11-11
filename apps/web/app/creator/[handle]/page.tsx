@@ -8,7 +8,7 @@ import { ReportContent } from '../../../components/report-content';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type MembershipPlan = { id: string; name: string; description?: string | null; priceMinor: number; currency: string; interval: string };
-type Profile = { id: string; handle: string; bio?: string | null; verifiedAt?: string | null; user: { displayName: string; liveRooms: { id: string; title: string; description?: string }[] }; shows: { id: string; title: string; description?: string; artworkUrl?: string; category?: string; _count: { episodes: number } }[]; followerCount: number; showCount: number };
+type Profile = { id: string; handle: string; bio?: string | null; verifiedAt?: string | null; user: { id: string; displayName: string; liveRooms: { id: string; title: string; description?: string }[] }; shows: { id: string; title: string; description?: string; artworkUrl?: string; category?: string; _count: { episodes: number } }[]; followerCount: number; showCount: number };
 
 export default function CreatorPage() {
   const { handle } = useParams<{handle:string}>();
