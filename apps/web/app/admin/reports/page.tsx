@@ -68,7 +68,7 @@ export default function AdminReportsPage() {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.message || 'Unable to apply account action');
-      setNotice(action === 'WARN_USER' ? 'Account warning recorded.' : action === 'SUSPEND_USER' ? 'Account suspended and active sessions revoked.' : 'Account reinstated.');
+      setNotice(action === 'WARN_USER' ? 'Account warning recorded.' : action === 'SUSPEND_USER' ? (result.liveRoomEnforcement?.failedRoomIds?.length ? `Account suspended and sessions revoked, but LiveKit could not disconnect the account from ${result.liveRoomEnforcement.failedRoomIds.length} live room(s). Check LiveKit connectivity and retry enforcement.` : `Account suspended, active sessions revoked${result.liveRoomEnforcement?.attempted ? `, and disconnected from ${result.liveRoomEnforcement.disconnected} live room(s)` : ''}.`) : 'Account reinstated.');
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to apply account action');
