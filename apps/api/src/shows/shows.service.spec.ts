@@ -483,3 +483,52 @@ describe('ShowsService semantic podcast search', () => {
     expect((service as any).cosineSimilarity([1, 0], [1])).toBe(0);
   });
 });
+
+
+describe('ShowsService creator production assistant', () => {
+  let service: ShowsService;
+  let prisma: any;
+  const originalKey = process.env.OPENAI_API_KEY;
+
+  beforeEach(() => {
+    prisma = {
+      show: { findFirst: jest.fn() },
+      episode: { findFirst: jest.fn() },
+    };
+    service = new ShowsService(prisma as unknown as PrismaService);
+    delete process.env.OPENAI_API_KEY;
+  });
+
+  afterEach(() => {
+    if (originalKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = originalKey;
+  });
+
+  it('only reviews episodes belonging to the authenticated creator', async () => {
+    prisma.show.findFirst.mockResolvedValue(null);
+    await expect(service.generateEpisodeProductionAdvice('intruder', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(NotFoundException);
+    expect(prisma.episode.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('requires the AI provider key before generating advice', async () => {
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'DRAFT' });
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', title: 'A draft episode', description: null, status: 'DRAFT',
+      durationSeconds: 300, show: { title: 'My show', category: 'Culture', description: null },
+      transcript: null, chapters: [],
+    });
+    await expect(service.generateEpisodeProductionAdvice('owner-1', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(ServiceUnavailableException);
+  });
+
+  it('does not generate production advice for published episodes', async () => {
+    process.env.OPENAI_API_KEY = 'test-key';
+    prisma.show.findFirst.mockResolvedValue({ id: 'show-1', status: 'PUBLISHED' });
+    prisma.episode.findFirst.mockResolvedValue({
+      id: 'episode-1', title: 'Published episode', status: 'PUBLISHED',
+    });
+    await expect(service.generateEpisodeProductionAdvice('owner-1', 'show-1', 'episode-1'))
+      .rejects.toBeInstanceOf(ConflictException);
+  });
+});
