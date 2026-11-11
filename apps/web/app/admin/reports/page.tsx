@@ -6,7 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 type Report = {
-  id: string; targetType: string; targetId: string; reason: string; details?: string | null;
+  id: string; targetType: string; targetId: string; targetLabel?: string | null; reason: string; details?: string | null;
   status: string; moderatorNote?: string | null; createdAt: string;
   reporter: { id: string; displayName: string };
   reviewer?: { id: string; displayName: string } | null;
@@ -97,7 +97,7 @@ export default function AdminReportsPage() {
         {reports.map(report => <article className="earningRow" key={report.id} style={{ alignItems: 'flex-start', gap: 18 }}>
           <div style={{ flex: 1, minWidth: 240 }}>
             <b>{report.targetType.replaceAll('_', ' ')} · {report.reason.replaceAll('_', ' ')}</b>
-            <small>Target: {report.targetId}</small>
+            <small>Target: {report.targetLabel || report.targetId}</small>{report.targetType === 'USER' && <small>Account ID: {report.targetId}</small>}
             <small>Reported by {report.reporter.displayName} · {new Date(report.createdAt).toLocaleString()}</small>
             {report.details && <p style={{ whiteSpace: 'pre-wrap', marginTop: 10 }}>{report.details}</p>}
             {report.moderatorNote && <small>Previous note: {report.moderatorNote}</small>}
