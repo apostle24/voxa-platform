@@ -812,6 +812,7 @@ function ModerationPanel() {
       <Button title={busyId === item.id ? 'Saving…' : 'Mark reviewing'} secondary onPress={() => void review(item.id, 'REVIEWING')} disabled={!!busyId} />
       {item.targetType === 'EPISODE' && <Button title="Hide episode" onPress={() => void action(item.id, 'HIDE_EPISODE')} disabled={!!busyId} />}
       {item.targetType === 'MOMENT' && <Button title="Hide Moment" onPress={() => void action(item.id, 'HIDE_MOMENT')} disabled={!!busyId} />}
+      {item.targetType === 'COMMUNITY_POST' && <Button title="Hide community post" onPress={() => void action(item.id, 'HIDE_COMMUNITY_POST')} disabled={!!busyId} />}
       {item.targetType === 'USER' && <>
         <Button title="Warn account" onPress={() => void action(item.id, 'WARN_USER')} disabled={!!busyId} />
         <View style={{ flexDirection: 'row', gap: 6 }}>
