@@ -31,6 +31,7 @@ export default function LiveRoomPage() {
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [chatDraft, setChatDraft] = useState('');
   const [chatBusy, setChatBusy] = useState(false);
+  const [analytics, setAnalytics] = useState<any>(null);
 
   const api = useCallback(async (path: string, method = 'GET') => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
@@ -42,7 +43,7 @@ export default function LiveRoomPage() {
   }, []);
 
   const refreshStage = useCallback(async () => {
-    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); }
+    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
   }, [api, roomId]);
 
@@ -153,6 +154,17 @@ export default function LiveRoomPage() {
         </section>}
         {!isHost && <p className="helperText">{pending ? 'Your request is waiting for the host.' : approved ? 'The host approved your request. Reconnect to refresh your speaking permissions.' : 'You are listening. Request the stage whenever you are ready to speak.'}</p>}
       </>}
+      {isHost && analytics && <section className="moderationPanel" style={{ marginTop: 24 }}>
+        <div className="sectionTitle"><div><span className="eyebrow">HOST INSIGHTS</span><h2>Live room activity</h2></div><button className="ghostButton" onClick={() => void refreshStage()}>↻ Refresh</button></div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12 }}>
+          <div className="metricCard"><small>Room duration</small><strong>{Math.floor(analytics.room.durationSeconds / 60)}m</strong></div>
+          <div className="metricCard"><small>Active speakers</small><strong>{analytics.stage.activeSpeakers}</strong></div>
+          <div className="metricCard"><small>Stage sessions</small><strong>{analytics.stage.totalSpeakerSessions}</strong></div>
+          <div className="metricCard"><small>Chat messages</small><strong>{analytics.chat.visibleMessages}</strong></div>
+          <div className="metricCard"><small>Pending requests</small><strong>{analytics.requests.pending}</strong></div>
+        </div>
+        <p className="helperText">{analytics.measurementNote}</p>
+      </section>}
       {accessToken && <section className="moderationPanel" style={{ marginTop: 24 }}>
         <div className="sectionTitle"><div><span className="eyebrow">LIVE COMMUNITY</span><h2>Room chat</h2></div><button className="ghostButton" onClick={() => void refreshChat()}>↻ Refresh</button></div>
         <div style={{ maxHeight: 340, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 12, padding: '12px 0' }}>
