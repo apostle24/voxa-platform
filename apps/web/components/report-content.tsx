@@ -15,7 +15,7 @@ const REASONS = [
   ['OTHER', 'Something else'],
 ] as const;
 
-export function ReportContent({ targetType, targetId }: { targetType: 'EPISODE' | 'MOMENT'; targetId: string }) {
+export function ReportContent({ targetType, targetId }: { targetType: 'EPISODE' | 'MOMENT' | 'LIVE_ROOM'; targetId: string }) {
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState<(typeof REASONS)[number][0]>('OTHER');
   const [details, setDetails] = useState('');
