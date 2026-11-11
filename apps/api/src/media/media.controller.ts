@@ -20,6 +20,13 @@ export class MediaController {
     return this.media.completeUpload(req.user.id, showId, episodeId, input.objectKey);
   }
 
+
+  @Get('episodes/:episodeId/draft-preview-url')
+  @UseGuards(JwtAuthGuard)
+  creatorDraftPreviewUrl(@Req() req: AuthenticatedRequest, @Param('episodeId') episodeId: string) {
+    return this.media.getCreatorDraftPreviewUrl(req.user.id, episodeId);
+  }
+
   @Get('episodes/:episodeId/playback-url')
   playbackUrl(@Param('episodeId') episodeId: string) {
     return this.media.getPlaybackUrl(episodeId);
