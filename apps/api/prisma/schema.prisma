@@ -99,6 +99,7 @@ model User {
   creator     Creator?
   follows     Follow[]   @relation("Follower")
   liveRooms   LiveRoom[] @relation("RoomHost")
+  liveChatMessages LiveChatMessage[]
   bookmarks   EpisodeBookmark[]
   playbackProgress PlaybackProgress[]
   episodeComments EpisodeComment[]
@@ -271,8 +272,23 @@ model LiveRoom {
   host        User               @relation("RoomHost", fields: [hostId], references: [id])
   stage       LiveStageMember[]
   requests    StageRequest[]
+  chatMessages LiveChatMessage[]
 
   @@index([status, scheduledAt])
+}
+
+model LiveChatMessage {
+  id        String   @id @default(cuid())
+  roomId    String
+  userId    String
+  content   String
+  deletedAt DateTime?
+  createdAt DateTime @default(now())
+  room      LiveRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  author    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roomId, createdAt])
+  @@index([userId, createdAt])
 }
 
 model LiveStageMember {
