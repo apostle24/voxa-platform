@@ -17,6 +17,22 @@ export class NotificationsService {
     return { items, unreadCount };
   }
 
+  async getPreferences(userId: string) {
+    return this.prisma.notificationPreference.upsert({
+      where: { userId }, create: { userId }, update: {},
+      select: { follows: true, comments: true, community: true, liveInvitations: true, updatedAt: true },
+    });
+  }
+
+  async updatePreferences(userId: string, input: { follows?: boolean; comments?: boolean; community?: boolean; liveInvitations?: boolean }) {
+    return this.prisma.notificationPreference.upsert({
+      where: { userId },
+      create: { userId, ...input },
+      update: input,
+      select: { follows: true, comments: true, community: true, liveInvitations: true, updatedAt: true },
+    });
+  }
+
   async markRead(userId: string, notificationId: string) {
     const result = await this.prisma.notification.updateMany({
       where: { id: notificationId, recipientId: userId, readAt: null },
