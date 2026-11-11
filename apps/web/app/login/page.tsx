@@ -17,7 +17,7 @@ export default function LoginPage() {
     event.preventDefault(); setBusy(true); setError('');
     try {
       const response = await fetch(API + '/auth/' + mode, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(mode === 'register' ? { displayName, email, password } : { email, password }),
       });
       const data = await response.json();
@@ -44,7 +44,7 @@ export default function LoginPage() {
         {error && <p className="errorText">{error}</p>}
         <button className="button full" disabled={busy}>{busy?'Please wait…':mode==='login'?'Sign in to VOXA ↗':'Create my account ↗'}</button>
       </form>
-      <small>Your access token is kept in this browser tab session for this early MVP. Secure cookie sessions and token refresh will be added before production.</small>
+      <small>Your access token stays in this browser tab. Your refresh session is protected in an HttpOnly cookie and rotates automatically when needed.</small>
     </section>
   </main>;
 }

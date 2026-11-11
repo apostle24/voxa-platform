@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
@@ -31,7 +32,7 @@ export default function LiveRoomPage() {
   const api = useCallback(async (path: string, method = 'GET') => {
     const token = sessionStorage.getItem('voxa_access_token') || '';
     if (!token) throw new Error('Please sign in to VOXA first.');
-    const response = await fetch(API + path, { method, headers: { Authorization: 'Bearer ' + token } });
+    const response = await apiFetch(API + path, { method, headers: { Authorization: 'Bearer ' + token } });
     const data = await response.json();
     if (!response.ok) throw new Error(data.message || 'Request failed');
     return data;

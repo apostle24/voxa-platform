@@ -5,9 +5,22 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
+
+const REFRESH_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const REFRESH_TTL_SECONDS = REFRESH_TTL_MS / 1000;
+const TOKEN_ISSUER = 'voxa-api';
+const TOKEN_AUDIENCE = 'voxa-clients';
+
+type AuthUser = {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+};
 
 @Injectable()
 export class AuthService {
@@ -54,22 +67,125 @@ export class AuthService {
     });
   }
 
-  private async issueTokens(user: {
-    id: string;
-    email: string;
-    displayName: string;
-    role: string;
-  }) {
+  async refresh(refreshToken: string) {
+    if (!refreshToken) throw new UnauthorizedException('Refresh session is missing');
+
+    let claims: { sub?: string; jti?: string; typ?: string };
+    try {
+      claims = await this.jwt.verifyAsync(refreshToken, {
+        issuer: TOKEN_ISSUER,
+        audience: TOKEN_AUDIENCE,
+      });
+    } catch {
+      throw new UnauthorizedException('Refresh session is invalid or expired');
+    }
+
+    if (!claims.sub || !claims.jti || claims.typ !== 'refresh') {
+      throw new UnauthorizedException('Refresh session is invalid');
+    }
+
+    const tokenHash = this.hashToken(refreshToken);
+    const session = await this.prisma.authSession.findUnique({
+      where: { tokenHash },
+      include: { user: { select: { id: true, email: true, displayName: true, role: true } } },
+    });
+    const now = new Date();
+    if (!session || session.userId !== claims.sub || session.id !== claims.jti || session.revokedAt || session.expiresAt <= now) {
+      throw new UnauthorizedException('Refresh session is invalid or expired');
+    }
+
+    const next = await this.createRefreshToken(session.user);
+    const rotated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.authSession.updateMany({
+        where: { id: session.id, tokenHash, revokedAt: null, expiresAt: { gt: now } },
+        data: { revokedAt: now, replacedById: next.sessionId, lastUsedAt: now },
+      });
+      if (result.count !== 1) return false;
+      await tx.authSession.create({
+        data: {
+          id: next.sessionId,
+          userId: session.userId,
+          tokenHash: next.tokenHash,
+          expiresAt: next.expiresAt,
+        },
+      });
+      return true;
+    });
+
+    if (!rotated) throw new UnauthorizedException('Refresh session has already been used');
+    return {
+      ...(await this.issueAccessToken(session.user)),
+      refreshToken: next.refreshToken,
+      user: session.user,
+    };
+  }
+
+  async logout(refreshToken?: string) {
+    if (refreshToken) {
+      await this.prisma.authSession.updateMany({
+        where: { tokenHash: this.hashToken(refreshToken), revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+    }
+    return { success: true };
+  }
+
+  async logoutAll(userId: string) {
+    await this.prisma.authSession.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    return { success: true };
+  }
+
+  private async issueTokens(user: AuthUser) {
+    const access = await this.issueAccessToken(user);
+    const refresh = await this.createRefreshToken(user);
+    await this.prisma.authSession.create({
+      data: {
+        id: refresh.sessionId,
+        userId: user.id,
+        tokenHash: refresh.tokenHash,
+        expiresAt: refresh.expiresAt,
+      },
+    });
+    return {
+      ...access,
+      refreshToken: refresh.refreshToken,
+      tokenType: 'Bearer',
+      user,
+    };
+  }
+
+  private async issueAccessToken(user: AuthUser) {
     const accessToken = await this.jwt.signAsync({
       sub: user.id,
       email: user.email,
       role: user.role,
     });
+    return { accessToken, tokenType: 'Bearer', expiresIn: 900 };
+  }
+
+  private async createRefreshToken(user: AuthUser) {
+    const sessionId = randomUUID();
+    const refreshToken = await this.jwt.signAsync(
+      { sub: user.id, typ: 'refresh' },
+      {
+        expiresIn: REFRESH_TTL_SECONDS,
+        issuer: TOKEN_ISSUER,
+        audience: TOKEN_AUDIENCE,
+        jwtid: sessionId,
+      },
+    );
     return {
-      accessToken,
-      tokenType: 'Bearer',
-      expiresIn: 900,
-      user,
+      sessionId,
+      refreshToken,
+      tokenHash: this.hashToken(refreshToken),
+      expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
     };
+  }
+
+  private hashToken(token: string) {
+    return createHash('sha256').update(token).digest('hex');
   }
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -17,7 +18,7 @@ export default function CreatorPage() {
   const [error,setError]=useState('');
   const [busy,setBusy]=useState(false);
   async function load() {
-    try { const response=await fetch(API+'/creators/'+encodeURIComponent(handle)); const data=await response.json(); if(!response.ok) throw new Error(data.message||'Creator not found'); setProfile(data); const plansResponse=await fetch(API+'/creators/'+encodeURIComponent(handle)+'/membership-plans'); const plansData=await plansResponse.json(); if(plansResponse.ok)setPlans(plansData.plans||[]); }
+    try { const response=await apiFetch(API +'/creators/'+encodeURIComponent(handle)); const data=await response.json(); if(!response.ok) throw new Error(data.message||'Creator not found'); setProfile(data); const plansResponse=await apiFetch(API +'/creators/'+encodeURIComponent(handle)+'/membership-plans'); const plansData=await plansResponse.json(); if(plansResponse.ok)setPlans(plansData.plans||[]); }
     catch(e){setError(e instanceof Error?e.message:'Unable to load creator');}
   }
 
@@ -26,7 +27,7 @@ export default function CreatorPage() {
     if(!token){setError('Sign in before purchasing a membership.');return;}
     setPurchasing(planId);setError('');
     try {
-      const response=await fetch(API+'/memberships/checkout',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({planId})});
+      const response=await apiFetch(API +'/memberships/checkout',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+token},body:JSON.stringify({planId})});
       const data=await response.json();if(!response.ok)throw new Error(data.message||'Unable to start checkout');
       if(!data.checkoutUrl)throw new Error('The payment provider did not return a checkout link');
       window.location.assign(data.checkoutUrl);
@@ -36,7 +37,7 @@ export default function CreatorPage() {
     const token=sessionStorage.getItem('voxa_access_token'); if(!token){setError('Sign in to follow creators.');return;}
     setBusy(true);setError('');
     try {
-      const response=await fetch(API+'/creators/'+encodeURIComponent(handle)+'/follow',{method:following?'DELETE':'POST',headers:{Authorization:'Bearer '+token}});
+      const response=await apiFetch(API +'/creators/'+encodeURIComponent(handle)+'/follow',{method:following?'DELETE':'POST',headers:{Authorization:'Bearer '+token}});
       const data=await response.json();if(!response.ok)throw new Error(data.message||'Unable to update follow');
       setFollowing(!following);setProfile(current=>current?{...current,followerCount:Math.max(0,current.followerCount+(following?-1:1))}:current);
     } catch(e){setError(e instanceof Error?e.message:'Unable to follow');} finally{setBusy(false);}

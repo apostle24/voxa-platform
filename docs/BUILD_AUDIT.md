@@ -96,6 +96,7 @@ The current repository has:
 
 Six API Jest spec files exist:
 - `auth/auth.service.spec.ts`
+- `auth/auth-rate-limit.guard.spec.ts`
 - `ledger/ledger.service.spec.ts`
 - `live/live.service.spec.ts`
 - `media/media.service.spec.ts`
@@ -108,7 +109,7 @@ The tests cover selected service behavior and safety boundaries. There is no web
 
 ### P0 — must be addressed before public production launch
 
-1. **Authentication/session security remains MVP-grade.** Access tokens are returned to the web client and stored in `sessionStorage`. There is no refresh-token rotation, HTTP-only secure cookie session lifecycle, email verification, password recovery, MFA, session/device revocation, or demonstrated rate limiting.
+1. **Authentication/session security is being hardened, but is not yet production-complete.** The current implementation adds 15-minute access tokens, 30-day refresh JWTs stored only as SHA-256 hashes in PostgreSQL, HttpOnly refresh cookies, single-use atomic refresh rotation, replay rejection, current/all-session revocation, trusted-Origin checks for cookie endpoints, and a process-local 10-attempt/15-minute IP limiter on login/registration. The web client retries one 401 after refreshing. This implementation is pending CI verification. Email verification, password recovery, MFA, device/session management UI, and shared rate limiting across API replicas remain outstanding.
 2. **No full end-to-end product verification.** Automated browser tests and database-backed integration tests are absent. The primary listener, creator, live and payment journeys need repeatable tests.
 3. **External integrations are not production-verified.** Database, S3, LiveKit and Paystack credentials/deployments have not been used for verified staging journeys. Payment and payout flags must remain disabled until provider approval and staging verification.
 4. **Media worker is packaged, not operationally proven.** It has not been deployed and exercised against real files, object storage and production-like worker limits. HLS/DASH, CDN delivery, thumbnails, transcripts, moderation and copyright controls remain absent.
@@ -117,7 +118,7 @@ The tests cover selected service behavior and safety boundaries. There is no web
 
 ### P1 — high priority engineering work
 
-1. Strengthen auth lifecycle and add rate limiting/abuse controls.
+1. Finish auth lifecycle: email verification, password recovery, MFA, session/device management UI, and shared ingress/API-gateway rate limiting; validate cookie/CORS settings against the deployed frontend/API domains.
 2. Add payments and payout unit/integration tests for webhook idempotency, provider verification, ledger balance, reserve/release/reversal and ambiguous transfer outcomes.
 3. Add database-backed integration tests for ownership, authorization, media and LIVE stage transitions.
 4. Add browser E2E tests for registration → creator setup → show/episode upload → processing → publication → listener playback/bookmark/resume.

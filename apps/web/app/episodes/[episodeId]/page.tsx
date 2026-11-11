@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -43,7 +44,7 @@ export default function EpisodePage() {
     lastSavedAt.current = Date.now();
     setSaving(true);
     try {
-      await fetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/progress', {
+      await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/progress', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
         body: JSON.stringify({ positionSeconds: Math.floor(positionSeconds) }),
@@ -61,7 +62,7 @@ export default function EpisodePage() {
     setToken(accessToken);
     async function load() {
       try {
-        const response = await fetch(API + '/episodes/' + encodeURIComponent(episodeId));
+        const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId));
         const data = await response.json();
         if (!response.ok) throw new Error(data.message || 'Episode not found');
         const item = data as Episode;
@@ -71,8 +72,7 @@ export default function EpisodePage() {
         if (item.membershipRequired && !accessToken) {
           throw new Error('This is a members-only episode. Sign in and join the creator membership to listen.');
         }
-        const playbackResponse = await fetch(
-          API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-playback-url' : '/playback-url'),
+        const playbackResponse = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + (item.membershipRequired ? '/member-playback-url' : '/playback-url'),
           { headers: item.membershipRequired ? { Authorization: 'Bearer ' + accessToken } : undefined },
         );
         const playback = await playbackResponse.json();
@@ -83,13 +83,13 @@ export default function EpisodePage() {
         }
 
         if (accessToken) {
-          const progressResponse = await fetch(API + '/me/playback-progress', { headers: { Authorization: 'Bearer ' + accessToken } });
+          const progressResponse = await apiFetch(API + '/me/playback-progress', { headers: { Authorization: 'Bearer ' + accessToken } });
           if (progressResponse.ok) {
             const progress = await progressResponse.json();
             const saved = (progress as Array<{ episodeId: string; positionSeconds: number; completed: boolean }>).find(row => row.episodeId === episodeId);
             if (active && saved && !saved.completed) setResumeAt(saved.positionSeconds);
           }
-          const bookmarkResponse = await fetch(API + '/me/bookmarks', { headers: { Authorization: 'Bearer ' + accessToken } });
+          const bookmarkResponse = await apiFetch(API + '/me/bookmarks', { headers: { Authorization: 'Bearer ' + accessToken } });
           if (bookmarkResponse.ok) {
             const bookmarks = await bookmarkResponse.json();
             if (active) setBookmarked((bookmarks as Array<{ episode: { id: string } }>).some(row => row.episode.id === episodeId));
@@ -108,7 +108,7 @@ export default function EpisodePage() {
   async function toggleBookmark() {
     if (!token) { setError('Sign in to save episodes to your library.'); return; }
     try {
-      const response = await fetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/bookmark', {
+      const response = await apiFetch(API + '/episodes/' + encodeURIComponent(episodeId) + '/bookmark', {
         method: bookmarked ? 'DELETE' : 'PUT',
         headers: { Authorization: 'Bearer ' + token },
       });

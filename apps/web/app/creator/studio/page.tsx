@@ -1,5 +1,6 @@
 'use client';
 
+import { apiFetch } from '../../../lib/api';
 import Link from 'next/link';
 import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 
@@ -36,7 +37,7 @@ export default function CreatorStudioPage() {
   const [notice, setNotice] = useState('');
 
   async function request(path: string, init: RequestInit = {}) {
-    const response = await fetch(API + path, {
+    const response = await apiFetch(API + path, {
       ...init,
       headers: { ...(init.body ? { 'Content-Type': 'application/json' } : {}), Authorization: 'Bearer ' + token, ...init.headers },
     });
