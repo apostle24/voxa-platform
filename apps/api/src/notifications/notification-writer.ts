@@ -1,3 +1,4 @@
+import { publishNotificationEvent } from './notification-events';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type NotificationCategory = 'follows' | 'comments' | 'community' | 'liveInvitations';
@@ -21,7 +22,7 @@ export async function createUserNotification(
     select: { follows: true, comments: true, community: true, liveInvitations: true },
   });
   if (preferences && !preferences[input.category]) return null;
-  return prisma.notification.create({
+  const notification = await prisma.notification.create({
     data: {
       recipientId: input.recipientId,
       actorId: input.actorId ?? null,
@@ -32,4 +33,6 @@ export async function createUserNotification(
       resourceId: input.resourceId ?? null,
     },
   });
+  publishNotificationEvent({ recipientId: input.recipientId, notification });
+  return notification;
 }
