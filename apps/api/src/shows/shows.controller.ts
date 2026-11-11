@@ -9,6 +9,14 @@ import { SetEpisodeMembershipDto } from './dto/set-episode-membership.dto';
 import { CreateEpisodeCommentDto } from './dto/create-episode-comment.dto';
 import { CreateMomentDto } from './dto/create-moment.dto';
 import { ShowsService } from './shows.service';
+import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+
+class SaveTranscriptDto {
+  @IsString() @MinLength(1) @MaxLength(200000)
+  content!: string;
+  @IsOptional() @IsString() @MaxLength(12)
+  language?: string;
+}
 
 @Controller()
 export class ShowsController {
@@ -140,6 +148,19 @@ export class ShowsController {
   @Get('episodes/:episodeId')
   getEpisode(@Param('episodeId') episodeId: string) {
     return this.shows.getEpisode(episodeId);
+  }
+
+  @Get('episodes/:episodeId/transcript')
+  getEpisodeTranscript(@Param('episodeId') episodeId: string, @Req() req: AuthenticatedRequest) {
+    const header = req.headers?.authorization;
+    const userId = header?.startsWith('Bearer ') ? req.user?.id : undefined;
+    return this.shows.getEpisodeTranscript(episodeId, userId);
+  }
+
+  @Put('shows/:showId/episodes/:episodeId/transcript')
+  @UseGuards(JwtAuthGuard)
+  saveEpisodeTranscript(@Req() req: AuthenticatedRequest, @Param('showId') showId: string, @Param('episodeId') episodeId: string, @Body() input: SaveTranscriptDto) {
+    return this.shows.saveEpisodeTranscript(req.user.id, showId, episodeId, input.content, input.language);
   }
 
   @Get('episodes/:episodeId/community')
