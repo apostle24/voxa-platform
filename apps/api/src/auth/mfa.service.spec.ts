@@ -75,7 +75,7 @@ describe('MfaService', () => {
 
   it('enables MFA only after a valid TOTP and stores hashed backup codes while revoking old sessions', async () => {
     const setup = await service.beginSetup('user-1', 'user@example.com');
-    const credential = prisma.mfaCredential.upsert.mock.results[0].value;
+    const credential = { id: 'credential-1', encryptedSecret: prisma.mfaCredential.upsert.mock.calls[0][0].create.encryptedSecret, enabledAt: null };
     prisma.mfaCredential.findUnique.mockResolvedValue(credential);
     const result = await service.enable('user-1', totp(setup.secret));
     expect(result.enabled).toBe(true);
@@ -94,8 +94,8 @@ describe('MfaService', () => {
 
   it('does not enable MFA with an invalid TOTP', async () => {
     const setup = await service.beginSetup('user-1', 'user@example.com');
-    prisma.mfaCredential.findUnique.mockResolvedValue(prisma.mfaCredential.upsert.mock.results[0].value);
-    await expect(service.enable('user-1', '000000')).rejects.toBeInstanceOf(UnauthorizedException);
+    prisma.mfaCredential.findUnique.mockResolvedValue({ id: 'credential-1', encryptedSecret: prisma.mfaCredential.upsert.mock.calls[0][0].create.encryptedSecret, enabledAt: null });
+    await expect(service.enable('user-1', 'not-a-code')).rejects.toBeInstanceOf(UnauthorizedException);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
@@ -111,7 +111,7 @@ describe('MfaService', () => {
 
   it('accepts a valid TOTP once and consumes the login challenge', async () => {
     const setup = await service.beginSetup('user-1', 'user@example.com');
-    const credential = { ...prisma.mfaCredential.upsert.mock.results[0].value, enabledAt: new Date(), backupCodes: [] };
+    const credential = { id: 'credential-1', encryptedSecret: prisma.mfaCredential.upsert.mock.calls[0][0].create.encryptedSecret, enabledAt: new Date(), backupCodes: [] };
     const challenge = await service.createLoginChallenge('user-1');
     prisma.mfaLoginChallenge.findUnique.mockResolvedValue({
       id: 'challenge-1', consumedAt: null, expiresAt: new Date(Date.now() + 60_000),
@@ -151,7 +151,7 @@ describe('MfaService', () => {
     const setup = await service.beginSetup('user-1', 'user@example.com');
     const backupCode = 'ABCDEF0123456789ABCD';
     const credential = {
-      ...prisma.mfaCredential.upsert.mock.results[0].value, enabledAt: new Date(),
+      id: 'credential-1', encryptedSecret: prisma.mfaCredential.upsert.mock.calls[0][0].create.encryptedSecret, enabledAt: new Date(),
       backupCodes: [{ id: 'backup-1', codeHash: hash(backupCode), consumedAt: null }],
     };
     const challenge = await service.createLoginChallenge('user-1');
