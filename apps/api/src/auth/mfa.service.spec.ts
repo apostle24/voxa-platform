@@ -167,5 +167,19 @@ describe('MfaService', () => {
     prisma.mfaBackupCode.updateMany.mockResolvedValue({ count: 0 });
     await expect(service.verifyLoginChallenge(challenge.challengeToken, backupCode)).rejects.toBeInstanceOf(UnauthorizedException);
   });
+
+  it('rejects reuse of a TOTP time-step across separate login challenges', async () => {
+    const setup = await service.beginSetup('user-1', 'user@example.com');
+    const currentCounter = Math.floor(Date.now() / 30_000);
+    const credential = { id: 'credential-1', encryptedSecret: prisma.mfaCredential.upsert.mock.calls[0][0].create.encryptedSecret, enabledAt: new Date(), lastTotpCounter: currentCounter, backupCodes: [] };
+    const challenge = await service.createLoginChallenge('user-1');
+    prisma.mfaLoginChallenge.findUnique.mockResolvedValue({
+      id: 'challenge-1', consumedAt: null, expiresAt: new Date(Date.now() + 60_000),
+      user: { id: 'user-1', email: 'user@example.com', displayName: 'Listener', role: 'LISTENER', mfaCredential: credential },
+    });
+    prisma.mfaCredential.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.verifyLoginChallenge(challenge.challengeToken, totp(setup.secret))).rejects.toThrow('already been used');
+  });
+
 });
 
