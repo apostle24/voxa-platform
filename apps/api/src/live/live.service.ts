@@ -262,6 +262,7 @@ export class LiveService {
             title: room.title.trim().slice(0, 180) || 'Live session replay',
             description: 'Replay from a VOXA LIVE session. Review this draft before publishing.',
             mediaKey: objectKey,
+            isLiveReplay: true,
           },
           select: { id: true },
         });
