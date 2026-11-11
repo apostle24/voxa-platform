@@ -22,7 +22,8 @@ describe('MediaService upload safeguards', () => {
         update: jest.fn(),
       },
       mediaAsset: {
-        upsert: jest.fn().mockResolvedValue({ id: 'asset-1', status: 'UPLOADED' }),
+        upsert: jest.fn().mockResolvedValue({ id: 'asset-1', status: 'QUEUED' }),
+        findFirst: jest.fn(),
       },
     };
     config = {
@@ -47,6 +48,18 @@ describe('MediaService upload safeguards', () => {
   });
 
   afterEach(() => sendSpy.mockRestore());
+
+  it('does not issue a playback URL until a processed asset is READY', async () => {
+    prisma.episode.findFirst.mockResolvedValue({
+      mediaKey: 'users/user-1/episodes/episode-1/source.mp3',
+      membershipRequired: false,
+      show: { creatorId: 'creator-1' },
+    });
+    prisma.mediaAsset.findFirst.mockResolvedValue(null);
+
+    await expect(service.getPlaybackUrl('episode-1')).rejects.toThrow('still being processed');
+    expect(getSignedUrl).not.toHaveBeenCalled();
+  });
 
   it('refuses upload URL creation when the episode is not owned by the caller', async () => {
     prisma.episode.findFirst.mockResolvedValue(null);
@@ -131,7 +144,7 @@ describe('MediaService upload safeguards', () => {
       'user-1', 'show-1', 'episode-1',
       'users/user-1/episodes/episode-1/123e4567-e89b-12d3-a456-426614174000.mp3',
     );
-    expect(result).toMatchObject({ uploaded: true, contentType: 'audio/mpeg' });
+    expect(result).toMatchObject({ uploaded: true, contentType: 'audio/mpeg', processingStatus: 'QUEUED' });
     expect(prisma.mediaAsset.upsert).toHaveBeenCalledTimes(1);
   });
 });
