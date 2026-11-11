@@ -1014,7 +1014,7 @@ export class LiveService {
     return { id: invitationId, status: 'CANCELLED' };
   }
 
-  private async expireGuestSpeakerTurn(roomId: string) {
+  private async expireGuestSpeakerTurn(roomId: string, hostId: string) {
     const active = await this.prisma.liveSpeakerTurn.findFirst({
       where: { roomId, status: 'ACTIVE' }, select: { speakerId: true },
     });
@@ -1030,7 +1030,7 @@ export class LiveService {
     });
     if (validBooking) return;
     const stageMembers = await this.prisma.liveStageMember.findMany({ where: { roomId, leftAt: null }, select: { userId: true } });
-    await this.applySpeakerPublishPermissions(roomId, stageMembers.map(item => item.userId), null, active.speakerId);
+    await this.applySpeakerPublishPermissions(roomId, stageMembers.map(item => item.userId).filter(id => id !== hostId), null, active.speakerId);
     await this.prisma.liveSpeakerTurn.updateMany({
       where: { roomId, speakerId: active.speakerId, status: 'ACTIVE' },
       data: { status: 'COMPLETED', endedAt: now },
@@ -1043,7 +1043,7 @@ export class LiveService {
     const isHost = room.hostId === userId;
     const isCoHost = !isHost && await this.isRoomCoHost(roomId, userId);
     const isModerator = !isHost && !isCoHost && await this.canModerateRoom(roomId, userId, room.hostId);
-    if (room.status === LiveRoomStatus.LIVE) await this.expireGuestSpeakerTurn(roomId);
+    if (room.status === LiveRoomStatus.LIVE) await this.expireGuestSpeakerTurn(roomId, room.hostId);
     const [requests, speakers, ownRequest, moderators, coHosts, hostTransfers, guestInvitations] = await Promise.all([
       isHost || isCoHost || isModerator ? this.prisma.stageRequest.findMany({
         where: { roomId, status: 'PENDING' },
