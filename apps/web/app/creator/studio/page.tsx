@@ -10,7 +10,7 @@ import { ChangeEvent, FormEvent, useEffect, useState } from 'react';
 const API = (process.env.NEXT_PUBLIC_VOXA_API_URL || 'http://localhost:3000/v1').replace(/\/$/, '');
 
 type Episode = {
-  id: string; title: string; description?: string | null; status: string;
+  id: string; title: string; description?: string | null; artworkUrl?: string | null; status: string;
   durationSeconds?: number | null; mediaKey?: string | null; membershipRequired: boolean; isLiveReplay?: boolean;
   mediaAssets: { id: string; status: string; contentType: string }[];
 };
@@ -259,6 +259,16 @@ export default function CreatorStudioPage() {
     finally { setBusy(false); }
   }
 
+  async function unpublishEpisode(showId: string, episodeId: string) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/unpublish', { method: 'POST' });
+      await loadShows();
+      setPublishedEpisodeId('');
+      setNotice('Episode unpublished. It is now a private draft and can be edited before publishing again.');
+    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Unable to unpublish episode'); }
+    finally { setBusy(false); }
+  }
   async function publishEpisode(showId: string, episodeId: string) {
     setBusy(true); setError(''); setNotice('');
     try { await request('/shows/' + encodeURIComponent(showId) + '/episodes/' + encodeURIComponent(episodeId) + '/publish', { method: 'POST' }); await loadShows(); setPublishedEpisodeId(episodeId); setNotice('Episode published and available to listeners.'); }
@@ -354,7 +364,7 @@ export default function CreatorStudioPage() {
                   <button className="ghostButton" disabled={busy || plans.length === 0 || episode.status === 'PUBLISHED'} onClick={() => void toggleEpisodeMembership(show.id, episode.id, episode.membershipRequired)}>{episode.membershipRequired ? 'Members only ✓' : 'Make members only'}</button>
                   {episode.status !== 'PUBLISHED' && episode.mediaAssets?.[0]?.status === 'FAILED' && <button className="button small" disabled={busy} onClick={() => void retryMediaProcessing(show.id, episode.id)}>Retry processing</button>}
                   {episode.status !== 'PUBLISHED' && <button className="button small" disabled={busy || show.status !== 'PUBLISHED' || !episode.mediaKey || !episode.durationSeconds || episode.mediaAssets?.[0]?.status !== 'READY'} onClick={() => void publishEpisode(show.id, episode.id)}>{episode.mediaAssets?.[0]?.status === 'READY' ? 'Publish episode' : 'Media processing…'}</button>}
-                  {episode.status === 'PUBLISHED' && <Link className="ghostButton" href={'/episodes/' + episode.id}>Open episode ↗</Link>}
+                  {episode.status === 'PUBLISHED' && <><Link className="ghostButton" href={'/episodes/' + episode.id}>Open episode ↗</Link><button className="ghostButton" disabled={busy} onClick={() => void unpublishEpisode(show.id, episode.id)}>Unpublish</button></>}
                   {episode.status !== 'PUBLISHED' && episode.mediaAssets?.[0]?.status === 'READY' && <button className="ghostButton" onClick={() => void previewDraft(episode.id)}>Preview replay</button>}
                   {draftPreview?.episodeId === episode.id && (draftPreview.contentType.startsWith('video/') ? <video controls playsInline preload="metadata" src={draftPreview.url} style={{ width: '100%', maxHeight: 420, borderRadius: 10, background: '#000' }} /> : <audio controls preload="metadata" src={draftPreview.url} style={{ width: '100%' }} />)}
                 </div>
