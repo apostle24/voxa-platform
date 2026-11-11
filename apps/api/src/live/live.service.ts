@@ -764,7 +764,7 @@ export class LiveService {
     const isHost = room.hostId === userId;
     const isCoHost = !isHost && await this.isRoomCoHost(roomId, userId);
     const isModerator = !isHost && !isCoHost && await this.canModerateRoom(roomId, userId, room.hostId);
-    if (room.visibility !== LiveRoomVisibility.PUBLIC && !isHost && !isCoHost && !isModerator) throw new ForbiddenException('This room agenda is not publicly accessible');
+    if (room.visibility !== LiveRoomVisibility.PUBLIC && !(await this.canManageLiveSession(roomId, userId, room.hostId))) throw new ForbiddenException('This room agenda is not publicly accessible');
     const [agenda, activeTurn, speakers] = await Promise.all([
       this.prisma.liveAgendaItem.findMany({ where: { roomId }, orderBy: [{ position: 'asc' }, { createdAt: 'asc' }], select: { id: true, title: true, description: true, durationSeconds: true, position: true, status: true, startedAt: true, completedAt: true } }),
       this.prisma.liveSpeakerTurn.findFirst({ where: { roomId, status: 'ACTIVE' }, orderBy: { startedAt: 'desc' }, select: { id: true, speakerId: true, agendaItemId: true, startedAt: true, speaker: { select: { displayName: true } } } }),
