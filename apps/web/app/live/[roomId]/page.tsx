@@ -27,6 +27,8 @@ export default function LiveRoomPage() {
   const roomRef = useRef<Room | null>(null);
   const viewerSessionId = useRef('');
   const canPublishRef = useRef(false);
+  const isHostRef = useRef(false);
+  const isCoHostRef = useRef(false);
   const [status, setStatus] = useState('Not connected');
   const [error, setError] = useState('');
   const [isHost, setIsHost] = useState(false);
@@ -76,7 +78,20 @@ export default function LiveRoomPage() {
   }, []);
 
   const refreshStage = useCallback(async () => {
-    try { const data = await api('/live/rooms/' + roomId + '/stage'); setStage(data); setIsHost(Boolean(data.isHost)); setIsCoHost(Boolean(data.isCoHost)); setIsModerator(Boolean(data.isModerator)); if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics')); }
+    try {
+      const data = await api('/live/rooms/' + roomId + '/stage');
+      const wasCoHost = isCoHostRef.current;
+      isHostRef.current = Boolean(data.isHost);
+      isCoHostRef.current = Boolean(data.isCoHost);
+      setStage(data); setIsHost(Boolean(data.isHost)); setIsCoHost(Boolean(data.isCoHost)); setIsModerator(Boolean(data.isModerator));
+      if (data.isHost || data.isCoHost) { canPublishRef.current = true; setCanPublish(true); }
+      else if (wasCoHost) {
+        canPublishRef.current = false; setCanPublish(false); setMic(false); setCamera(false);
+        void roomRef.current?.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
+        void roomRef.current?.localParticipant.setCameraEnabled(false).catch(() => undefined);
+      }
+      if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics'));
+    }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
   }, [api, roomId]);
 
@@ -108,6 +123,8 @@ export default function LiveRoomPage() {
     try {
       const roomState = await api('/live/rooms/' + roomId + '/stage');
       setStage(roomState);
+      isHostRef.current = Boolean(roomState.isHost);
+      isCoHostRef.current = Boolean(roomState.isCoHost);
       setIsHost(Boolean(roomState.isHost));
       setIsCoHost(Boolean(roomState.isCoHost));
       setIsModerator(Boolean(roomState.isModerator));
@@ -126,14 +143,14 @@ export default function LiveRoomPage() {
       roomRef.current = room;
       canPublishRef.current = Boolean(data.canPublish); setCanPublish(Boolean(data.canPublish));
       const isStageSpeaker = roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity);
-      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? (roomState.isHost ? 'Connected · Hosting' : roomState.isCoHost ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening'));
+      room.on(RoomEvent.Connected, () => setStatus(canPublishRef.current ? (isHostRef.current ? 'Connected · Hosting' : isCoHostRef.current ? 'Connected · Co-hosting' : 'Connected · You have the floor') : isStageSpeaker ? 'Connected · Waiting for speaking turn' : 'Connected · Listening'));
       room.on(RoomEvent.Reconnecting, () => setStatus('Reconnecting to live media…'));
       room.on(RoomEvent.DataReceived, (payload, participant) => {
         try {
           const packet = JSON.parse(new TextDecoder().decode(payload));
           if (packet?.type === 'VOXA_INTERACTION_UPDATED') { void refreshInteractions(); }
           if (packet?.type === 'VOXA_SESSION_PLAN_UPDATED') {
-            const hasFloor = Boolean(roomState.isHost || roomState.isCoHost || (packet.speakerId && packet.speakerId === room.localParticipant.identity));
+            const hasFloor = Boolean(isHostRef.current || isCoHostRef.current || (packet.speakerId && packet.speakerId === room.localParticipant.identity));
             canPublishRef.current = hasFloor; setCanPublish(hasFloor);
             if (!hasFloor) { setMic(false); setCamera(false); }
             setStatus(hasFloor ? (roomState.isHost ? 'Connected · Hosting' : 'Connected · You have the floor') : roomState.speakers.some((speaker: any) => speaker.userId === room.localParticipant.identity) ? 'Connected · Waiting for speaking turn' : 'Connected · Listening');
