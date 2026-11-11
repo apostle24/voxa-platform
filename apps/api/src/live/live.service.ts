@@ -1,3 +1,4 @@
+import { createUserNotification } from '../notifications/notification-writer';
 import { ForbiddenException, Injectable, NotFoundException, ServiceUnavailableException, ConflictException, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AccessToken, EgressClient, EncodedFileOutput, RoomServiceClient, S3Upload, WebhookReceiver } from 'livekit-server-sdk';
@@ -591,7 +592,7 @@ export class LiveService {
     if (room.status !== LiveRoomStatus.LIVE) throw new ConflictException('Room is not live');
     const request = await this.prisma.stageRequest.findFirst({ where: { id: requestId, roomId, status: 'PENDING' } });
     if (!request) throw new NotFoundException('Pending stage request not found');
-    return this.prisma.$transaction(async (tx) => {
+    const decision = await this.prisma.$transaction(async (tx) => {
       if (approve) {
         await tx.liveViewerSession.updateMany({
           where: { roomId, userId: request.userId, leftAt: null }, data: { leftAt: new Date() },
@@ -608,5 +609,14 @@ export class LiveService {
         select: { id: true, roomId: true, userId: true, status: true, decidedAt: true },
       });
     });
+    if (approve) {
+      await createUserNotification(this.prisma, {
+        recipientId: request.userId, actorId: hostId, type: 'LIVE_STAGE_INVITATION',
+        title: 'You have been invited onto the live stage',
+        body: 'The host approved your request to speak. Return to the live room to join the stage.',
+        resourceType: 'live_room', resourceId: roomId, category: 'liveInvitations',
+      });
+    }
+    return decision;
   }
 }

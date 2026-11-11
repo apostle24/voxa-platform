@@ -1,3 +1,4 @@
+import { createUserNotification } from '../notifications/notification-writer';
 import {
   ConflictException,
   Injectable,
@@ -199,11 +200,11 @@ export class CreatorsService {
       update: {},
     });
     if (!existing) {
-      await this.prisma.notification.create({ data: {
+      await createUserNotification(this.prisma, {
         recipientId: creator.userId, actorId: userId, type: 'NEW_FOLLOWER',
         title: 'You have a new follower', body: 'Someone started following your creator profile.',
-        resourceType: 'creator', resourceId: creator.id,
-      } });
+        resourceType: 'creator', resourceId: creator.id, category: 'follows',
+      });
     }
     return { following: true, creatorHandle: handle.toLowerCase() };
   }

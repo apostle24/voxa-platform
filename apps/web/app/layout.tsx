@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { PlayerProvider } from '../components/player-provider';
+import { NotificationBell } from '../components/notification-bell';
 
 export const metadata: Metadata = {
   title: 'VOXA — Listen. Speak. Connect.',
@@ -8,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="en"><body><PlayerProvider>{children}</PlayerProvider></body></html>;
+  return <html lang="en"><body><PlayerProvider>{children}<NotificationBell /></PlayerProvider></body></html>;
 }

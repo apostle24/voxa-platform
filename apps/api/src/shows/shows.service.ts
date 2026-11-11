@@ -1,3 +1,4 @@
+import { createUserNotification } from '../notifications/notification-writer';
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PublicationStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -435,13 +436,25 @@ export class ShowsService {
       });
       if (!parent) throw new NotFoundException('Comment thread not found');
     }
-    return this.prisma.episodeComment.create({
+    const comment = await this.prisma.episodeComment.create({
       data: { episodeId, authorId: userId, parentId: parentId || null, content: content.trim() },
       select: {
         id: true, content: true, createdAt: true, updatedAt: true,
         author: { select: { id: true, displayName: true } },
       },
     });
+    const [episode, parent] = await Promise.all([
+      this.prisma.episode.findUnique({ where: { id: episodeId }, select: { title: true, show: { select: { creator: { select: { userId: true } } } } } }),
+      parentId ? this.prisma.episodeComment.findUnique({ where: { id: parentId }, select: { authorId: true } }) : Promise.resolve(null),
+    ]);
+    const recipients = new Set([episode?.show.creator.userId, parent?.authorId].filter((id): id is string => Boolean(id) && id !== userId));
+    await Promise.all([...recipients].map(recipientId => createUserNotification(this.prisma, {
+      recipientId, actorId: userId, type: parentId ? 'COMMENT_REPLY' : 'EPISODE_COMMENT',
+      title: parentId ? 'New reply to a discussion' : 'New episode comment',
+      body: parentId ? 'Someone replied to a comment thread.' : `Someone commented on ${episode?.title ?? 'your episode'}.`,
+      resourceType: 'episode', resourceId: episodeId, category: 'comments',
+    })));
+    return comment;
   }
 
   async deleteEpisodeComment(userId: string, episodeId: string, commentId: string) {
@@ -591,10 +604,22 @@ export class ShowsService {
       });
       if (!parent) throw new NotFoundException('Moment comment thread not found');
     }
-    return this.prisma.momentComment.create({
+    const comment = await this.prisma.momentComment.create({
       data: { momentId, authorId: userId, parentId: parentId || null, content: content.trim() },
       select: { id: true, content: true, createdAt: true, author: { select: { id: true, displayName: true } } },
     });
+    const [moment, parent] = await Promise.all([
+      this.prisma.moment.findUnique({ where: { id: momentId }, select: { creator: { select: { userId: true } } } }),
+      parentId ? this.prisma.momentComment.findUnique({ where: { id: parentId }, select: { authorId: true } }) : Promise.resolve(null),
+    ]);
+    const recipients = new Set([moment?.creator.userId, parent?.authorId].filter((id): id is string => Boolean(id) && id !== userId));
+    await Promise.all([...recipients].map(recipientId => createUserNotification(this.prisma, {
+      recipientId, actorId: userId, type: parentId ? 'COMMENT_REPLY' : 'MOMENT_COMMENT',
+      title: parentId ? 'New reply to a discussion' : 'New Moment comment',
+      body: 'Someone joined the conversation on a Moment.',
+      resourceType: 'moment', resourceId: momentId, category: 'comments',
+    })));
+    return comment;
   }
 
   async deleteMomentComment(userId: string, momentId: string, commentId: string) {
