@@ -10,7 +10,7 @@ projects:
             plan: free
             branch: deploy/voxa-staging-render
             buildCommand: NODE_ENV=development pnpm install --frozen-lockfile && pnpm --filter @voxa/api prisma:generate && pnpm --filter @voxa/api build
-            startCommand: pnpm --filter @voxa/api exec prisma migrate deploy && node apps/api/dist/main.js
+            startCommand: sh apps/api/scripts/bootstrap-staging-db.sh && node apps/api/dist/main.js
             healthCheckPath: /v1/health/ready
             envVars:
               - key: NODE_ENV
@@ -33,6 +33,8 @@ projects:
                 value: "false"
               - key: LIVEKIT_CAPTIONS_AGENT_ENABLED
                 value: "false"
+              - key: VOXA_STAGING_DB_BOOTSTRAP
+                value: "true"
           - type: web
             name: voxa-staging-web
             runtime: node
