@@ -72,6 +72,7 @@ describe('CommunitiesService discussion replies', () => {
       communityMember: { findUnique: jest.fn() },
       communityPost: { findMany: jest.fn(), findFirst: jest.fn() },
       communityPostComment: { create: jest.fn() },
+      userBlock: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn().mockResolvedValue(null) },
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       notification: { create: jest.fn().mockResolvedValue({ id: 'notice-1', recipientId: 'owner-1', type: 'COMMUNITY_REPLY', title: 'New reply', body: null, resourceType: 'community', resourceId: 'community-1' }) },
       notificationDevice: { findMany: jest.fn().mockResolvedValue([]), deleteMany: jest.fn() },
