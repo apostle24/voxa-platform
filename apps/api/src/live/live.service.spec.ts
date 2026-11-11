@@ -40,6 +40,7 @@ describe('LiveService access boundaries', () => {
         LIVEKIT_URL: 'wss://live.example.test',
         LIVEKIT_API_KEY: 'test-key',
         LIVEKIT_API_SECRET: 'test-secret',
+        S3_BUCKET: 'voxa-test',
       } as Record<string, string>)[key]),
     };
     service = new LiveService(prisma as unknown as PrismaService, config as unknown as ConfigService);
@@ -470,7 +471,7 @@ describe('LiveService access boundaries', () => {
       id: 'room-1', hostId: 'host-1', title: 'VOXA Live', status: 'ENDED',
       startedAt: new Date('2026-11-11T10:00:00.000Z'), endedAt: new Date('2026-11-11T11:00:00.000Z'),
       peakAudienceCount: 6, recordingStatus: 'COMPLETED',
-      recordingObjectKey: 'live-recordings/room-1/final.mp4',
+      recordingObjectKey: 's3://voxa-test/live-recordings/room-1/final.mp4',
     });
     prisma.liveStageMember.findMany.mockResolvedValue([]);
     prisma.stageRequest.groupBy.mockResolvedValue([]);
