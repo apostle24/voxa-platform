@@ -397,6 +397,92 @@ export class ShowsService {
     return { deleted: true };
   }
 
+
+  private async requirePublishedMoment(momentId: string) {
+    const moment = await this.prisma.moment.findFirst({
+      where: {
+        id: momentId,
+        status: PublicationStatus.PUBLISHED,
+        episode: { status: PublicationStatus.PUBLISHED, membershipRequired: false, show: { status: PublicationStatus.PUBLISHED } },
+      },
+      select: { id: true, creator: { select: { userId: true } } },
+    });
+    if (!moment) throw new NotFoundException('Moment not found');
+    return moment;
+  }
+
+  async getMomentCommunity(momentId: string) {
+    await this.requirePublishedMoment(momentId);
+    const [likeCount, commentCount, comments] = await Promise.all([
+      this.prisma.momentLike.count({ where: { momentId } }),
+      this.prisma.momentComment.count({ where: { momentId, deletedAt: null } }),
+      this.prisma.momentComment.findMany({
+        where: { momentId, parentId: null },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        select: {
+          id: true, content: true, deletedAt: true, createdAt: true,
+          author: { select: { id: true, displayName: true } },
+          replies: {
+            orderBy: { createdAt: 'asc' }, take: 20,
+            select: { id: true, content: true, deletedAt: true, createdAt: true, author: { select: { id: true, displayName: true } } },
+          },
+        },
+      }),
+    ]);
+    return {
+      momentId, likeCount, commentCount,
+      comments: comments.map(comment => ({
+        ...comment, content: comment.deletedAt ? '[deleted]' : comment.content,
+        replies: comment.replies.map(reply => ({ ...reply, content: reply.deletedAt ? '[deleted]' : reply.content })),
+      })),
+    };
+  }
+
+  async setMomentLike(userId: string, momentId: string, liked: boolean) {
+    await this.requirePublishedMoment(momentId);
+    if (liked) {
+      await this.prisma.momentLike.upsert({
+        where: { userId_momentId: { userId, momentId } },
+        create: { userId, momentId },
+        update: {},
+      });
+    } else {
+      await this.prisma.momentLike.deleteMany({ where: { userId, momentId } });
+    }
+    return { momentId, likedByMe: liked, likeCount: await this.prisma.momentLike.count({ where: { momentId } }) };
+  }
+
+  async createMomentComment(userId: string, momentId: string, content: string, parentId?: string) {
+    await this.requirePublishedMoment(momentId);
+    if (parentId) {
+      const parent = await this.prisma.momentComment.findFirst({
+        where: { id: parentId, momentId, parentId: null, deletedAt: null },
+        select: { id: true },
+      });
+      if (!parent) throw new NotFoundException('Moment comment thread not found');
+    }
+    return this.prisma.momentComment.create({
+      data: { momentId, authorId: userId, parentId: parentId || null, content: content.trim() },
+      select: { id: true, content: true, createdAt: true, author: { select: { id: true, displayName: true } } },
+    });
+  }
+
+  async deleteMomentComment(userId: string, momentId: string, commentId: string) {
+    const comment = await this.prisma.momentComment.findFirst({
+      where: { id: commentId, momentId },
+      select: { id: true, authorId: true, moment: { select: { creator: { select: { userId: true } } } } },
+    });
+    if (!comment) throw new NotFoundException('Moment comment not found');
+    if (comment.authorId !== userId && comment.moment.creator.userId !== userId) {
+      throw new ForbiddenException('You can only delete your own comment or moderate comments on your Moment');
+    }
+    await this.prisma.momentComment.update({
+      where: { id: commentId }, data: { content: '[deleted]', deletedAt: new Date() },
+    });
+    return { deleted: true };
+  }
+
   async discoverMoments(cursor?: string, requestedLimit?: number) {
     const limit = Math.max(1, Math.min(30, Number(requestedLimit) || 15));
     const items = await this.prisma.moment.findMany({
