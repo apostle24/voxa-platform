@@ -35,8 +35,10 @@ export class AuthController {
 
   @Patch('password')
   @UseGuards(JwtAuthGuard)
-  changePassword(@Req() request: AuthenticatedRequest, @Body() input: ChangePasswordDto) {
-    return this.auth.changePassword(request.user.id, input.currentPassword, input.newPassword);
+  async changePassword(@Req() request: AuthenticatedRequest, @Body() input: ChangePasswordDto, @Res({ passthrough: true }) response: AuthHttpResponse) {
+    const result = await this.auth.changePassword(request.user.id, input.currentPassword, input.newPassword);
+    response.clearCookie(REFRESH_COOKIE, this.cookieOptions());
+    return result;
   }
 
   @Post('register')
