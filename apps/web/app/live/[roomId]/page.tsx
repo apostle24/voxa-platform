@@ -91,6 +91,7 @@ export default function LiveRoomPage() {
         void roomRef.current?.localParticipant.setCameraEnabled(false).catch(() => undefined);
       }
       if (data.isHost) setAnalytics(await api('/live/rooms/' + roomId + '/analytics'));
+      else setAnalytics(null);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'Unable to load stage'); }
   }, [api, roomId]);
