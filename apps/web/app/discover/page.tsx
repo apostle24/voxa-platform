@@ -24,6 +24,8 @@ export default function DiscoverPage() {
   const [query, setQuery] = useState('');
   const [shows, setShows] = useState<Show[]>([]);
   const [episodes, setEpisodes] = useState<Episode[]>([]);
+  const [recommended, setRecommended] = useState<Array<Episode & { reason: string }>>([]);
+  const [recommendationsPersonalized, setRecommendationsPersonalized] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [category, setCategory] = useState('');
   const [error, setError] = useState('');
@@ -57,6 +59,15 @@ export default function DiscoverPage() {
   }
 
   useEffect(() => {
+    const token = sessionStorage.getItem('voxa_access_token') || '';
+    if (token) {
+      apiFetch(API + '/discovery/recommended?limit=8')
+        .then(response => response.ok ? response.json() : null)
+        .then(data => {
+          if (data) { setRecommended(data.items || []); setRecommendationsPersonalized(Boolean(data.personalized)); }
+        })
+        .catch(() => setRecommended([]));
+    }
     fetch(API + '/discovery/categories')
       .then(response => response.json())
       .then(data => setCategories(data.items || []))
@@ -127,6 +138,24 @@ export default function DiscoverPage() {
         {error && <p className="errorText">{error}</p>}
         {loading && <p style={{ color: 'var(--muted)' }}>Finding something worth listening to…</p>}
         {!loading && <>
+          {recommended.length > 0 && <>
+            <div className="eyebrow sectionEyebrow">{recommendationsPersonalized ? 'RECOMMENDED FOR YOU' : 'PICKED FOR YOU'}</div>
+            <p style={{ color: 'var(--muted)', marginTop: -8, marginBottom: 16, fontSize: 13 }}>
+              {recommendationsPersonalized ? 'Suggestions shaped by your listening, saved episodes and followed creators.' : 'Fresh public episodes to help you find your next favourite.'}
+            </p>
+            <div className="creatorShowGrid">
+              {recommended.map(episode => <article className="creatorShowCard" key={'recommended-' + episode.id}>
+                <Link href={'/episodes/' + episode.id} style={{ color: 'inherit', textDecoration: 'none' }}>
+                  {episode.artworkUrl ? <img src={episode.artworkUrl} alt="" /> : <div style={{ height: 130, borderRadius: 7, background: 'linear-gradient(135deg,#29234c,#8b5cf6)', display: 'grid', placeItems: 'center', fontSize: 36 }}>V</div>}
+                  <span>{episode.show.category || 'PODCAST'}</span><h3>{episode.title}</h3>
+                  <p>{episode.description || 'Listen to this episode.'}</p>
+                  <small>{episode.show.title} · {episode.show.creator.user.displayName}</small>
+                </Link>
+                <small style={{ display: 'block', marginTop: 8, color: 'var(--purple)' }}>{episode.reason}</small>
+                <button className="button small" type="button" disabled={preparingEpisode !== null} onClick={() => void prepareEpisode(episode)}>{preparingEpisode === episode.id ? 'Preparing…' : '▶ Play'}</button>
+              </article>)}
+            </div>
+          </>}
           <div className="eyebrow sectionEyebrow">SHOWS</div>
           {shows.length ? <div className="creatorShowGrid">
             {shows.map(show => <Link className="creatorShowCard" href={'/shows/' + show.id} key={show.id}>
