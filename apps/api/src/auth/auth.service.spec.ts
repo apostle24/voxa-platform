@@ -12,7 +12,7 @@ describe('AuthService', () => {
   beforeEach(() => {
     process.env.JWT_SECRET = 'test-only-secret-that-is-at-least-32-characters-long';
     prisma = {
-      user: { findUnique: jest.fn(), create: jest.fn() },
+      user: { findUnique: jest.fn(), create: jest.fn(), update: jest.fn() },
       authSession: { create: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
       $transaction: jest.fn(),
     };
@@ -25,6 +25,30 @@ describe('AuthService', () => {
   });
 
   afterAll(() => { delete process.env.JWT_SECRET; });
+
+  it('returns only the authenticated account profile fields', async () => {
+    const profile = { id: 'user-10', email: 'listener@example.com', displayName: 'Listener', role: 'LISTENER', createdAt: new Date(), creator: null };
+    prisma.user.findUnique.mockResolvedValue(profile);
+    await expect(service.getMyProfile('user-10')).resolves.toEqual(profile);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'user-10' },
+      select: { id: true, email: true, displayName: true, role: true, createdAt: true, creator: { select: { handle: true } } },
+    });
+  });
+
+  it('normalizes and persists the account display name', async () => {
+    prisma.user.update.mockResolvedValue({ id: 'user-10', email: 'listener@example.com', displayName: 'Joshua Manyikina', role: 'LISTENER' });
+    await expect(service.updateMyProfile('user-10', '  Joshua   Manyikina  ')).resolves.toMatchObject({ displayName: 'Joshua Manyikina' });
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 'user-10' }, data: { displayName: 'Joshua Manyikina' },
+      select: { id: true, email: true, displayName: true, role: true },
+    });
+  });
+
+  it('rejects a display name that is blank after trimming', async () => {
+    await expect(service.updateMyProfile('user-10', '   ')).rejects.toThrow('Display name must be between 2 and 80 characters');
+    expect(prisma.user.update).not.toHaveBeenCalled();
+  });
 
   it('normalizes email, hashes the password, persists a refresh session, and returns a short-lived access token', async () => {
     prisma.user.findUnique.mockResolvedValue(null);
