@@ -138,6 +138,7 @@ export class MediaService {
         status: 'QUEUED',
         failureReason: null,
         processingStartedAt: null,
+        processingAttempts: 0,
         processedAt: null,
         playbackKey: null,
       },
