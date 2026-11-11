@@ -371,6 +371,40 @@ describe('LiveService access boundaries', () => {
     expect(prisma.liveViewerSession.updateMany).toHaveBeenCalledWith({ where: { roomId: 'room-1', leftAt: null }, data: { leftAt: endedAt } });
   });
 
+  it('moves a manual recording stop to STOPPING only once', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', recordingStatus: 'RECORDING', recordingEgressId: 'egress-1',
+    });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    const stopEgress = jest.fn().mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'egressClient').mockReturnValue({ stopEgress });
+
+    await expect(service.stopRoomRecording('host-1', 'room-1'))
+      .resolves.toEqual({ roomId: 'room-1', recordingStatus: 'STOPPING' });
+    expect(prisma.liveRoom.updateMany).toHaveBeenCalledWith({
+      where: { id: 'room-1', recordingStatus: 'RECORDING', recordingEgressId: 'egress-1' },
+      data: { recordingStatus: 'STOPPING' },
+    });
+    expect(stopEgress).toHaveBeenCalledWith('egress-1');
+  });
+
+  it('restores RECORDING when a manual stop request fails', async () => {
+    prisma.liveRoom.findUnique.mockResolvedValue({
+      id: 'room-1', hostId: 'host-1', recordingStatus: 'RECORDING', recordingEgressId: 'egress-1',
+    });
+    prisma.liveRoom.updateMany.mockResolvedValue({ count: 1 });
+    jest.spyOn(service as any, 'egressClient').mockReturnValue({
+      stopEgress: jest.fn().mockRejectedValue(new Error('egress unavailable')),
+    });
+
+    await expect(service.stopRoomRecording('host-1', 'room-1'))
+      .rejects.toThrow('Unable to stop recording');
+    expect(prisma.liveRoom.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'room-1', recordingStatus: 'STOPPING', recordingEgressId: 'egress-1' },
+      data: { recordingStatus: 'RECORDING' },
+    });
+  });
+
   it('stops an active recording before deleting the live room', async () => {
     prisma.liveRoom.findUnique.mockResolvedValue({
       id: 'room-1', hostId: 'host-1', status: 'LIVE',
