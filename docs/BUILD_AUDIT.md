@@ -4,7 +4,7 @@
 
 - Repository: `apostle24/voxa-platform`
 - Branch: `main`
-- Audited HEAD: `1a4b351d69c22a54a88611dc8118fa68e3005e57`
+- Audited HEAD: authentication session rotation merged at `1cdb56abd370c2e2cffea5a0a4e866e201f74cb0`; account email/recovery work is in progress on a feature branch.
 - Latest verified CI: [GitHub Actions run #257](https://github.com/apostle24/voxa-platform/actions/runs/42982097080) — **completed successfully**.
 - Verified CI steps: frozen pnpm install, Prisma validation and generation, media-worker syntax check, isolated media-worker Docker image build, API/web typecheck, API unit tests, API build, web build.
 - Repository inspection included the current recursive Git tree, README, product/architecture/roadmap docs, API and web package manifests, auth/live/media/payment implementation, worker script, environment examples, and current CI workflow.
@@ -109,7 +109,7 @@ The tests cover selected service behavior and safety boundaries. There is no web
 
 ### P0 — must be addressed before public production launch
 
-1. **Authentication/session security is being hardened, but is not yet production-complete.** The current implementation adds 15-minute access tokens, 30-day refresh JWTs stored only as SHA-256 hashes in PostgreSQL, HttpOnly refresh cookies, single-use atomic refresh rotation, replay rejection, current/all-session revocation, trusted-Origin checks for cookie endpoints, and a process-local 10-attempt/15-minute IP limiter on login/registration. The web client retries one 401 after refreshing. This implementation is pending CI verification. Email verification, password recovery, MFA, device/session management UI, and shared rate limiting across API replicas remain outstanding.
+1. **Authentication/session security is being hardened, but is not yet production-complete.** The current implementation adds 15-minute access tokens, 30-day refresh JWTs stored only as SHA-256 hashes in PostgreSQL, HttpOnly refresh cookies, single-use atomic refresh rotation, replay rejection, current/all-session revocation, trusted-Origin checks for cookie endpoints, and a process-local 10-attempt/15-minute IP limiter on login/registration. The web client retries one 401 after refreshing. The session-rotation implementation passed CI and was merged. Email verification and password recovery are now being implemented on a separate branch and remain unverified until CI completes. MFA, device/session management UI, and shared rate limiting across API replicas remain outstanding.
 2. **No full end-to-end product verification.** Automated browser tests and database-backed integration tests are absent. The primary listener, creator, live and payment journeys need repeatable tests.
 3. **External integrations are not production-verified.** Database, S3, LiveKit and Paystack credentials/deployments have not been used for verified staging journeys. Payment and payout flags must remain disabled until provider approval and staging verification.
 4. **Media worker is packaged, not operationally proven.** It has not been deployed and exercised against real files, object storage and production-like worker limits. HLS/DASH, CDN delivery, thumbnails, transcripts, moderation and copyright controls remain absent.
