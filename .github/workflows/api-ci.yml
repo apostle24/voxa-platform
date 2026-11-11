@@ -12,6 +12,13 @@ on:
     paths:
       - "apps/api/**"
       - "apps/web/**"
+      - "apps/mobile/**"
+      - "apps/live-agent/**"
+      - "infra/**"
+      - "docs/**"
+      - "render.yaml"
+      - ".node-version"
+      - "README.md"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -22,6 +29,13 @@ on:
     paths:
       - "apps/api/**"
       - "apps/web/**"
+      - "apps/mobile/**"
+      - "apps/live-agent/**"
+      - "infra/**"
+      - "docs/**"
+      - "render.yaml"
+      - ".node-version"
+      - "README.md"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -37,7 +51,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: Install workspace dependencies
         run: pnpm install --frozen-lockfile
       - name: Validate Prisma schema
@@ -55,3 +69,19 @@ jobs:
         run: pnpm --filter @voxa/api test
       - run: pnpm --filter @voxa/api build
       - run: pnpm --filter @voxa/web build
+      - name: Install mobile app dependencies
+        run: npm install --prefix apps/mobile --no-package-lock --ignore-scripts
+      - name: Typecheck Expo mobile app
+        run: npm run --prefix apps/mobile typecheck
+      - name: Check LIVE captions agent Python syntax and tests
+        working-directory: apps/live-agent
+        run: |
+          python -m py_compile main.py config.py test_config.py
+          python -m unittest -v
+      - name: Build LIVE captions agent image
+        run: docker build -f apps/live-agent/Dockerfile -t voxa-live-agent:ci .
+      - name: Validate infrastructure Compose files
+        run: |
+          docker compose -f infra/docker-compose.yml config --quiet
+          docker compose -f infra/media-worker.compose.yml config --quiet
+          docker compose -f infra/live-captions-agent.compose.yml config --quiet
