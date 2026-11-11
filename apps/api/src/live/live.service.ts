@@ -61,6 +61,7 @@ export class LiveService {
     if (targetId === hostId) throw new ConflictException('The room host already has full room permissions');
     const target = await this.prisma.user.findUnique({ where: { id: targetId }, select: { id: true, displayName: true } });
     if (!target) throw new NotFoundException('VOXA user not found');
+    if (await this.isRoomCoHost(roomId, targetId)) throw new ConflictException('This user is already a co-host');
     const assignment = await this.prisma.liveRoomModerator.upsert({
       where: { roomId_userId: { roomId, userId: targetId } },
       create: { roomId, userId: targetId },
@@ -145,6 +146,7 @@ export class LiveService {
     const room = await this.prisma.liveRoom.findUnique({ where: { id: roomId }, select: { id: true, hostId: true, status: true } });
     if (!room) throw new NotFoundException('Live room not found');
     if (room.hostId !== hostId) throw new ForbiddenException('Only the current primary host can transfer room ownership');
+    if ([LiveRoomStatus.ENDED, LiveRoomStatus.CANCELLED].includes(room.status)) throw new ConflictException('Ownership cannot be transferred after the room has ended');
     const targetId = newHostUserId?.trim();
     if (!targetId) throw new BadRequestException('Select an appointed co-host');
     if (targetId === hostId) throw new ConflictException('You are already the primary host');
