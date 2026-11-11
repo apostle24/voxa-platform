@@ -84,9 +84,13 @@ export default function LiveRoomPage() {
       isHostRef.current = Boolean(data.isHost);
       isCoHostRef.current = Boolean(data.isCoHost);
       setStage(data); setIsHost(Boolean(data.isHost)); setIsCoHost(Boolean(data.isCoHost)); setIsModerator(Boolean(data.isModerator));
-      if (data.isHost || data.isCoHost) { canPublishRef.current = true; setCanPublish(true); }
+      if (data.isHost || data.isCoHost) {
+        canPublishRef.current = true; setCanPublish(true);
+        setStatus(current => current.startsWith('Connected') ? (data.isHost ? 'Connected · Hosting' : 'Connected · Co-hosting') : current);
+      }
       else if (wasCoHost) {
         canPublishRef.current = false; setCanPublish(false); setMic(false); setCamera(false);
+        setStatus(current => current.startsWith('Connected') ? 'Connected · Listening' : current);
         void roomRef.current?.localParticipant.setMicrophoneEnabled(false).catch(() => undefined);
         void roomRef.current?.localParticipant.setCameraEnabled(false).catch(() => undefined);
       }
