@@ -50,7 +50,7 @@ export class AuthService {
       },
       select: { id: true, email: true, displayName: true, role: true },
     });
-    return this.issueTokens(user);
+    return { verificationRequired: true, user };
   }
 
   async login(input: LoginDto) {
@@ -58,6 +58,9 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (!user || !(await bcrypt.compare(input.password, user.passwordHash))) {
       throw new UnauthorizedException('Invalid email or password');
+    }
+    if (user.emailVerifiedAt === null) {
+      throw new UnauthorizedException('Please verify your email before signing in');
     }
     return this.issueTokens({
       id: user.id,
@@ -87,9 +90,10 @@ export class AuthService {
     const tokenHash = this.hashToken(refreshToken);
     const session = await this.prisma.authSession.findUnique({
       where: { tokenHash },
-      include: { user: { select: { id: true, email: true, displayName: true, role: true } } },
+      include: { user: { select: { id: true, email: true, displayName: true, role: true, emailVerifiedAt: true } } },
     });
     const now = new Date();
+    if (session?.user.emailVerifiedAt === null) throw new UnauthorizedException('Please verify your email before signing in');
     if (!session || session.userId !== claims.sub || session.id !== claims.jti || session.revokedAt || session.expiresAt <= now) {
       throw new UnauthorizedException('Refresh session is invalid or expired');
     }

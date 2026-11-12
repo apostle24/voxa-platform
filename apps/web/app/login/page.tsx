@@ -11,6 +11,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function submit(event: React.FormEvent) {
@@ -22,6 +23,12 @@ export default function LoginPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.message || 'Authentication failed');
+      if (mode === 'register' && data.verificationRequired) {
+        setNotice('Your account has been created. Check your email for a verification link before signing in. If it does not arrive, use the Verify email link below to request another.');
+        setMode('login');
+        setPassword('');
+        return;
+      }
       sessionStorage.setItem('voxa_access_token', data.accessToken);
       sessionStorage.setItem('voxa_user', JSON.stringify(data.user));
       window.location.href = '/live';
@@ -41,7 +48,8 @@ export default function LoginPage() {
         <label>Email address</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)} required placeholder="you@example.com" />
         <label>Password</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} required minLength={mode==='register'?10:1} maxLength={72} placeholder={mode==='register'?'At least 10 characters':'Your password'} />
         {mode==='register' && <small>Use at least 10 characters, including uppercase, lowercase, and a number.</small>}
-        {error && <p className="errorText">{error}</p>}
+        {mode === 'login' && <p><Link href="/forgot-password">Forgot password?</Link> · <Link href="/verify-email">Verify email</Link></p>}
+        {notice && <p>{notice}</p>}{error && <p className="errorText">{error}</p>}
         <button className="button full" disabled={busy}>{busy?'Please wait…':mode==='login'?'Sign in to VOXA ↗':'Create my account ↗'}</button>
       </form>
       <small>Your access token stays in this browser tab. Your refresh session is protected in an HttpOnly cookie and rotates automatically when needed.</small>
